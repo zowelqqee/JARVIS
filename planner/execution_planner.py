@@ -346,7 +346,17 @@ def _is_generic_search_query(query: str, parameters: dict[str, Any]) -> bool:
     normalized = re.sub(r"\s+", " ", query.lower()).strip()
     if str(parameters.get("file_type", "")).strip() == "markdown" and normalized in {"", "markdown", "md"}:
         return True
-    return normalized in {"", "latest file", "newest file", "most recent file", "the latest file", "the newest file", "the most recent file"}
+    return normalized in {
+        "",
+        "latest file",
+        "newest file",
+        "most recent file",
+        "last file",
+        "the latest file",
+        "the newest file",
+        "the most recent file",
+        "the last file",
+    }
 
 
 def _search_result_label(parameters: dict[str, Any]) -> str:

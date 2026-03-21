@@ -210,6 +210,11 @@ class RuntimeManager:
             )
 
         reply = self._normalize_optional_input(raw_input)
+        if reply is not None and self._should_restart_as_fresh_command(reply):
+            lowered_reply = reply.lower().strip()
+            if lowered_reply not in _CONFIRM_APPROVAL_WORDS and lowered_reply not in _CONFIRM_DENIAL_WORDS:
+                return self._restart_from_blocked_state(reply, session_context)
+
         decision = self._parse_confirmation_reply(reply)
 
         if decision == "unclear":
@@ -465,9 +470,33 @@ class RuntimeManager:
     def _sync_recent_search_results(self, session_context: SessionContext) -> None:
         latest_search_result = self._latest_completed_search_result()
         if latest_search_result is None:
+            if self._should_clear_recent_search_results():
+                session_context.clear_recent_search_results()
             return
         matches, query, scope_path = latest_search_result
         session_context.set_recent_search_results(matches=matches, query=query, scope_path=scope_path)
+
+    def _should_clear_recent_search_results(self) -> bool:
+        state = normalize_state_value(self.current_state)
+        if state not in {"completed", "failed", "cancelled", "idle"}:
+            return False
+        if self.active_command is None:
+            return True
+
+        intent = _intent_value(getattr(self.active_command, "intent", ""))
+        if intent == "search_local":
+            return False
+        if intent == "open_file" and self._command_has_search_result_reference(self.active_command):
+            return False
+        return True
+
+    def _command_has_search_result_reference(self, command: Command) -> bool:
+        targets = list(getattr(command, "targets", []) or [])
+        for target in targets:
+            metadata = getattr(target, "metadata", None) or {}
+            if "search_result_index" in metadata:
+                return True
+        return False
 
     def _latest_completed_search_result(self) -> tuple[list[dict[str, Any]], str | None, str | None] | None:
         for step in reversed(self.completed_steps):

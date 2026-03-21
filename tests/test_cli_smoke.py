@@ -89,6 +89,29 @@ class CliSmokeTests(unittest.TestCase):
             speak_enabled=True,
         )
 
+    def test_help_reset_quit_are_intercepted_before_runtime(self) -> None:
+        with patch("cli._handle_runtime_input") as runtime_mock:
+            should_exit, speak_enabled, help_output = self._run_command("help", speak_enabled=False)
+            self.assertFalse(should_exit)
+            self.assertFalse(speak_enabled)
+            self.assertIn("Shell commands:", help_output)
+
+            should_exit, speak_enabled, reset_output = self._run_command("reset", speak_enabled=False)
+            self.assertFalse(should_exit)
+            self.assertFalse(speak_enabled)
+            self.assertIn("Runtime reset.", reset_output)
+            self.runtime_manager.clear_runtime.assert_called()
+            self.session_context.clear_expired_or_resettable_context.assert_called_with(
+                preserve_recent_context=False
+            )
+
+            should_exit, speak_enabled, quit_output = self._run_command("quit", speak_enabled=False)
+            self.assertTrue(should_exit)
+            self.assertFalse(speak_enabled)
+            self.assertEqual(quit_output, "")
+
+        runtime_mock.assert_not_called()
+
     def _run_command(self, command: str, speak_enabled: bool) -> tuple[bool, bool, str]:
         buffer = io.StringIO()
         with redirect_stdout(buffer):

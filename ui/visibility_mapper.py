@@ -123,7 +123,7 @@ def map_visibility(
     )
     if next_step_hint:
         payload["next_step_hint"] = next_step_hint
-    return payload
+    return _prune_optional_none_fields(payload)
 
 
 def _state_value(state: RuntimeState | str) -> str:
@@ -760,3 +760,22 @@ def _is_list_windows_failure(current_step: Step | None) -> bool:
     if current_step is None:
         return False
     return _step_action_value(current_step) == "list_windows"
+
+
+def _prune_optional_none_fields(payload: VisibilityPayload) -> VisibilityPayload:
+    optional_fields = (
+        "command_summary",
+        "current_step",
+        "blocked_reason",
+        "clarification_question",
+        "confirmation_request",
+        "failure_message",
+        "completion_result",
+        "search_results",
+        "window_results",
+        "next_step_hint",
+    )
+    for key in optional_fields:
+        if payload.get(key) is None:
+            payload.pop(key, None)
+    return payload

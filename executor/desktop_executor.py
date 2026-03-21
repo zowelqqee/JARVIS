@@ -189,6 +189,15 @@ def _execute_open_folder(target: Target, parameters: dict[str, Any]) -> ActionRe
     command = ["open", str(folder_path)] if not app_name else ["open", "-a", app_name, str(folder_path)]
     result = _run_command(command)
     if result.returncode != 0:
+        if not app_name:
+            finder_result = _run_command(["open", "-a", "Finder", str(folder_path)])
+            if finder_result.returncode == 0:
+                return _success(
+                    action,
+                    target,
+                    details={"path": str(folder_path), "app": "Finder", "fallback_used": True},
+                )
+
         if app_name and _looks_like_app_unavailable(result):
             return _failure(
                 action,
@@ -236,7 +245,7 @@ def _execute_list_windows(target: Target, _parameters: dict[str, Any]) -> Action
         return _failure(action, target, code="UNSUPPORTED_TARGET", message="list_windows requires a window or application target.")
     windows, error = _list_visible_windows()
     if error is not None:
-        return _failure(action, target, code=error.code, message=error.message)
+        return _failure(action, target, code=_normalize_window_error_code(error.code), message=error.message)
 
     filtered_windows = _filter_windows_for_target(windows, target)
     filter_name = _window_filter_name(target)
@@ -397,6 +406,13 @@ def _window_filter_name(target: Target) -> str:
     if _target_type_value(getattr(target, "type", "")) == "window" and name.lower() == "windows":
         return ""
     return name
+
+
+def _normalize_window_error_code(code: str) -> str:
+    normalized = str(code or "").strip().upper()
+    if normalized in {"PERMISSION_DENIED", "UNSUPPORTED_ACTION", "EXECUTION_FAILED", "WINDOW_UNAVAILABLE"}:
+        return normalized
+    return "EXECUTION_FAILED"
 
 
 def _resolve_existing_path(target: Target, expect_directory: bool) -> Path | None:

@@ -24,7 +24,7 @@ from target import Target, TargetType  # type: ignore  # noqa: E402
 _CONFIRM_APPROVE = {"yes", "y", "yeah", "yep", "ok", "okay", "confirm", "approved", "approve", "continue", "go ahead"}
 _CONFIRM_DENY = {"cancel", "stop", "no", "nope", "deny", "denied"}
 _CLARIFY_PHRASES = {"which one", "which one?", "what do you mean", "what?", "which?"}
-_OPEN_VERBS = ("open", "launch", "start", "reopen")
+_OPEN_VERBS = ("open", "launch", "start", "reopen", "run")
 _FOLLOW_UP_PREFIX = re.compile(r"^(also|now)\s+", flags=re.IGNORECASE)
 _LIST_WINDOWS_PATTERN = re.compile(r"^(list|show)( all)? windows$", flags=re.IGNORECASE)
 _LIST_OPEN_WINDOWS_PATTERN = re.compile(r"^(list|show)\s+open\s+windows$", flags=re.IGNORECASE)
@@ -830,7 +830,11 @@ def _build_target(segment: str, session_context: SessionContext | None) -> Targe
         stripped_name = _strip_noun(value, ("folder", "directory", "project", "workspace", "repo", "repository"))
         if not stripped_name and lowered in _CONTEXTUAL_FOLDER_REFERENCES:
             return Target(type=TargetType.UNKNOWN, name=value)
-        return Target(type=TargetType.FOLDER, name=stripped_name or value)
+        folder_name = stripped_name or value
+        cwd_folder_target = _cwd_folder_target_for_name(folder_name)
+        if cwd_folder_target is not None:
+            return cwd_folder_target
+        return Target(type=TargetType.FOLDER, name=folder_name)
 
     if "file" in lowered or "document" in lowered:
         stripped_name = _strip_noun(value, ("file", "document"))
@@ -1078,7 +1082,7 @@ def _search_parameters(query_text: str, open_requested: bool = False) -> dict[st
     lowered = original.lower()
     parameters: dict[str, Any] = {}
 
-    if any(marker in lowered for marker in ("latest", "newest", "most recent")):
+    if any(marker in lowered for marker in ("latest", "newest", "most recent", "last")):
         parameters["sort_hint"] = "latest"
 
     if re.search(r"\b(markdown|md)\b", lowered):
@@ -1093,7 +1097,7 @@ def _search_parameters(query_text: str, open_requested: bool = False) -> dict[st
         parameters["filename_hint"] = query
     else:
         query = re.sub(r"\band open it\b", "", original, flags=re.IGNORECASE)
-        query = re.sub(r"\b(?:the\s+)?(?:latest|newest|most recent)\b", "", query, flags=re.IGNORECASE)
+        query = re.sub(r"\b(?:the\s+)?(?:latest|newest|most recent|last)\b", "", query, flags=re.IGNORECASE)
         query = re.sub(r"\b(?:file|files|document|documents)\b", "", query, flags=re.IGNORECASE)
         query = re.sub(r"\s+", " ", query).strip(" .")
 
@@ -1111,7 +1115,7 @@ def _looks_like_search_phrase(value: str) -> bool:
     lowered = value.lower()
     return any(
         token in lowered
-        for token in ("find ", "search ", "file", "files", "document", "documents", "markdown", "md", "latest", "newest", "most recent", "named ")
+        for token in ("find ", "search ", "file", "files", "document", "documents", "markdown", "md", "latest", "newest", "most recent", "last", "named ")
     )
 
 
@@ -1235,7 +1239,21 @@ def _build_workspace_folder_descriptor(workspace: str, session_context: SessionC
         return home_folder_target
 
     stripped_name = _strip_noun(normalized, ("folder", "directory", "project", "workspace", "repo", "repository"))
-    return Target(type=TargetType.FOLDER, name=stripped_name or normalized)
+    resolved_name = stripped_name or normalized
+    cwd_folder_target = _cwd_folder_target_for_name(resolved_name)
+    if cwd_folder_target is not None:
+        return cwd_folder_target
+    return Target(type=TargetType.FOLDER, name=resolved_name)
+
+
+def _cwd_folder_target_for_name(value: str) -> Target | None:
+    normalized = _normalize_phrase(value)
+    if not normalized:
+        return None
+    cwd = Path.cwd()
+    if normalized != _normalize_phrase(cwd.name):
+        return None
+    return Target(type=TargetType.FOLDER, name=cwd.name, path=str(cwd))
 
 
 def _inject_workspace_folder_target(targets: list[Target], folder_target: Target | None) -> list[Target]:

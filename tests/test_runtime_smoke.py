@@ -11,6 +11,7 @@ from unittest.mock import patch
 import executor.desktop_executor as desktop_executor
 from context.session_context import SessionContext
 from jarvis_error import ErrorCategory, ErrorCode, JarvisError
+from parser.command_parser import parse_command
 from runtime.runtime_manager import RuntimeManager
 from step import Step, StepAction
 from target import Target, TargetType
@@ -109,12 +110,19 @@ class RuntimeSmokeTests(unittest.TestCase):
 
     def test_clarification_state_allows_fresh_command_restart(self) -> None:
         with patch("runtime.runtime_manager.execute_step", side_effect=_successful_action_result):
-            blocked_result = self.runtime_manager.handle_input("run telegram", self.session_context)
+            blocked_result = self.runtime_manager.handle_input("htlp", self.session_context)
             restarted_result = self.runtime_manager.handle_input("open telegram", self.session_context)
 
         self.assertEqual(blocked_result.runtime_state, "awaiting_clarification")
         self.assertEqual(restarted_result.runtime_state, "completed")
         self.assertEqual(restarted_result.command_summary, "open_app: Telegram")
+
+    def test_run_alias_opens_application(self) -> None:
+        with patch("runtime.runtime_manager.execute_step", side_effect=_successful_action_result):
+            result = self.runtime_manager.handle_input("run telegram", self.session_context)
+
+        self.assertEqual(result.runtime_state, "completed")
+        self.assertEqual(result.command_summary, "open_app: Telegram")
 
     def test_confirmation_approval_executes_only_after_approval(self) -> None:
         executed_actions: list[str] = []
@@ -135,6 +143,22 @@ class RuntimeSmokeTests(unittest.TestCase):
         self.assertEqual(approved_result.runtime_state, "completed")
         self.assertEqual(executed_actions, ["close_app"])
         self.assertEqual(len(approved_result.completed_steps), 1)
+
+    def test_confirmation_block_allows_fresh_command_restart(self) -> None:
+        executed_actions: list[str] = []
+
+        def execute_stub(step: object) -> SimpleNamespace:
+            executed_actions.append(getattr(getattr(step, "action", None), "value", ""))
+            return _successful_action_result(step)
+
+        with patch("runtime.runtime_manager.execute_step", side_effect=execute_stub):
+            blocked_result = self.runtime_manager.handle_input("close Telegram", self.session_context)
+            restarted_result = self.runtime_manager.handle_input("open Safari", self.session_context)
+
+        self.assertEqual(blocked_result.runtime_state, "awaiting_confirmation")
+        self.assertEqual(restarted_result.runtime_state, "completed")
+        self.assertEqual(restarted_result.command_summary, "open_app: Safari")
+        self.assertEqual(executed_actions, ["open_app"])
 
     def test_confirmation_denial_cancels_without_executing_blocked_step(self) -> None:
         executed_actions: list[str] = []
@@ -499,12 +523,41 @@ class RuntimeSmokeTests(unittest.TestCase):
         self.assertEqual(len(second_result.completed_steps), 2)
         self.assertEqual(executed_actions, ["open_folder", "search_local", "open_file"])
 
+    def test_open_last_markdown_file_uses_active_folder_context(self) -> None:
+        executed_actions: list[str] = []
+
+        def execute_stub(step: object) -> SimpleNamespace:
+            executed_actions.append(getattr(getattr(step, "action", None), "value", ""))
+            return _successful_action_result(step)
+
+        with patch("runtime.runtime_manager.execute_step", side_effect=execute_stub):
+            first_result = self.runtime_manager.handle_input("open Downloads folder", self.session_context)
+            second_result = self.runtime_manager.handle_input("open the last markdown file", self.session_context)
+
+        self.assertEqual(first_result.runtime_state, "completed")
+        self.assertEqual(second_result.runtime_state, "completed")
+        self.assertEqual(second_result.command_summary, "search_local: Downloads")
+        self.assertEqual(len(second_result.completed_steps), 2)
+        self.assertEqual(executed_actions, ["open_folder", "search_local", "open_file"])
+
     def test_open_latest_markdown_file_without_scope_blocks_cleanly(self) -> None:
         blocked_result = self.runtime_manager.handle_input("open the latest markdown file", self.session_context)
 
         self.assertEqual(blocked_result.runtime_state, "awaiting_clarification")
         self.assertIsNotNone(blocked_result.clarification_request)
         self.assertIn("target", blocked_result.clarification_request.message.lower())
+
+    def test_prepare_workspace_for_current_repo_sets_folder_path(self) -> None:
+        repo_name = Path.cwd().name
+        command = parse_command(f"prepare workspace for {repo_name}", SessionContext())
+
+        folder_targets = [
+            target
+            for target in list(getattr(command, "targets", []) or [])
+            if getattr(getattr(target, "type", None), "value", "") == "folder"
+        ]
+        self.assertTrue(folder_targets)
+        self.assertEqual(str(getattr(folder_targets[0], "path", "") or ""), str(Path.cwd()))
 
     def test_find_latest_markdown_file_remains_search_only(self) -> None:
         executed_actions: list[str] = []
@@ -705,6 +758,60 @@ class RuntimeSmokeTests(unittest.TestCase):
         self.assertEqual(result.runtime_state, "completed")
         self.assertEqual(opened_paths, ["/tmp/demo/notes.md"])
 
+    def test_recent_search_context_clears_after_unrelated_completed_command(self) -> None:
+        matches = [
+            {"name": "roadmap.md", "path": "/tmp/demo/roadmap.md", "type": "file"},
+            {"name": "notes.md", "path": "/tmp/demo/notes.md", "type": "file"},
+        ]
+
+        def execute_stub(step: object) -> SimpleNamespace:
+            action = getattr(getattr(step, "action", None), "value", "")
+            if action == "search_local":
+                return _search_action_result(step, matches)
+            return _successful_action_result(step)
+
+        with patch("runtime.runtime_manager.execute_step", side_effect=execute_stub):
+            self.runtime_manager.handle_input("open Downloads folder", self.session_context)
+            self.runtime_manager.handle_input("find markdown files", self.session_context)
+            self.runtime_manager.handle_input("open browser", self.session_context)
+            result = self.runtime_manager.handle_input("open 1", self.session_context)
+
+        self.assertEqual(result.runtime_state, "awaiting_clarification")
+        self.assertIsNotNone(result.last_error)
+        self.assertEqual(getattr(result.last_error.code, "value", ""), "TARGET_NOT_FOUND")
+
+    def test_recent_search_context_persists_for_indexed_open_chain(self) -> None:
+        opened_paths: list[str] = []
+        matches = [
+            {"name": "roadmap.md", "path": "/tmp/demo/roadmap.md", "type": "file"},
+            {"name": "notes.md", "path": "/tmp/demo/notes.md", "type": "file"},
+        ]
+
+        def execute_stub(step: object) -> SimpleNamespace:
+            action = getattr(getattr(step, "action", None), "value", "")
+            if action == "search_local":
+                return _search_action_result(step, matches)
+            if action == "open_file":
+                opened_paths.append(str(getattr(getattr(step, "target", None), "path", "") or ""))
+                return SimpleNamespace(
+                    action=action,
+                    success=True,
+                    target=getattr(step, "target", None),
+                    details={"path": opened_paths[-1]},
+                    error=None,
+                )
+            return _successful_action_result(step)
+
+        with patch("runtime.runtime_manager.execute_step", side_effect=execute_stub):
+            self.runtime_manager.handle_input("open Downloads folder", self.session_context)
+            self.runtime_manager.handle_input("find markdown files", self.session_context)
+            first_open = self.runtime_manager.handle_input("open 1", self.session_context)
+            second_open = self.runtime_manager.handle_input("open 2", self.session_context)
+
+        self.assertEqual(first_open.runtime_state, "completed")
+        self.assertEqual(second_open.runtime_state, "completed")
+        self.assertEqual(opened_paths, ["/tmp/demo/roadmap.md", "/tmp/demo/notes.md"])
+
     def test_search_follow_up_open_1_without_recent_results_blocks_cleanly(self) -> None:
         result = self.runtime_manager.handle_input("open 1", self.session_context)
 
@@ -898,6 +1005,43 @@ class RuntimeSmokeTests(unittest.TestCase):
         self.assertFalse(result.success)
         self.assertIsNotNone(result.error)
         self.assertEqual(getattr(result.error, "code", ""), "APP_UNAVAILABLE")
+
+    def test_executor_open_folder_uses_finder_fallback_when_default_open_fails(self) -> None:
+        step = Step(
+            id="step_1",
+            action=StepAction.OPEN_FOLDER,
+            target=Target(type=TargetType.FOLDER, name="demo", path="/tmp/demo"),
+            parameters=None,
+        )
+
+        run_side_effects = [
+            CompletedProcess(
+                args=["open", "/tmp/demo"],
+                returncode=1,
+                stdout="",
+                stderr="No application knows how to open URL file:///tmp/demo/",
+            ),
+            CompletedProcess(
+                args=["open", "-a", "Finder", "/tmp/demo"],
+                returncode=0,
+                stdout="",
+                stderr="",
+            ),
+        ]
+
+        with patch.object(desktop_executor.sys, "platform", "darwin"), patch(
+            "executor.desktop_executor._resolve_existing_path",
+            return_value=Path("/tmp/demo"),
+        ), patch(
+            "executor.desktop_executor._run_command",
+            side_effect=run_side_effects,
+        ):
+            result = desktop_executor.execute_step(step)
+
+        self.assertTrue(result.success)
+        self.assertIsNone(result.error)
+        self.assertEqual(result.details.get("app"), "Finder")
+        self.assertTrue(bool(result.details.get("fallback_used")))
 
 
 if __name__ == "__main__":
