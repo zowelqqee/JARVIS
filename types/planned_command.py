@@ -18,5 +18,4 @@ class PlannedCommand:
     command: Command
     execution_steps: list[Step] = field(default_factory=list)
     status_message: str = ""
-    confirmation_boundaries: list[ConfirmationRequest] = field(default_factory=list)
-
+    confirmation_boundaries: list[ConfirmationRequest] | None = None

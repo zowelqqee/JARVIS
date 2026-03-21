@@ -14,7 +14,6 @@ if TYPE_CHECKING:
 class ValidationResult:
     """Validation outcome with either validated command data or a blocking issue."""
 
-    is_valid: bool
+    valid: bool
     validated_command: Command | None = None
-    issue: JarvisError | None = None
-
+    error: JarvisError | None = None

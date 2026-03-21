@@ -10,7 +10,7 @@ if TYPE_CHECKING:
     from types.target import Target
 
 
-class ConfirmationBoundary(str, Enum):
+class ConfirmationBoundaryType(str, Enum):
     """Supported confirmation boundary types."""
 
     COMMAND = "command"
@@ -29,9 +29,6 @@ class ConfirmationResult(str, Enum):
 class ConfirmationRequest:
     """Minimal confirmation payload for command-level or step-level gates."""
 
-    boundary: ConfirmationBoundary
     message: str
-    targets: list[Target] = field(default_factory=list)
-    step_id: str | None = None
-    status: ConfirmationResult = ConfirmationResult.PENDING
-
+    affected_targets: list[Target] = field(default_factory=list)
+    boundary_type: ConfirmationBoundaryType = ConfirmationBoundaryType.COMMAND

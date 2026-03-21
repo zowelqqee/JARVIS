@@ -9,6 +9,6 @@ from dataclasses import dataclass
 class ClarificationRequest:
     """Minimal clarification payload used to unblock execution."""
 
-    question: str
+    message: str
+    code: str
     options: list[str] | None = None
-
