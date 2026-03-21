@@ -31,3 +31,13 @@
   - window-listing availability by session permissions
   - voice helper permission/access behavior
 
+## Latest Manual Pass (2026-03-22, local shell run)
+- `run telegram` -> parsed as `open_app`; no clarification loop.
+- Clarification restart (`htlp` -> `open Safari`) -> fresh command restart worked.
+- Confirmation boundary (`close Telegram` -> `yes` / `no`) -> boundary behavior correct (`failed` with app state or `cancelled` on denial).
+- Search follow-up (`search the JARVIS folder for markdown files` -> `open 1`) -> search results persisted and indexed follow-up resolved deterministically.
+- Window listing (`list windows`) -> explicit honest failure in this session (`Visible window inspection is unavailable...`), no fake data.
+- CLI shell command interception (`help`, `voice`, `speak on/off`, `reset`, `quit`) -> deterministic and isolated from runtime parsing.
+
+Note:
+- In this specific shell session, desktop `open` actions fail with LaunchServices `-10661` for app/file/folder opening. Runtime behavior remains explicit and contract-correct (structured failure, no hidden fallback success).
