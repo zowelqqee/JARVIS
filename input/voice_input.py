@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import math
 import os
+import signal
 import subprocess
 import sys
 from pathlib import Path
@@ -22,6 +23,7 @@ _HELPER_SOURCE = Path(__file__).with_name("macos_voice_capture.m")
 _HELPER_BINARY = Path("/tmp/jarvis_macos_voice_capture")
 _DEFAULT_TIMEOUT_SECONDS = 8.0
 _PRIVACY_HINT = "Check macOS Settings -> Privacy & Security -> Microphone / Speech Recognition."
+_VOICE_CRASH_HINT = "Try again. If it keeps failing, check macOS Settings -> Privacy & Security -> Microphone / Speech Recognition."
 
 
 def capture_voice_input(timeout_seconds: float = _DEFAULT_TIMEOUT_SECONDS) -> str:
@@ -95,6 +97,9 @@ def _voice_error_from_result(returncode: int, raw_message: str) -> VoiceInputErr
     else:
         detail = _first_meaningful_line(message)
 
+    if returncode < 0 and code == "RECOGNITION_FAILED":
+        return _voice_helper_crash_error(returncode, detail)
+
     if code == "PERMISSION_DENIED":
         normalized = detail or "Speech recognition permission was denied."
         return VoiceInputError(code, normalized, hint=_PRIVACY_HINT)
@@ -119,6 +124,28 @@ def _voice_error_from_result(returncode: int, raw_message: str) -> VoiceInputErr
         "RECOGNITION_FAILED",
         f"Voice helper failed unexpectedly with exit code {returncode}.",
     )
+
+
+def _voice_helper_crash_error(returncode: int, detail: str) -> VoiceInputError:
+    signal_number = abs(int(returncode))
+    signal_name = _signal_name(signal_number)
+    if signal_name:
+        message = f"Voice helper crashed with {signal_name}. Try again."
+    else:
+        message = f"Voice helper crashed with signal {signal_number}. Try again."
+
+    normalized_detail = detail.strip()
+    if normalized_detail and "abort trap" not in normalized_detail.lower():
+        message = f"{message} {normalized_detail}"
+
+    return VoiceInputError("VOICE_HELPER_CRASH", message, hint=_VOICE_CRASH_HINT)
+
+
+def _signal_name(signal_number: int) -> str | None:
+    try:
+        return signal.Signals(signal_number).name
+    except ValueError:
+        return None
 
 
 def _first_meaningful_line(text: str) -> str:

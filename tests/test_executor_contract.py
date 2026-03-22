@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import unittest
+from pathlib import Path
 from subprocess import CompletedProcess
 from unittest.mock import patch
 
@@ -147,6 +148,193 @@ class ExecutorContractTests(unittest.TestCase):
         self.assertFalse(result.success)
         self.assertIsNotNone(result.error)
         self.assertEqual(result.error.code, "UNSUPPORTED_ACTION")
+
+    def test_open_folder_launchservices_unavailable_returns_execution_failed_with_actionable_message(self) -> None:
+        step = Step(
+            id="step_1",
+            action=StepAction.OPEN_FOLDER,
+            target=Target(type=TargetType.FOLDER, name="tmp", path="/tmp"),
+        )
+
+        launchservices_error = (
+            "The operation couldn’t be completed. "
+            "(Error Domain=NSOSStatusErrorDomain Code=-10661 "
+            "\"kLSExecutableIncorrectFormat: No compatible executable was found\")"
+        )
+
+        with patch.object(desktop_executor.sys, "platform", "darwin"), patch(
+            "executor.desktop_executor._run_command",
+            side_effect=[
+                CompletedProcess(args=["open", "/tmp"], returncode=1, stdout="", stderr=launchservices_error),
+                CompletedProcess(args=["open", "-a", "Finder", "/tmp"], returncode=1, stdout="", stderr=launchservices_error),
+            ],
+        ):
+            result = desktop_executor.execute_step(step)
+
+        self.assertFalse(result.success)
+        self.assertIsNotNone(result.error)
+        self.assertEqual(result.error.code, "EXECUTION_FAILED")
+        self.assertIn("desktop session is unavailable", result.error.message)
+
+    def test_open_app_launchservices_unavailable_does_not_report_app_unavailable(self) -> None:
+        step = Step(
+            id="step_1",
+            action=StepAction.OPEN_APP,
+            target=Target(type=TargetType.APPLICATION, name="Safari"),
+        )
+
+        launchservices_error = (
+            "Unable to find application named 'Safari'. "
+            "(Error Domain=NSOSStatusErrorDomain Code=-10661)"
+        )
+
+        with patch.object(desktop_executor.sys, "platform", "darwin"), patch(
+            "executor.desktop_executor._run_command",
+            return_value=CompletedProcess(
+                args=["open", "-a", "Safari"],
+                returncode=1,
+                stdout="",
+                stderr=launchservices_error,
+            ),
+        ):
+            result = desktop_executor.execute_step(step)
+
+        self.assertFalse(result.success)
+        self.assertIsNotNone(result.error)
+        self.assertEqual(result.error.code, "EXECUTION_FAILED")
+        self.assertIn("desktop session is unavailable", result.error.message)
+
+    def test_open_app_uses_bundle_path_fallback_when_name_lookup_fails(self) -> None:
+        step = Step(
+            id="step_1",
+            action=StepAction.OPEN_APP,
+            target=Target(type=TargetType.APPLICATION, name="Safari"),
+        )
+
+        with patch.object(desktop_executor.sys, "platform", "darwin"), patch(
+            "executor.desktop_executor._resolve_app_bundle_path",
+            return_value=Path("/Applications/Safari.app"),
+        ), patch(
+            "executor.desktop_executor._run_command",
+            side_effect=[
+                CompletedProcess(
+                    args=["open", "-a", "Safari"],
+                    returncode=1,
+                    stdout="",
+                    stderr="Unable to find application named 'Safari'",
+                ),
+                CompletedProcess(
+                    args=["open", "-a", "/Applications/Safari.app"],
+                    returncode=0,
+                    stdout="",
+                    stderr="",
+                ),
+            ],
+        ):
+            result = desktop_executor.execute_step(step)
+
+        self.assertTrue(result.success)
+        self.assertIsNone(result.error)
+        self.assertIsNotNone(result.details)
+        self.assertTrue(bool(result.details.get("fallback_used")))
+        self.assertEqual(result.details.get("app_bundle_path"), "/Applications/Safari.app")
+
+    def test_open_file_with_explicit_app_uses_bundle_path_fallback(self) -> None:
+        file_path = Path(__file__).resolve()
+        step = Step(
+            id="step_1",
+            action=StepAction.OPEN_FILE,
+            target=Target(type=TargetType.FILE, name=file_path.name, path=str(file_path)),
+            parameters={"app": "Visual Studio Code"},
+        )
+
+        with patch.object(desktop_executor.sys, "platform", "darwin"), patch(
+            "executor.desktop_executor._resolve_app_bundle_path",
+            return_value=Path("/Applications/Visual Studio Code.app"),
+        ), patch(
+            "executor.desktop_executor._run_command",
+            side_effect=[
+                CompletedProcess(
+                    args=["open", "-a", "Visual Studio Code", str(file_path)],
+                    returncode=1,
+                    stdout="",
+                    stderr="Unable to find application named 'Visual Studio Code'",
+                ),
+                CompletedProcess(
+                    args=["open", "-a", "/Applications/Visual Studio Code.app", str(file_path)],
+                    returncode=0,
+                    stdout="",
+                    stderr="",
+                ),
+            ],
+        ):
+            result = desktop_executor.execute_step(step)
+
+        self.assertTrue(result.success)
+        self.assertIsNone(result.error)
+        self.assertIsNotNone(result.details)
+        self.assertEqual(result.details.get("app"), "Visual Studio Code")
+        self.assertEqual(result.details.get("app_bundle_path"), "/Applications/Visual Studio Code.app")
+        self.assertTrue(bool(result.details.get("fallback_used")))
+
+    def test_open_app_without_bundle_fallback_remains_app_unavailable(self) -> None:
+        step = Step(
+            id="step_1",
+            action=StepAction.OPEN_APP,
+            target=Target(type=TargetType.APPLICATION, name="MissingApp"),
+        )
+
+        with patch.object(desktop_executor.sys, "platform", "darwin"), patch(
+            "executor.desktop_executor._resolve_app_bundle_path",
+            return_value=None,
+        ), patch(
+            "executor.desktop_executor._run_command",
+            return_value=CompletedProcess(
+                args=["open", "-a", "MissingApp"],
+                returncode=1,
+                stdout="",
+                stderr="Unable to find application named 'MissingApp'",
+            ),
+        ):
+            result = desktop_executor.execute_step(step)
+
+        self.assertFalse(result.success)
+        self.assertIsNotNone(result.error)
+        self.assertEqual(result.error.code, "APP_UNAVAILABLE")
+
+    def test_open_app_bundle_not_launchable_returns_app_unavailable(self) -> None:
+        step = Step(
+            id="step_1",
+            action=StepAction.OPEN_APP,
+            target=Target(type=TargetType.APPLICATION, name="Safari"),
+        )
+
+        with patch.object(desktop_executor.sys, "platform", "darwin"), patch(
+            "executor.desktop_executor._resolve_app_bundle_path",
+            return_value=Path("/Applications/Safari.app"),
+        ), patch(
+            "executor.desktop_executor._run_command",
+            side_effect=[
+                CompletedProcess(
+                    args=["open", "-a", "Safari"],
+                    returncode=1,
+                    stdout="",
+                    stderr="Unable to find application named 'Safari'",
+                ),
+                CompletedProcess(
+                    args=["open", "-a", "/Applications/Safari.app"],
+                    returncode=1,
+                    stdout="",
+                    stderr="kLSNoExecutableErr: The executable is missing",
+                ),
+            ],
+        ):
+            result = desktop_executor.execute_step(step)
+
+        self.assertFalse(result.success)
+        self.assertIsNotNone(result.error)
+        self.assertEqual(result.error.code, "APP_UNAVAILABLE")
+        self.assertIn("not launchable", result.error.message)
 
 
 if __name__ == "__main__":

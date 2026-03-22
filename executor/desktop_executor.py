@@ -38,6 +38,21 @@ _WINDOW_TITLE_KEYS = {
     "window_id": "kCGWindowNumber",
     "layer": "kCGWindowLayer",
 }
+_DESKTOP_SESSION_UNAVAILABLE_TEMPLATE = (
+    "macOS desktop session is unavailable for {context}. "
+    "Run JARVIS from an active desktop login session and try again."
+)
+_APP_BUNDLE_OVERRIDES = {
+    "code": ["~/Applications/Visual Studio Code.app", "/Applications/Visual Studio Code.app"],
+    "vscode": ["~/Applications/Visual Studio Code.app", "/Applications/Visual Studio Code.app"],
+    "vs code": ["~/Applications/Visual Studio Code.app", "/Applications/Visual Studio Code.app"],
+    "visual studio code": ["~/Applications/Visual Studio Code.app", "/Applications/Visual Studio Code.app"],
+    "google chrome": ["~/Applications/Google Chrome.app", "/Applications/Google Chrome.app"],
+    "chrome": ["~/Applications/Google Chrome.app", "/Applications/Google Chrome.app"],
+    "telegram": ["~/Applications/Telegram.app", "/Applications/Telegram.app"],
+    "safari": ["/Applications/Safari.app", "/System/Applications/Safari.app"],
+    "finder": ["/System/Library/CoreServices/Finder.app", "/Applications/Finder.app", "/System/Applications/Finder.app"],
+}
 
 
 def execute_step(step: Step) -> ActionResult:
@@ -115,10 +130,43 @@ def _execute_open_app(target: Target) -> ActionResult:
         return _failure(action, target, code="TARGET_NOT_FOUND", message="Application target name is missing.")
 
     result = _run_command(["open", "-a", app_name])
+    app_bundle_path: Path | None = None
     if result.returncode != 0:
-        code = "APP_UNAVAILABLE" if _looks_like_app_unavailable(result) else _command_failure_code(result)
-        message = _stderr_text(result) or f'Unable to open application "{app_name}".'
-        return _failure(action, target, code=code, message=message)
+        stderr_text = _stderr_text(result)
+        if _looks_like_app_unavailable(result) and not _is_desktop_session_unavailable_error(stderr_text):
+            fallback_result, app_bundle_path = _run_open_with_app_bundle(app_name, [])
+            if fallback_result is not None:
+                result = fallback_result
+                if result.returncode == 0 and app_bundle_path is not None:
+                    return _success(
+                        action,
+                        target,
+                        details={"focused": True, "app_bundle_path": str(app_bundle_path), "fallback_used": True},
+                    )
+                stderr_text = _stderr_text(result)
+
+            if _looks_like_app_unavailable(result) and not _is_desktop_session_unavailable_error(stderr_text):
+                return _failure(
+                    action,
+                    target,
+                    code="APP_UNAVAILABLE",
+                    message=stderr_text or f'Unable to find application "{app_name}".',
+                )
+            if _is_app_bundle_unavailable_error(stderr_text):
+                bundle_label = str(app_bundle_path) if app_bundle_path is not None else app_name
+                return _failure(
+                    action,
+                    target,
+                    code="APP_UNAVAILABLE",
+                    message=f'Application "{bundle_label}" is not launchable on this macOS session.',
+                )
+        return _command_failure(
+            action,
+            target,
+            result,
+            default_message=f'Unable to open application "{app_name}".',
+            desktop_session_context="opening applications",
+        )
 
     return _success(action, target, details={"focused": True})
 
@@ -137,11 +185,11 @@ def _execute_focus_app(target: Target) -> ActionResult:
     result = _run_apple_script([f'tell application "{_escape_applescript_string(app_name)}" to activate'])
     if result.returncode == 0:
         return _success(action, target, details={"focused": True})
-    return _failure(
+    return _command_failure(
         action,
         target,
-        code=_command_failure_code(result),
-        message=_stderr_text(result) or f'Unable to focus application "{app_name}".',
+        result,
+        default_message=f'Unable to focus application "{app_name}".',
     )
 
 
@@ -156,19 +204,44 @@ def _execute_open_file(target: Target, parameters: dict[str, Any]) -> ActionResu
     app_name = _open_app_hint(target, parameters)
     command = ["open", str(file_path)] if not app_name else ["open", "-a", app_name, str(file_path)]
     result = _run_command(command)
+    app_bundle_path: Path | None = None
     if result.returncode != 0:
-        if app_name and _looks_like_app_unavailable(result):
-            return _failure(
-                action,
-                target,
-                code="APP_UNAVAILABLE",
-                message=_stderr_text(result) or f'Unable to find application "{app_name}" for file open.',
-            )
-        return _failure(
+        stderr_text = _stderr_text(result)
+        if app_name and _looks_like_app_unavailable(result) and not _is_desktop_session_unavailable_error(stderr_text):
+            fallback_result, app_bundle_path = _run_open_with_app_bundle(app_name, [str(file_path)])
+            if fallback_result is not None:
+                result = fallback_result
+                if result.returncode == 0 and app_bundle_path is not None:
+                    details: dict[str, Any] = {
+                        "path": str(file_path),
+                        "app": app_name,
+                        "app_bundle_path": str(app_bundle_path),
+                        "fallback_used": True,
+                    }
+                    return _success(action, target, details=details)
+                stderr_text = _stderr_text(result)
+
+            if _looks_like_app_unavailable(result) and not _is_desktop_session_unavailable_error(stderr_text):
+                return _failure(
+                    action,
+                    target,
+                    code="APP_UNAVAILABLE",
+                    message=stderr_text or f'Unable to find application "{app_name}" for file open.',
+                )
+            if _is_app_bundle_unavailable_error(stderr_text):
+                bundle_label = str(app_bundle_path) if app_bundle_path is not None else app_name
+                return _failure(
+                    action,
+                    target,
+                    code="APP_UNAVAILABLE",
+                    message=f'Application "{bundle_label}" is not launchable for file open.',
+                )
+        return _command_failure(
             action,
             target,
-            code=_command_failure_code(result),
-            message=_stderr_text(result) or f'Unable to open file "{file_path}".',
+            result,
+            default_message=f'Unable to open file "{file_path}".',
+            desktop_session_context="opening files",
         )
 
     details: dict[str, Any] = {"path": str(file_path)}
@@ -188,6 +261,8 @@ def _execute_open_folder(target: Target, parameters: dict[str, Any]) -> ActionRe
     app_name = _open_app_hint(target, parameters)
     command = ["open", str(folder_path)] if not app_name else ["open", "-a", app_name, str(folder_path)]
     result = _run_command(command)
+    failure_result = result
+    app_bundle_path: Path | None = None
     if result.returncode != 0:
         if not app_name:
             finder_result = _run_command(["open", "-a", "Finder", str(folder_path)])
@@ -197,19 +272,45 @@ def _execute_open_folder(target: Target, parameters: dict[str, Any]) -> ActionRe
                     target,
                     details={"path": str(folder_path), "app": "Finder", "fallback_used": True},
                 )
+            failure_result = finder_result
 
-        if app_name and _looks_like_app_unavailable(result):
-            return _failure(
-                action,
-                target,
-                code="APP_UNAVAILABLE",
-                message=_stderr_text(result) or f'Unable to find application "{app_name}" for folder open.',
-            )
-        return _failure(
+        stderr_text = _stderr_text(result)
+        if app_name and _looks_like_app_unavailable(result) and not _is_desktop_session_unavailable_error(stderr_text):
+            fallback_result, app_bundle_path = _run_open_with_app_bundle(app_name, [str(folder_path)])
+            if fallback_result is not None:
+                result = fallback_result
+                if result.returncode == 0 and app_bundle_path is not None:
+                    details: dict[str, Any] = {
+                        "path": str(folder_path),
+                        "app": app_name,
+                        "app_bundle_path": str(app_bundle_path),
+                        "fallback_used": True,
+                    }
+                    return _success(action, target, details=details)
+                stderr_text = _stderr_text(result)
+                failure_result = result
+
+            if _looks_like_app_unavailable(result) and not _is_desktop_session_unavailable_error(stderr_text):
+                return _failure(
+                    action,
+                    target,
+                    code="APP_UNAVAILABLE",
+                    message=stderr_text or f'Unable to find application "{app_name}" for folder open.',
+                )
+            if _is_app_bundle_unavailable_error(stderr_text):
+                bundle_label = str(app_bundle_path) if app_bundle_path is not None else app_name
+                return _failure(
+                    action,
+                    target,
+                    code="APP_UNAVAILABLE",
+                    message=f'Application "{bundle_label}" is not launchable for folder open.',
+                )
+        return _command_failure(
             action,
             target,
-            code=_command_failure_code(result),
-            message=_stderr_text(result) or f'Unable to open folder "{folder_path}".',
+            failure_result,
+            default_message=f'Unable to open folder "{folder_path}".',
+            desktop_session_context="opening folders",
         )
 
     details: dict[str, Any] = {"path": str(folder_path)}
@@ -228,11 +329,12 @@ def _execute_open_website(target: Target, parameters: dict[str, Any]) -> ActionR
 
     result = _run_command(["open", url])
     if result.returncode != 0:
-        return _failure(
+        return _command_failure(
             action,
             target,
-            code=_command_failure_code(result),
-            message=_stderr_text(result) or f'Unable to open URL "{url}".',
+            result,
+            default_message=f'Unable to open URL "{url}".',
+            desktop_session_context="opening websites",
         )
 
     return _success(action, target, details={"url": url})
@@ -272,11 +374,11 @@ def _execute_close_app(target: Target) -> ActionResult:
     result = _run_apple_script([f'tell application "{_escape_applescript_string(app_name)}" to quit'])
     if result.returncode == 0:
         return _success(action, target, details={"quit_requested": True})
-    return _failure(
+    return _command_failure(
         action,
         target,
-        code=_command_failure_code(result),
-        message=_stderr_text(result) or f'Unable to request quit for "{app_name}".',
+        result,
+        default_message=f'Unable to request quit for "{app_name}".',
     )
 
 
@@ -508,6 +610,58 @@ def _open_app_hint(target: Target, parameters: dict[str, Any]) -> str | None:
     return None
 
 
+def _run_open_with_app_bundle(app_name: str, open_targets: list[str]) -> tuple[subprocess.CompletedProcess[str] | None, Path | None]:
+    bundle_path = _resolve_app_bundle_path(app_name)
+    if bundle_path is None:
+        return None, None
+    arguments = ["open", "-a", str(bundle_path), *open_targets]
+    return _run_command(arguments), bundle_path
+
+
+def _resolve_app_bundle_path(app_name: str) -> Path | None:
+    normalized_name = str(app_name).strip()
+    if not normalized_name:
+        return None
+
+    candidates: list[Path] = []
+    raw_candidate = Path(normalized_name).expanduser()
+    if _looks_like_app_bundle(normalized_name):
+        candidates.append(raw_candidate)
+
+    base_bundle_name = Path(normalized_name).name
+    if not base_bundle_name.lower().endswith(".app"):
+        base_bundle_name = f"{base_bundle_name}.app"
+
+    normalized_key = normalized_name.lower().strip()
+    for override in _APP_BUNDLE_OVERRIDES.get(normalized_key, []):
+        candidates.append(Path(override).expanduser())
+
+    for base_directory in (
+        Path("/Applications"),
+        Path.home() / "Applications",
+        Path("/System/Applications"),
+        Path("/System/Library/CoreServices"),
+    ):
+        candidates.append(base_directory / base_bundle_name)
+
+    seen: set[str] = set()
+    for candidate in candidates:
+        candidate_key = str(candidate)
+        if candidate_key in seen:
+            continue
+        seen.add(candidate_key)
+        try:
+            if candidate.is_dir():
+                return candidate
+        except OSError:
+            continue
+    return None
+
+
+def _looks_like_app_bundle(value: str) -> bool:
+    return value.lower().strip().endswith(".app")
+
+
 def _run_command(arguments: list[str]) -> subprocess.CompletedProcess[str]:
     return subprocess.run(arguments, capture_output=True, text=True, check=False)
 
@@ -615,6 +769,8 @@ def _command_failure_code(result: subprocess.CompletedProcess[str]) -> str:
     text = _stderr_text(result)
     if _is_permission_error(text):
         return "PERMISSION_DENIED"
+    if _is_desktop_session_unavailable_error(text):
+        return "EXECUTION_FAILED"
     return "EXECUTION_FAILED"
 
 
@@ -626,6 +782,52 @@ def _is_permission_error(text: str) -> bool:
         or "permission" in lowered
         or "not allowed assistive access" in lowered
         or "operation not permitted" in lowered
+    )
+
+
+def _is_desktop_session_unavailable_error(text: str) -> bool:
+    lowered = text.lower()
+    return (
+        "nsosstatuserrordomain code=-10661" in lowered
+        or "klsexecutableincorrectformat" in lowered
+        or "launchservices" in lowered
+        or "com.apple.hiservices-xpcservice" in lowered
+        or "connection invalid" in lowered
+    )
+
+
+def _is_app_bundle_unavailable_error(text: str) -> bool:
+    lowered = text.lower()
+    return "klsnoexecutableerr" in lowered or "executable is missing" in lowered
+
+
+def _command_failure_message(
+    result: subprocess.CompletedProcess[str],
+    default_message: str,
+    desktop_session_context: str | None = None,
+) -> str:
+    text = _stderr_text(result)
+    if desktop_session_context and _is_desktop_session_unavailable_error(text):
+        return _DESKTOP_SESSION_UNAVAILABLE_TEMPLATE.format(context=desktop_session_context)
+    return text or default_message
+
+
+def _command_failure(
+    action: str,
+    target: Target,
+    result: subprocess.CompletedProcess[str],
+    default_message: str,
+    desktop_session_context: str | None = None,
+) -> ActionResult:
+    return _failure(
+        action,
+        target,
+        code=_command_failure_code(result),
+        message=_command_failure_message(
+            result,
+            default_message=default_message,
+            desktop_session_context=desktop_session_context,
+        ),
     )
 
 

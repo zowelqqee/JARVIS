@@ -69,7 +69,14 @@
 | Permission-classification contract | OS-permission failures map to `PERMISSION_DENIED`. | `tests/test_executor_contract.py::test_open_app_permission_denied_maps_to_permission_denied` |
 | Window inspection error normalization | `list_windows` preserves canonical error codes and normalizes unknown codes to `EXECUTION_FAILED`. | `tests/test_executor_contract.py::test_list_windows_permission_denied_propagates`, `tests/test_executor_contract.py::test_list_windows_unknown_error_code_normalizes_to_execution_failed` |
 | Unsupported window actions remain explicit | `focus_window` remains explicit `UNSUPPORTED_ACTION`. | `tests/test_executor_contract.py::test_focus_window_remains_explicitly_unsupported` |
+| App resolution fallback remains strict and deterministic | `open_*` keeps explicit `APP_UNAVAILABLE` on unresolved apps, and uses deterministic bundle-path fallback only when available. | `tests/test_executor_contract.py::test_open_app_uses_bundle_path_fallback_when_name_lookup_fails`, `tests/test_executor_contract.py::test_open_file_with_explicit_app_uses_bundle_path_fallback`, `tests/test_executor_contract.py::test_open_app_without_bundle_fallback_remains_app_unavailable`, `tests/test_executor_contract.py::test_open_app_bundle_not_launchable_returns_app_unavailable` |
+
+## Voice Reliability Fixtures
+
+| Reliability Area | Deterministic Rule | Tests |
+| --- | --- | --- |
+| Voice helper crash/error normalization | Voice helper failures map to stable structured categories with concise actionable messages/hints. | `tests/test_voice_input_contract.py::test_negative_exit_code_maps_to_voice_helper_crash`, `tests/test_voice_input_contract.py::test_permission_denied_keeps_structured_hint`, `tests/test_voice_input_contract.py::test_unknown_positive_exit_without_detail_reports_exit_code` |
 
 ## Release Gate Commands
-- `python3 -m compileall parser/command_parser.py validator/command_validator.py runtime/runtime_manager.py ui/visibility_mapper.py executor/desktop_executor.py tests/test_runtime_smoke.py tests/test_cli_smoke.py tests/test_use_case_parity.py tests/test_parser_validator_contract.py tests/test_executor_contract.py tests/test_visibility_contract.py`
-- `python3 -m unittest tests/test_runtime_smoke.py tests/test_cli_smoke.py tests/test_use_case_parity.py tests/test_parser_validator_contract.py tests/test_executor_contract.py tests/test_visibility_contract.py`
+- `python3 -m compileall parser/command_parser.py validator/command_validator.py runtime/runtime_manager.py ui/visibility_mapper.py executor/desktop_executor.py input/voice_input.py tests/test_runtime_smoke.py tests/test_cli_smoke.py tests/test_use_case_parity.py tests/test_parser_validator_contract.py tests/test_executor_contract.py tests/test_visibility_contract.py tests/test_voice_input_contract.py`
+- `python3 -m unittest tests/test_runtime_smoke.py tests/test_cli_smoke.py tests/test_use_case_parity.py tests/test_parser_validator_contract.py tests/test_executor_contract.py tests/test_visibility_contract.py tests/test_voice_input_contract.py`

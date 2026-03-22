@@ -46,3 +46,6 @@
 - Input: `help`, `voice`, `speak on`, `speak off`, `reset`, `quit`
 - Expected: intercepted by CLI shell layer before runtime parsing.
 
+### 8) Voice failure diagnostics
+- Input: `voice` (with voice helper unavailable/denied path)
+- Expected: concise structured diagnostic with actionable hint (no generic `Voice capture failed.` output).
