@@ -78,3 +78,18 @@
 
 Note:
 - This session still has macOS desktop execution limits for real `open_*` operations and window inspection. Runtime remains contract-correct with explicit structured failures and no hidden retries.
+
+## Parity Checklist PASS/FAIL (2026-03-22, real CLI session)
+- `open_app` (`run telegram`): PASS
+  - deterministic `open_app` route with explicit structured `APP_UNAVAILABLE` in this environment.
+- `workspace-flow` (`prepare workspace for JARVIS`): PASS
+  - deterministic workspace normalization and explicit structured failure when app launch is unavailable.
+- `search->open` (`search the JARVIS folder for markdown files` -> `open 1`): PASS
+  - search result list is visible and indexed follow-up resolves deterministically to `open_file`.
+  - execution then fails explicitly with structured desktop-session error in this environment.
+- `clarification` (`htlp` -> `open Safari`): PASS
+  - enters `awaiting_clarification`, then resumes via fresh supervised command.
+- `confirmation` (`close Telegram` -> `yes` / `no`): PASS
+  - approval resumes boundary execution path; denial cancels deterministically.
+- `voice` (`voice`): PASS
+  - concise structured diagnostic plus actionable privacy hint.

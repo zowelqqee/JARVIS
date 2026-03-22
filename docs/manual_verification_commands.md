@@ -28,8 +28,7 @@
 - Expected: `cancelled`, blocked step not executed.
 
 ### 4) Search + indexed follow-up
-- Input: `open JARVIS folder`
-- Input: `find markdown files`
+- Input: `search the JARVIS folder for markdown files`
 - Expected: completed search with visible results.
 - Follow-up: `open 1`
 - Expected: deterministic file-open follow-up path.
