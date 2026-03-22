@@ -26,11 +26,15 @@
 - Explicit unsupported window-management behavior remains enforced.
 
 ## Remaining To Final 100%
-- Release hygiene only:
-  - create one clean release commit with source/tests/docs deltas
-  - add MVP release tag
-- Optional environment verification:
+- None for the current deterministic MVP scope.
+- Optional environment verification only:
   - repeat one interactive desktop pass in a session with full macOS app-launch/window-inspection permissions.
+
+## Release Hygiene
+- Clean release commit created:
+  - `3ed5bd4` (`release: harden executor/voice and lock deterministic MVP gates`)
+- MVP release tag created:
+  - `mvp-2026-03-22`
 
 ## Latest Hardening Delta (2026-03-22)
 - Executor now classifies LaunchServices/session-unavailable failures for `open_*` actions deterministically as structured `EXECUTION_FAILED` outcomes.
