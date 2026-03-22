@@ -1,17 +1,24 @@
-# JARVIS Command Model (MVP)
+# JARVIS Command Model (Dual-Mode MVP)
 
 ## Purpose
-Define how natural language commands are transformed into structured execution instructions for JARVIS MVP desktop control.
+Define how natural language action commands are transformed into structured execution instructions for JARVIS desktop control.
 
-The `Command` object is the strict contract between the parser and the execution engine.
+The `Command` object is the strict contract between routed command input and the execution engine.
+It is not a general interaction contract.
+
+Strict boundary:
+- only executable action requests produce a `Command`
+- question-answer inputs do not produce a `Command`
+- question-answer inputs do not add a `question` intent to the command model
 
 ## Command Flow
-1. User input (text or voice -> text): receive user command as text.
-2. Parsing (LLM or rule-based): extract intent, targets, and parameters.
-3. Structured command object: build a `Command` object in the required shape.
-4. Validation: enforce confidence, ambiguity, and required-parameter rules.
-5. Execution planning: produce ordered `execution_steps` for validated command.
-6. Execution: run steps sequentially with status updates and required pauses.
+1. User input (text or voice -> text): receive user interaction as text.
+2. Interaction routing: determine whether input is a command or a question.
+3. Command parsing: extract intent, targets, and parameters for command-mode input.
+4. Structured command object: build a `Command` object in the required shape.
+5. Validation: enforce confidence, ambiguity, and required-parameter rules.
+6. Execution planning: produce ordered `execution_steps` for validated command.
+7. Execution: run steps sequentially with status updates and required pauses.
 
 ## Command Object (Core Structure)
 ```text
@@ -20,7 +27,7 @@ Command {
   intent: string,
   targets: Target[],
   parameters: object,
-  confidence: float (0–1),
+  confidence: float (0-1),
   requires_confirmation: boolean,
   execution_steps: Step[],
   status_message: string
@@ -29,7 +36,7 @@ Command {
 
 Field definitions:
 - `raw_input`: original user text after voice-to-text normalization (if voice was used).
-- `intent`: fixed MVP intent label produced by parser; must match the intent list in this document.
+- `intent`: fixed command intent label produced by parser; must match the intent list in this document.
 - `targets`: resolved entities the command acts on (apps, files, folders, windows, browser).
 - `parameters`: optional execution modifiers (for example, search query, website URL, window filter).
 - `confidence`: parser confidence score from `0` to `1`.
@@ -85,9 +92,10 @@ Step rules:
 - Steps are executed sequentially in listed order.
 - `action` must map directly to executable desktop behavior.
 - Execution engine must not reorder steps.
+- Question-answer mode must never create `Step` objects.
 
 ## Intent Types (MVP)
-Parser output must map to one of these fixed intents only. Dynamic intent creation is not allowed in MVP.
+Parser output must map to one of these fixed command intents only. Dynamic intent creation is not allowed in MVP.
 
 - `open_app`: open or focus a desktop application.
 - `open_file`: open a local file.
@@ -99,8 +107,13 @@ Parser output must map to one of these fixed intents only. Dynamic intent creati
 - `list_windows`: return currently open windows.
 - `search_local`: search local files/folders by query.
 - `prepare_workspace`: run a short predefined setup sequence (apps/folders/browser).
-- `clarify`: ask the user for missing or ambiguous input.
+- `clarify`: ask the user for missing or ambiguous command input.
 - `confirm`: capture explicit user approval to continue.
+
+Excluded from this list by design:
+- question-answer intents
+- general conversation intents
+- hidden autonomous intents
 
 ## Command Validation Rules
 Validation happens before execution planning and before execution.
@@ -108,7 +121,7 @@ Validation happens before execution planning and before execution.
 1. If `confidence < CONFIDENCE_THRESHOLD`, command execution is blocked and JARVIS must ask clarification.
 2. If targets are ambiguous, command execution is blocked and JARVIS must trigger clarification.
 3. If required parameters are missing, command execution is blocked and JARVIS must ask the user for the missing values.
-4. If intent is unknown or outside the fixed list, command execution is blocked and JARVIS must fallback to clarification.
+4. If intent is unknown or outside the fixed list, command execution is blocked and JARVIS must fail or fallback to clarification according to deterministic routing rules.
 
 ## Confirmation Rules
 Confirmation is mandatory for any command or step marked as requiring confirmation.
@@ -130,6 +143,7 @@ MVP examples where confirmation is mandatory:
 - Closing applications that may terminate active work.
 
 Implicit confirmation is not allowed.
+Question-answer mode must not satisfy or bypass confirmation requirements.
 
 ## Ambiguity Handling
 Ambiguity blocks execution.
@@ -139,7 +153,8 @@ Ambiguity blocks execution.
 - Partial match: suggest closest options and ask user to pick.
 - Never auto-select if ambiguity exists.
 
-Clarification must be short, actionable, and tied to immediate next step.
+Clarification must be short, actionable, and tied to the immediate next command step.
+Question-answer routing ambiguity must be resolved before a `Command` is created.
 
 ## Execution Rules
 - Execute `execution_steps` sequentially.
@@ -167,3 +182,4 @@ Clarification must be short, actionable, and tied to immediate next step.
 - No multi-command batching.
 - No autonomous retries.
 - No hidden fallback actions.
+- No question-answer semantics inside `Command`.

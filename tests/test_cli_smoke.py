@@ -28,14 +28,83 @@ class CliSmokeTests(unittest.TestCase):
 
                 self.assertFalse(should_exit)
                 self.assertFalse(speak_enabled)
+                self.assertIn("voice: listening... speak now.", output)
                 self.assertIn('recognized: "open browser"', output)
-                capture_mock.assert_called_once_with()
+                capture_mock.assert_called_once_with(timeout_seconds=cli._VOICE_CAPTURE_TIMEOUT_SECONDS)
                 runtime_mock.assert_called_once_with(
                     "open browser",
                     runtime_manager=self.runtime_manager,
                     session_context=self.session_context,
                     speak_enabled=False,
                 )
+
+    def test_voice_command_normalizes_repeated_open_phrase(self) -> None:
+        with patch("cli.capture_voice_input", return_value="Open Safari open Safari") as capture_mock, patch(
+            "cli._handle_runtime_input"
+        ) as runtime_mock:
+            should_exit, speak_enabled, output = self._run_command("voice", speak_enabled=False)
+
+        self.assertFalse(should_exit)
+        self.assertFalse(speak_enabled)
+        self.assertIn('recognized: "Open Safari"', output)
+        capture_mock.assert_called_once_with(timeout_seconds=cli._VOICE_CAPTURE_TIMEOUT_SECONDS)
+        runtime_mock.assert_called_once_with(
+            "Open Safari",
+            runtime_manager=self.runtime_manager,
+            session_context=self.session_context,
+            speak_enabled=False,
+        )
+
+    def test_voice_command_strips_jarvis_wake_prefix(self) -> None:
+        with patch("cli.capture_voice_input", return_value="Jarvis close telegram") as capture_mock, patch(
+            "cli._handle_runtime_input"
+        ) as runtime_mock:
+            should_exit, speak_enabled, output = self._run_command("voice", speak_enabled=False)
+
+        self.assertFalse(should_exit)
+        self.assertFalse(speak_enabled)
+        self.assertIn('recognized: "close telegram"', output)
+        capture_mock.assert_called_once_with(timeout_seconds=cli._VOICE_CAPTURE_TIMEOUT_SECONDS)
+        runtime_mock.assert_called_once_with(
+            "close telegram",
+            runtime_manager=self.runtime_manager,
+            session_context=self.session_context,
+            speak_enabled=False,
+        )
+
+    def test_voice_command_strips_jarvis_wake_prefix_with_punctuation(self) -> None:
+        with patch("cli.capture_voice_input", return_value="Jarvis, open telegram") as capture_mock, patch(
+            "cli._handle_runtime_input"
+        ) as runtime_mock:
+            should_exit, speak_enabled, output = self._run_command("voice", speak_enabled=False)
+
+        self.assertFalse(should_exit)
+        self.assertFalse(speak_enabled)
+        self.assertIn('recognized: "open telegram"', output)
+        capture_mock.assert_called_once_with(timeout_seconds=cli._VOICE_CAPTURE_TIMEOUT_SECONDS)
+        runtime_mock.assert_called_once_with(
+            "open telegram",
+            runtime_manager=self.runtime_manager,
+            session_context=self.session_context,
+            speak_enabled=False,
+        )
+
+    def test_voice_command_strips_hey_jarvis_prefix(self) -> None:
+        with patch("cli.capture_voice_input", return_value="Hey Jarvis open safari") as capture_mock, patch(
+            "cli._handle_runtime_input"
+        ) as runtime_mock:
+            should_exit, speak_enabled, output = self._run_command("voice", speak_enabled=False)
+
+        self.assertFalse(should_exit)
+        self.assertFalse(speak_enabled)
+        self.assertIn('recognized: "open safari"', output)
+        capture_mock.assert_called_once_with(timeout_seconds=cli._VOICE_CAPTURE_TIMEOUT_SECONDS)
+        runtime_mock.assert_called_once_with(
+            "open safari",
+            runtime_manager=self.runtime_manager,
+            session_context=self.session_context,
+            speak_enabled=False,
+        )
 
     def test_speak_aliases_toggle_without_runtime_dispatch(self) -> None:
         cases = [

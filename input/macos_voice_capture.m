@@ -1,25 +1,97 @@
 /* One-shot macOS speech capture helper for the JARVIS CLI. */
 
+#import <AppKit/AppKit.h>
 #import <AVFoundation/AVFoundation.h>
 #import <Foundation/Foundation.h>
 #import <Speech/Speech.h>
+#include <signal.h>
+#include <unistd.h>
+
+static NSString *g_output_path = nil;
+static NSString *g_error_path = nil;
+
+static void emit_line(NSString *line, BOOL is_error) {
+    NSString *payload = [line hasSuffix:@"\n"] ? line : [line stringByAppendingString:@"\n"];
+    NSString *destination = is_error ? g_error_path : g_output_path;
+    if (destination.length > 0) {
+        NSError *write_error = nil;
+        if ([payload writeToFile:destination atomically:YES encoding:NSUTF8StringEncoding error:&write_error]) {
+            return;
+        }
+    }
+    FILE *stream = is_error ? stderr : stdout;
+    fprintf(stream, "%s", [payload UTF8String]);
+    fflush(stream);
+}
 
 static int fail_with_message(NSString *code, NSString *message) {
-    fprintf(stderr, "%s|%s\n", [code UTF8String], [message UTF8String]);
+    NSString *line = [NSString stringWithFormat:@"%@|%@", code ?: @"RECOGNITION_FAILED", message ?: @"Voice capture failed."];
+    emit_line(line, YES);
     return 1;
+}
+
+static const char *signal_name(int sig) {
+    switch (sig) {
+        case SIGABRT:
+            return "SIGABRT";
+        case SIGSEGV:
+            return "SIGSEGV";
+        case SIGBUS:
+            return "SIGBUS";
+        case SIGILL:
+            return "SIGILL";
+        case SIGTRAP:
+            return "SIGTRAP";
+        default:
+            return "SIGNAL";
+    }
+}
+
+static void crash_signal_handler(int sig) {
+    char buffer[256];
+    int count = snprintf(buffer, sizeof(buffer), "VOICE_SETUP_FAILED|Voice helper crashed with %s.\n", signal_name(sig));
+    if (count > 0) {
+        write(STDERR_FILENO, buffer, (size_t)count);
+    }
+    _exit(1);
+}
+
+static void uncaught_exception_handler(NSException *exception) {
+    NSString *reason = exception.reason ?: @"Unknown exception.";
+    NSString *message = [NSString stringWithFormat:@"Uncaught Objective-C exception: %@ (%@)", exception.name, reason];
+    fprintf(stderr, "VOICE_SETUP_FAILED|%s\n", [message UTF8String]);
+    fflush(stderr);
+}
+
+static void install_crash_handlers(void) {
+    NSSetUncaughtExceptionHandler(&uncaught_exception_handler);
+    signal(SIGABRT, crash_signal_handler);
+    signal(SIGSEGV, crash_signal_handler);
+    signal(SIGBUS, crash_signal_handler);
+    signal(SIGILL, crash_signal_handler);
+    signal(SIGTRAP, crash_signal_handler);
+}
+
+static BOOL wait_for_flag_with_runloop(volatile BOOL *flag, NSTimeInterval timeout_seconds) {
+    NSDate *deadline = [NSDate dateWithTimeIntervalSinceNow:timeout_seconds];
+    while (!(*flag) && [deadline timeIntervalSinceNow] > 0) {
+        @autoreleasepool {
+            [[NSRunLoop currentRunLoop] runMode:NSDefaultRunLoopMode beforeDate:[NSDate dateWithTimeIntervalSinceNow:0.05]];
+        }
+    }
+    return *flag;
 }
 
 static BOOL request_speech_authorization(NSTimeInterval timeout, NSString **message) {
     __block SFSpeechRecognizerAuthorizationStatus status = [SFSpeechRecognizer authorizationStatus];
     if (status == SFSpeechRecognizerAuthorizationStatusNotDetermined) {
-        dispatch_semaphore_t wait_semaphore = dispatch_semaphore_create(0);
+        __block volatile BOOL callback_done = NO;
         [SFSpeechRecognizer requestAuthorization:^(SFSpeechRecognizerAuthorizationStatus current_status) {
             status = current_status;
-            dispatch_semaphore_signal(wait_semaphore);
+            callback_done = YES;
         }];
 
-        dispatch_time_t deadline = dispatch_time(DISPATCH_TIME_NOW, (int64_t)(timeout * NSEC_PER_SEC));
-        if (dispatch_semaphore_wait(wait_semaphore, deadline) != 0) {
+        if (!wait_for_flag_with_runloop(&callback_done, timeout)) {
             if (message != NULL) {
                 *message = @"Timed out waiting for speech recognition permission.";
             }
@@ -53,14 +125,13 @@ static BOOL request_microphone_authorization(NSTimeInterval timeout, NSString **
     __block AVAuthorizationStatus status = [AVCaptureDevice authorizationStatusForMediaType:AVMediaTypeAudio];
     if (status == AVAuthorizationStatusNotDetermined) {
         __block BOOL granted = NO;
-        dispatch_semaphore_t wait_semaphore = dispatch_semaphore_create(0);
+        __block volatile BOOL callback_done = NO;
         [AVCaptureDevice requestAccessForMediaType:AVMediaTypeAudio completionHandler:^(BOOL access_granted) {
             granted = access_granted;
-            dispatch_semaphore_signal(wait_semaphore);
+            callback_done = YES;
         }];
 
-        dispatch_time_t deadline = dispatch_time(DISPATCH_TIME_NOW, (int64_t)(timeout * NSEC_PER_SEC));
-        if (dispatch_semaphore_wait(wait_semaphore, deadline) != 0) {
+        if (!wait_for_flag_with_runloop(&callback_done, timeout)) {
             if (message != NULL) {
                 *message = @"Timed out waiting for microphone permission.";
             }
@@ -91,11 +162,74 @@ static BOOL request_microphone_authorization(NSTimeInterval timeout, NSString **
     return NO;
 }
 
+static SFSpeechRecognizer *build_command_recognizer(void) {
+    NSLocale *english_locale = [NSLocale localeWithLocaleIdentifier:@"en-US"];
+    SFSpeechRecognizer *english_recognizer = [[SFSpeechRecognizer alloc] initWithLocale:english_locale];
+    if (english_recognizer != nil && english_recognizer.available) {
+        return english_recognizer;
+    }
+
+    NSLocale *current_locale = [NSLocale currentLocale];
+    SFSpeechRecognizer *current_recognizer = [[SFSpeechRecognizer alloc] initWithLocale:current_locale];
+    if (current_recognizer != nil && current_recognizer.available) {
+        return current_recognizer;
+    }
+
+    SFSpeechRecognizer *default_recognizer = [[SFSpeechRecognizer alloc] init];
+    if (default_recognizer != nil && default_recognizer.available) {
+        return default_recognizer;
+    }
+
+    return nil;
+}
+
+static BOOL validate_privacy_usage_descriptions(NSString **message) {
+    NSBundle *bundle = [NSBundle mainBundle];
+    NSString *speech_description = [bundle objectForInfoDictionaryKey:@"NSSpeechRecognitionUsageDescription"];
+    NSString *microphone_description = [bundle objectForInfoDictionaryKey:@"NSMicrophoneUsageDescription"];
+
+    if (speech_description.length == 0) {
+        if (message != NULL) {
+            *message = @"Voice helper is missing NSSpeechRecognitionUsageDescription.";
+        }
+        return NO;
+    }
+
+    if (microphone_description.length == 0) {
+        if (message != NULL) {
+            *message = @"Voice helper is missing NSMicrophoneUsageDescription.";
+        }
+        return NO;
+    }
+
+    return YES;
+}
+
 int main(int argc, const char *argv[]) {
     @autoreleasepool {
+        install_crash_handlers();
+
+        if (!NSApplicationLoad()) {
+            return fail_with_message(@"VOICE_SETUP_FAILED", @"Unable to load macOS application runtime for voice capture.");
+        }
+
+        [NSApplication sharedApplication];
+        [NSApp setActivationPolicy:NSApplicationActivationPolicyProhibited];
+
         NSTimeInterval timeout = 8.0;
         if (argc > 1) {
             timeout = MAX(2.0, atof(argv[1]));
+        }
+        if (argc > 2) {
+            g_output_path = [NSString stringWithUTF8String:argv[2]];
+        }
+        if (argc > 3) {
+            g_error_path = [NSString stringWithUTF8String:argv[3]];
+        }
+
+        NSString *privacy_message = nil;
+        if (!validate_privacy_usage_descriptions(&privacy_message)) {
+            return fail_with_message(@"VOICE_SETUP_FAILED", privacy_message ?: @"Voice helper privacy usage descriptions are missing.");
         }
 
         NSString *authorization_message = nil;
@@ -107,12 +241,8 @@ int main(int argc, const char *argv[]) {
             return fail_with_message(@"MICROPHONE_UNAVAILABLE", authorization_message ?: @"Microphone access is unavailable.");
         }
 
-        NSLocale *locale = [NSLocale currentLocale];
-        SFSpeechRecognizer *recognizer = [[SFSpeechRecognizer alloc] initWithLocale:locale];
+        SFSpeechRecognizer *recognizer = build_command_recognizer();
         if (recognizer == nil) {
-            recognizer = [[SFSpeechRecognizer alloc] init];
-        }
-        if (recognizer == nil || !recognizer.available) {
             return fail_with_message(@"RECOGNITION_FAILED", @"Speech recognition is not available right now.");
         }
 
@@ -123,13 +253,16 @@ int main(int argc, const char *argv[]) {
         }
 
         SFSpeechAudioBufferRecognitionRequest *request = [[SFSpeechAudioBufferRecognitionRequest alloc] init];
-        request.shouldReportPartialResults = NO;
+        request.shouldReportPartialResults = YES;
+        request.taskHint = SFSpeechRecognitionTaskHintDictation;
 
         AVAudioFormat *recording_format = [input_node outputFormatForBus:0];
+        __block NSUInteger captured_buffer_count = 0;
         [input_node installTapOnBus:0
                          bufferSize:1024
                              format:recording_format
                               block:^(AVAudioPCMBuffer *buffer, AVAudioTime *when) {
+                                  captured_buffer_count += 1;
                                   [request appendAudioPCMBuffer:buffer];
                               }];
 
@@ -141,40 +274,53 @@ int main(int argc, const char *argv[]) {
         }
 
         __block NSString *recognized_text = nil;
+        __block NSString *latest_partial_text = nil;
         __block NSString *recognition_message = nil;
-        __block BOOL finished = NO;
-        dispatch_semaphore_t wait_semaphore = dispatch_semaphore_create(0);
+        __block volatile BOOL finished = NO;
 
         __block SFSpeechRecognitionTask *task = [recognizer recognitionTaskWithRequest:request
                                                                           resultHandler:^(SFSpeechRecognitionResult *result, NSError *error) {
+                                                                              if (result != nil) {
+                                                                                  NSString *current_text = result.bestTranscription.formattedString;
+                                                                                  if (current_text.length > 0) {
+                                                                                      latest_partial_text = current_text;
+                                                                                  }
+                                                                              }
                                                                               if (result != nil && result.isFinal) {
                                                                                   recognized_text = result.bestTranscription.formattedString;
-                                                                                  if (!finished) {
-                                                                                      finished = YES;
-                                                                                      dispatch_semaphore_signal(wait_semaphore);
-                                                                                  }
+                                                                                  finished = YES;
                                                                               }
                                                                               if (error != nil) {
                                                                                   recognition_message = error.localizedDescription ?: @"Speech recognition failed.";
-                                                                                  if (!finished) {
-                                                                                      finished = YES;
-                                                                                      dispatch_semaphore_signal(wait_semaphore);
-                                                                                  }
+                                                                                  finished = YES;
                                                                               }
                                                                           }];
 
-        dispatch_time_t deadline = dispatch_time(DISPATCH_TIME_NOW, (int64_t)(timeout * NSEC_PER_SEC));
-        if (dispatch_semaphore_wait(wait_semaphore, deadline) != 0) {
-            recognition_message = @"Timed out waiting for speech input.";
+        BOOL completed_in_time = wait_for_flag_with_runloop(&finished, timeout);
+        if (!completed_in_time) {
+            if (captured_buffer_count == 0) {
+                recognition_message = @"No microphone audio was captured during listening.";
+            } else {
+                recognition_message = @"Timed out waiting for speech input.";
+            }
         }
 
         [audio_engine stop];
         [request endAudio];
         [input_node removeTapOnBus:0];
+
+        if (!finished) {
+            (void)wait_for_flag_with_runloop(&finished, 1.0);
+        }
+
         [task cancel];
 
+        if (recognized_text.length == 0 && latest_partial_text.length > 0) {
+            recognized_text = latest_partial_text;
+        }
+
         if (recognized_text.length > 0) {
-            printf("%s\n", [recognized_text UTF8String]);
+            emit_line(recognized_text, NO);
             return 0;
         }
 

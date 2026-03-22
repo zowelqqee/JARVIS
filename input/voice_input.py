@@ -5,8 +5,10 @@ from __future__ import annotations
 import math
 import os
 import signal
+import shutil
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 
@@ -20,10 +22,16 @@ class VoiceInputError(RuntimeError):
 
 
 _HELPER_SOURCE = Path(__file__).with_name("macos_voice_capture.m")
+_HELPER_INFO_PLIST = Path(__file__).with_name("macos_voice_capture_info.plist")
 _HELPER_BINARY = Path("/tmp/jarvis_macos_voice_capture")
+_HELPER_APP_BUNDLE = Path("/tmp/JARVISVoiceCapture.app")
+_HELPER_APP_CONTENTS = _HELPER_APP_BUNDLE / "Contents"
+_HELPER_APP_BINARY = _HELPER_APP_CONTENTS / "MacOS" / "jarvis_macos_voice_capture"
+_HELPER_APP_INFO_PLIST = _HELPER_APP_CONTENTS / "Info.plist"
 _DEFAULT_TIMEOUT_SECONDS = 8.0
 _PRIVACY_HINT = "Check macOS Settings -> Privacy & Security -> Microphone / Speech Recognition."
 _VOICE_CRASH_HINT = "Try again. If it keeps failing, check macOS Settings -> Privacy & Security -> Microphone / Speech Recognition."
+_VOICE_EMPTY_HINT = "Speak right after 'voice: listening...' and verify the active input device in macOS Sound settings."
 
 
 def capture_voice_input(timeout_seconds: float = _DEFAULT_TIMEOUT_SECONDS) -> str:
@@ -34,18 +42,14 @@ def capture_voice_input(timeout_seconds: float = _DEFAULT_TIMEOUT_SECONDS) -> st
     _ensure_helper_binary()
 
     effective_timeout = max(2.0, float(timeout_seconds))
-    try:
-        result = subprocess.run(
-            [str(_HELPER_BINARY), str(effective_timeout)],
-            capture_output=True,
-            text=True,
-            check=False,
-            timeout=int(math.ceil(effective_timeout)) + 5,
-        )
-    except subprocess.TimeoutExpired as exc:
-        raise VoiceInputError("RECOGNITION_FAILED", "Voice capture timed out. Try again.") from exc
-    except OSError as exc:
-        raise VoiceInputError("VOICE_SETUP_FAILED", f"Voice helper failed to start: {exc}.") from exc
+    result = _run_helper(effective_timeout)
+    if result.returncode != 0 and _should_rebuild_after_helper_failure(result):
+        _ensure_helper_binary(force_rebuild=True)
+        result = _run_helper(effective_timeout)
+    if result.returncode != 0 and _should_retry_with_open(result):
+        fallback_result = _run_helper_via_open_bundle(effective_timeout)
+        if fallback_result is not None and (fallback_result.returncode == 0 or "|" in (fallback_result.stderr or "")):
+            result = fallback_result
 
     if result.returncode != 0:
         raise _voice_error_from_result(result.returncode, result.stderr or result.stdout)
@@ -56,15 +60,30 @@ def capture_voice_input(timeout_seconds: float = _DEFAULT_TIMEOUT_SECONDS) -> st
     return recognized_text
 
 
-def _ensure_helper_binary() -> None:
+def _ensure_helper_binary(force_rebuild: bool = False) -> None:
     source_mtime = _HELPER_SOURCE.stat().st_mtime
-    if _HELPER_BINARY.exists() and _HELPER_BINARY.stat().st_mtime >= source_mtime and os.access(_HELPER_BINARY, os.X_OK):
+    plist_mtime = _HELPER_INFO_PLIST.stat().st_mtime if _HELPER_INFO_PLIST.exists() else 0.0
+    newest_source_mtime = max(source_mtime, plist_mtime)
+    if (
+        not force_rebuild
+        and _HELPER_BINARY.exists()
+        and _HELPER_BINARY.stat().st_mtime >= newest_source_mtime
+        and os.access(_HELPER_BINARY, os.X_OK)
+    ):
         return
+
+    if not _HELPER_INFO_PLIST.exists():
+        raise VoiceInputError("VOICE_SETUP_FAILED", "Voice helper privacy plist is missing.")
+
+    _prepare_helper_output_directory()
 
     compile_command = [
         "clang",
         "-fobjc-arc",
         "-fblocks",
+        f"-Wl,-sectcreate,__TEXT,__info_plist,{_HELPER_INFO_PLIST}",
+        "-framework",
+        "AppKit",
         "-framework",
         "Foundation",
         "-framework",
@@ -85,15 +104,166 @@ def _ensure_helper_binary() -> None:
         summary = _first_meaningful_line(result.stderr or result.stdout) or "Voice helper compile failed."
         raise VoiceInputError("VOICE_SETUP_FAILED", summary)
 
+    _codesign_helper_binary()
+    _prepare_helper_app_bundle()
+
+
+def _prepare_helper_output_directory() -> None:
+    try:
+        _HELPER_BINARY.parent.mkdir(parents=True, exist_ok=True)
+    except OSError as exc:
+        raise VoiceInputError("VOICE_SETUP_FAILED", f"Voice helper output setup failed: {exc}.") from exc
+
+
+def _codesign_helper_binary() -> None:
+    sign_command = [
+        "codesign",
+        "--force",
+        "--sign",
+        "-",
+        "--identifier",
+        "com.jarvis.voice.capture.helper",
+        "--timestamp=none",
+        str(_HELPER_BINARY),
+    ]
+    try:
+        result = subprocess.run(sign_command, capture_output=True, text=True, check=False)
+    except OSError as exc:
+        raise VoiceInputError("VOICE_SETUP_FAILED", f"Voice helper codesign failed: {exc}.") from exc
+
+    if result.returncode != 0:
+        summary = _first_meaningful_line(result.stderr or result.stdout) or "Voice helper codesign failed."
+        raise VoiceInputError("VOICE_SETUP_FAILED", summary)
+
+
+def _prepare_helper_app_bundle() -> None:
+    try:
+        (_HELPER_APP_CONTENTS / "MacOS").mkdir(parents=True, exist_ok=True)
+        shutil.copy2(_HELPER_BINARY, _HELPER_APP_BINARY)
+        shutil.copy2(_HELPER_INFO_PLIST, _HELPER_APP_INFO_PLIST)
+        os.chmod(_HELPER_APP_BINARY, 0o755)
+    except OSError as exc:
+        raise VoiceInputError("VOICE_SETUP_FAILED", f"Voice helper app bundle setup failed: {exc}.") from exc
+
+    sign_command = [
+        "codesign",
+        "--force",
+        "--sign",
+        "-",
+        "--identifier",
+        "com.jarvis.voice.capture.helper",
+        "--timestamp=none",
+        str(_HELPER_APP_BUNDLE),
+    ]
+    try:
+        result = subprocess.run(sign_command, capture_output=True, text=True, check=False)
+    except OSError as exc:
+        raise VoiceInputError("VOICE_SETUP_FAILED", f"Voice helper app bundle codesign failed: {exc}.") from exc
+
+    if result.returncode != 0:
+        summary = _first_meaningful_line(result.stderr or result.stdout) or "Voice helper app bundle codesign failed."
+        raise VoiceInputError("VOICE_SETUP_FAILED", summary)
+
+
+def _run_helper(timeout_seconds: float) -> subprocess.CompletedProcess[str]:
+    try:
+        return subprocess.run(
+            [str(_HELPER_BINARY), str(timeout_seconds)],
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=int(math.ceil(timeout_seconds)) + 5,
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise VoiceInputError("RECOGNITION_FAILED", "Voice capture timed out. Try again.") from exc
+    except OSError as exc:
+        raise VoiceInputError("VOICE_SETUP_FAILED", f"Voice helper failed to start: {exc}.") from exc
+
+
+def _run_helper_via_open_bundle(timeout_seconds: float) -> subprocess.CompletedProcess[str] | None:
+    if not _HELPER_APP_BUNDLE.exists() or not _HELPER_APP_BINARY.exists():
+        return None
+
+    output_fd, output_path = tempfile.mkstemp(prefix="jarvis_voice_out_", suffix=".txt")
+    error_fd, error_path = tempfile.mkstemp(prefix="jarvis_voice_err_", suffix=".txt")
+    os.close(output_fd)
+    os.close(error_fd)
+
+    try:
+        open_result = subprocess.run(
+            [
+                "open",
+                "-W",
+                "-n",
+                str(_HELPER_APP_BUNDLE),
+                "--args",
+                str(timeout_seconds),
+                output_path,
+                error_path,
+            ],
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=int(math.ceil(timeout_seconds)) + 10,
+        )
+    except (subprocess.TimeoutExpired, OSError):
+        _safe_unlink(output_path)
+        _safe_unlink(error_path)
+        return None
+
+    output_text = _read_text_file(output_path)
+    error_text = _read_text_file(error_path)
+    _safe_unlink(output_path)
+    _safe_unlink(error_path)
+
+    if output_text.strip():
+        return subprocess.CompletedProcess(
+            args=open_result.args,
+            returncode=0,
+            stdout=output_text,
+            stderr=error_text,
+        )
+
+    if error_text.strip():
+        return subprocess.CompletedProcess(
+            args=open_result.args,
+            returncode=1,
+            stdout=output_text,
+            stderr=error_text,
+        )
+
+    if open_result.returncode != 0:
+        return subprocess.CompletedProcess(
+            args=open_result.args,
+            returncode=open_result.returncode,
+            stdout=output_text,
+            stderr=open_result.stderr or open_result.stdout,
+        )
+
+    return None
+
+
+def _should_rebuild_after_helper_failure(result: subprocess.CompletedProcess[str]) -> bool:
+    if result.returncode < 0:
+        return True
+    detail = (result.stderr or result.stdout or "").strip()
+    if not detail:
+        return True
+    return "|" not in detail
+
+
+def _should_retry_with_open(result: subprocess.CompletedProcess[str]) -> bool:
+    detail = (result.stderr or result.stdout or "").strip()
+    return "VOICE_SETUP_FAILED|Voice helper crashed with SIGABRT." in detail
+
 
 def _voice_error_from_result(returncode: int, raw_message: str) -> VoiceInputError:
     message = raw_message.strip()
     code = "RECOGNITION_FAILED"
     detail = message
-    if "|" in message:
-        code, detail = message.split("|", 1)
-        code = code.strip() or "RECOGNITION_FAILED"
-        detail = detail.strip()
+    structured = _extract_structured_error(message)
+    if structured is not None:
+        code, detail = structured
     else:
         detail = _first_meaningful_line(message)
 
@@ -109,10 +279,11 @@ def _voice_error_from_result(returncode: int, raw_message: str) -> VoiceInputErr
         return VoiceInputError(code, normalized, hint=_PRIVACY_HINT)
 
     if code == "EMPTY_RECOGNITION":
-        return VoiceInputError(code, "No speech was recognized. Try again.")
+        normalized = detail or "No speech was recognized. Try again."
+        return VoiceInputError(code, normalized, hint=_VOICE_EMPTY_HINT)
 
     if code == "VOICE_SETUP_FAILED":
-        return VoiceInputError(code, detail or "Voice helper failed to start.")
+        return VoiceInputError(code, detail or "Voice helper failed to start.", hint=_PRIVACY_HINT)
 
     if code == "UNSUPPORTED_PLATFORM":
         return VoiceInputError(code, detail or "Voice input is available only on macOS.")
@@ -154,3 +325,30 @@ def _first_meaningful_line(text: str) -> str:
         if candidate:
             return candidate[:240]
     return ""
+
+
+def _extract_structured_error(message: str) -> tuple[str, str] | None:
+    for line in reversed(message.splitlines()):
+        if "|" not in line:
+            continue
+        raw_code, raw_detail = line.split("|", 1)
+        code = raw_code.strip()
+        if not code or not code.replace("_", "").isalnum() or not code.isupper():
+            continue
+        return code, raw_detail.strip()
+    return None
+
+
+def _read_text_file(path: str) -> str:
+    try:
+        with open(path, "r", encoding="utf-8") as handle:
+            return handle.read()
+    except OSError:
+        return ""
+
+
+def _safe_unlink(path: str) -> None:
+    try:
+        os.unlink(path)
+    except OSError:
+        return

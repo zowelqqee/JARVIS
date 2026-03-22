@@ -1,25 +1,28 @@
-# JARVIS Clarification Rules (MVP)
+# JARVIS Clarification Rules (Dual-Mode MVP)
 
 ## Purpose
-Define how JARVIS responds when a command cannot be executed safely due to ambiguity, missing data, or low confidence.
+Define how JARVIS responds when an interaction cannot continue safely due to ambiguity, missing data, low confidence, or unresolved routing between command mode and question-answer mode.
 
 ## When Clarification Is Required
 JARVIS must ask for clarification and must not execute when:
 - confidence is below threshold
-- multiple valid targets exist
-- no valid target is found
-- required parameters are missing
+- multiple valid command targets exist
+- no valid command target is found
+- required command parameters are missing
 - command intent is unclear or partially parsed
 - follow-up reference cannot be resolved from session context
+- one input mixes question and command semantics without a clear routing decision
+- routing between `command` and `question` cannot be resolved deterministically
 
-Clarification is a hard execution boundary. Execution must remain blocked until clarification is resolved.
+Clarification is a hard boundary. Execution must remain blocked until clarification is resolved.
+Question-answer mode must not silently take over a mixed request just because execution is blocked.
 
 ## Clarification Principles
 - always ask the minimal question needed to proceed
 - never ask multiple questions at once
 - never ask vague or open-ended questions
-- always tie the question to a concrete next action
-- do not restate the entire command
+- always tie the question to a concrete next decision
+- do not restate the entire input
 
 ## Clarification Types
 ### Target ambiguity
@@ -56,12 +59,20 @@ Behavior:
 - do not execute
 - ask for rephrase or confirmation: "I'm not sure what you meant. Can you rephrase?"
 
+### Routing ambiguity
+Example: "What can you do and open Safari"
+
+Behavior:
+- detect mixed question and action semantics
+- ask one short routing question such as: "Do you want an answer first or should I open Safari?"
+- do not both answer and execute in one silent pass
+
 ## Clarification Response Format
 Each clarification must:
 - be one sentence
 - include concrete options when possible
 - avoid technical language
-- map directly to a resolvable next step
+- map directly to a resolvable next step or routing decision
 
 Allowed:
 - short list of options
@@ -74,13 +85,14 @@ Not allowed:
 
 ## After Clarification
 1. resolve ambiguity
-2. update command or step
-3. continue execution from blocked point
+2. update blocked command or blocked routing choice
+3. continue from the blocked point
 
 Rules:
 - do not restart the full command unnecessarily
 - do not lose already completed steps
 - do not re-ask the same clarification
+- do not auto-execute after a routing clarification unless command intent is explicit
 
 ## Clarification Failure
 If the user response is still unclear:
@@ -88,8 +100,8 @@ If the user response is still unclear:
 - reduce ambiguity space
 
 If repeated failure continues:
-- stop execution
-- suggest explicit command format
+- stop execution or stop answer attempt
+- suggest explicit input format
 
 No loops without progress. No hidden fallback execution.
 
@@ -98,3 +110,4 @@ No loops without progress. No hidden fallback execution.
 - No silent fallback actions
 - No execution before clarification is resolved
 - No chaining multiple clarifications at once
+- No silent answer-plus-execute behavior

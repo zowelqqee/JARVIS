@@ -2,11 +2,37 @@
 
 from __future__ import annotations
 
+import re
 import subprocess
 
 from context.session_context import SessionContext
 from input.voice_input import VoiceInputError, capture_voice_input
 from runtime.runtime_manager import RuntimeManager, RuntimeResult
+
+_VOICE_CAPTURE_TIMEOUT_SECONDS = 7.0
+_VOICE_COMMAND_STARTERS = {
+    "open",
+    "run",
+    "launch",
+    "start",
+    "close",
+    "list",
+    "show",
+    "find",
+    "search",
+    "prepare",
+    "set",
+    "use",
+    "focus",
+    "confirm",
+    "cancel",
+    "yes",
+    "no",
+}
+_VOICE_WAKE_PREFIX_RE = re.compile(
+    r"^\s*(?:(?:hey|ok|okay)\s+)?jarvis(?:\s*[,:;.!-]\s*|\s+)",
+    flags=re.IGNORECASE,
+)
 
 
 def main() -> int:
@@ -66,10 +92,12 @@ def _handle_cli_command(
             return False, speak_enabled
 
         if lowered in {"voice", "/voice"}:
-            recognized_text = capture_voice_input()
-            print(f'recognized: "{recognized_text}"')
+            print("voice: listening... speak now.")
+            recognized_text = capture_voice_input(timeout_seconds=_VOICE_CAPTURE_TIMEOUT_SECONDS)
+            normalized_text = _normalize_voice_command(recognized_text)
+            print(f'recognized: "{normalized_text}"')
             _handle_runtime_input(
-                recognized_text,
+                normalized_text,
                 runtime_manager=runtime_manager,
                 session_context=session_context,
                 speak_enabled=speak_enabled,
@@ -212,6 +240,41 @@ def _spoken_message(result: RuntimeResult) -> str | None:
         return str(completion_result)
 
     return None
+
+
+def _normalize_voice_command(recognized_text: str) -> str:
+    """Keep one deterministic command from a noisy voice transcription."""
+    compact = " ".join(recognized_text.strip().split())
+    compact = _strip_voice_wake_prefix(compact)
+    if not compact:
+        return compact
+
+    tokens = compact.split(" ")
+    lowered = [token.lower() for token in tokens]
+
+    for index in range(1, len(tokens)):
+        if lowered[index] not in _VOICE_COMMAND_STARTERS:
+            continue
+
+        head = " ".join(tokens[:index]).strip()
+        tail = " ".join(tokens[index:]).strip()
+        if not head or not tail:
+            continue
+
+        if head.lower() == tail.lower():
+            return head
+
+        if lowered[index] == lowered[0]:
+            return head
+
+    return compact
+
+
+def _strip_voice_wake_prefix(text: str) -> str:
+    """Strip a small fixed wake-word prefix used in spoken commands."""
+    candidate = text.strip()
+    stripped = _VOICE_WAKE_PREFIX_RE.sub("", candidate, count=1).strip()
+    return stripped or candidate
 
 
 if __name__ == "__main__":

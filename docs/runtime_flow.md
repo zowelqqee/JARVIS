@@ -1,106 +1,132 @@
-# JARVIS Runtime Flow (MVP)
+# JARVIS Runtime Flow (Dual-Mode MVP)
 
 ## Purpose
-Define the end-to-end supervised runtime loop from user input to visible completion, failure, clarification, or confirmation boundary.
+Define the end-to-end supervised interaction loop from user input to visible completion, failure, clarification, confirmation boundary, or grounded answer.
 
-## Runtime Stages
+## Interaction Stages
 ### 1. Input intake
 - Input: user text input, or voice input converted to text first.
 - Output: `raw_input` string.
 - Blocking conditions: empty input.
-- Next transition: `parse command`.
+- Next transition: `route interaction`.
 
-### 2. Parse command
-- Input: `raw_input`, optional active session context.
+### 2. Route interaction
+- Input: `raw_input`, optional active blocked-state context, optional session context.
+- Output: routed interaction (`command`, `question`, or clarification requirement).
+- Blocking conditions: mixed request or unresolved routing ambiguity.
+- Next transition: `command branch`, `question branch`, or `clarify if needed`.
+
+### 3. Command branch: parse command
+- Input: routed command input, optional active session context.
 - Output: preliminary `Command`.
 - Blocking conditions: parse fails or intent unresolved.
 - Next transition: `validate command` or `clarify if needed`.
 
-### 3. Validate command
+### 4. Command branch: validate command
 - Input: preliminary `Command`.
 - Output: validated `Command` or clarification requirement.
 - Blocking conditions: low confidence, ambiguity, missing required parameters, unresolved target, unknown intent.
 - Next transition: `build execution plan` or `clarify if needed`.
 
-### 4. Clarify if needed
-- Input: clarification requirement and current blocked `Command`.
-- Output: updated command fields from user response.
+### 5. Clarify if needed
+- Input: clarification requirement and current blocked interaction state.
+- Output: updated command fields or clarified routing choice.
 - Blocking conditions: user response still unclear.
-- Next transition: `validate command` (resume from validation).
+- Next transition: `validate command`, `route interaction`, or cancellation.
 
-### 5. Build execution plan
+### 6. Command branch: build execution plan
 - Input: validated `Command`.
 - Output: ordered `execution_steps`, `status_message`, command-level and step-level confirmation gates.
 - Blocking conditions: planning cannot map intent/targets to supported steps.
 - Next transition: `execute steps` or `fail`.
 
-### 6. Execute steps
+### 7. Command branch: execute steps
 - Input: planned `Command` with `execution_steps`.
 - Output: step status updates (`pending` -> `executing` -> `done`/`failed`) and runtime progress.
 - Blocking conditions: step failure, runtime ambiguity, confirmation boundary reached.
 - Next transition: next step, `pause on confirmation boundary`, or `complete or fail`.
 
-### 7. Pause on confirmation boundary when required
+### 8. Pause on confirmation boundary when required
 - Input: command-level or step-level confirmation gate.
 - Output: blocked runtime state plus explicit confirmation request.
 - Blocking conditions: awaiting explicit user approval or denial.
 - Next transition: `execute steps` on approval, `cancelled` or `failed` on denial/cancel path.
 
-### 8. Complete or fail
-- Input: final step outcome or terminal error.
-- Output (complete): success result and final runtime state.
-- Output (fail): failed step id, reason, suggested next action.
-- Blocking conditions: none (terminal stage).
-- Next transition: `idle`.
+### 9. Question branch: build grounded answer
+- Input: routed question input, allowed grounded sources, optional session context, visible runtime state.
+- Output: `AnswerResult` or bounded answer failure.
+- Blocking conditions: unsupported question scope, insufficient grounding, or missing runtime context for status question.
+- Next transition: `return answer or fail`.
+
+### 10. Return answer or complete/fail
+- Output (question success): grounded answer with sources.
+- Output (command complete): success result and final runtime state.
+- Output (failure): explicit reason and suggested next action when available.
+- Blocking conditions: none (terminal stage for the current interaction).
+- Next transition: `idle` / ready for next input.
 
 ## Stage Details
 ### 1. Input intake
 - Receive user input as text.
-- If voice exists, convert to text before runtime flow.
+- If voice exists, convert to text before routing.
 - Output: `raw_input` string.
 
-### 2. Parse command
-- Convert raw input into a `Command` object.
+### 2. Route interaction
+- Determine whether input is a blocked-state reply, a fresh command, a fresh question, or an ambiguous mixed request.
+- Apply deterministic precedence before any command parsing or answer generation.
+
+### 3. Command branch: parse command
+- Convert command input into a `Command` object.
 - May use session context.
 - Output: preliminary `Command`.
 
-### 3. Validate command
+### 4. Command branch: validate command
 - Apply confidence, ambiguity, target, and parameter rules.
-- If invalid -> clarification.
+- If invalid -> clarification or failure.
 - If valid -> continue.
 
-### 4. Clarify if needed
-- Block execution.
+### 5. Clarify if needed
+- Block further progress.
 - Ask one minimal clarification question.
-- Update command from user response.
-- Resume from validation, not from scratch unless necessary.
+- Update blocked routing or command state from user response.
+- Resume from the blocked decision point, not from scratch unless necessary.
 
-### 5. Build execution plan
+### 6. Command branch: build execution plan
 - Produce ordered `execution_steps`.
 - Attach `status_message`.
 - Determine command-level and step-level confirmation gates.
 
-### 6. Execute steps
+### 7. Command branch: execute steps
 - Run sequentially.
 - Update visible step status.
 - Stop on failure, ambiguity, or confirmation boundary.
 
-### 7. Pause on confirmation boundary
-- Preserve runtime state.
+### 8. Pause on confirmation boundary
+- Preserve command runtime state.
 - Request explicit user approval.
 - Resume only after explicit user input.
 
-### 8. Complete or fail
-- Complete: report success and final state.
-- Fail: report exact failed step, reason, and suggested next action.
+### 9. Question branch: build grounded answer
+- Classify the supported question family.
+- Select the minimal grounded source set.
+- Build a read-only answer.
+- Return bounded failure instead of guessing when grounding is missing.
 
-## Runtime State Model
+### 10. Return answer or complete/fail
+- Question success: report answer and sources.
+- Command complete: report success and final state.
+- Failure: report exact reason and suggested next action when useful.
+
+## Command Runtime State Model
+The existing runtime state model remains command-specific.
+Question-answer mode does not create command execution steps and does not use command execution states as if work were running.
+
 ### idle
 - Entered when no active command exists.
 - Allowed transitions: `parsing`.
 
 ### parsing
-- Entered after input intake begins command handling.
+- Entered after routed command intake begins command handling.
 - Allowed transitions: `validating`, `awaiting_clarification`, `failed`.
 
 ### validating
@@ -108,7 +134,7 @@ Define the end-to-end supervised runtime loop from user input to visible complet
 - Allowed transitions: `planning`, `awaiting_clarification`, `failed`.
 
 ### awaiting_clarification
-- Entered when validation or runtime requires clarification.
+- Entered when routing, validation, or runtime requires clarification.
 - Allowed transitions: `validating`, `cancelled`.
 
 ### planning
@@ -132,52 +158,51 @@ Define the end-to-end supervised runtime loop from user input to visible complet
 - Allowed transitions: `idle`.
 
 ### cancelled
-- Entered when user cancels active flow.
+- Entered when user cancels active command flow.
 - Allowed transitions: `idle`.
 
-## Runtime Invariants
+## Interaction Invariants
+- blocked confirmation/clarification replies outrank fresh routing
 - only one active command at a time
 - only one active step at a time
 - no execution without validated command
 - no execution through ambiguity
 - no silent state transitions
-- no auto-resume after blocked state
-- no execution outside visible runtime flow
+- no answer may imply command execution occurred when it did not
+- no question answer may auto-resume blocked execution
+- no execution outside visible command runtime flow
 
 ## Resume Rules
-After clarification:
+After command clarification:
 - preserve current command and completed steps
 - update only blocked fields
-- resume at `validating`
+- resume at the blocked command decision point
 
-After confirmation:
+After command confirmation:
 - preserve current command and completed steps
 - resume from the blocked command/step boundary
 
-After interruption:
-- preserve current command, step index, completed steps, and block reason
-- resume from blocked point after explicit user input
+After interaction-routing clarification:
+- preserve only the information needed to choose command vs question
+- do not silently execute after an answer-oriented clarification unless command intent becomes explicit
 
 General rule:
-- do not restart full flow unless command structure changed materially
+- do not restart full command flow unless command structure changed materially
+- do not convert a question answer into command execution without explicit routed command input
 
 ## Cancellation Rules
-- user may cancel at any point
+- user may cancel an active command at any point
 - cancellation stops active execution immediately
 - completed steps remain recorded in current runtime state
 - no further steps run after cancellation
 - no implicit resume after cancellation
 
 ## User Visibility Rules
-Runtime-visible information must include:
-- current runtime state
-- current command summary
-- current step
-- completed steps
-- blocked reason if blocked
-- failure reason if failed
+Visible information must include either:
+- command runtime state, command summary, current step, completed steps, blocked/failure reason, or
+- question answer text, sources, and answer warning when applicable
 
-Runtime progress must remain visible to the user. No silent execution or invisible state mutation is allowed.
+No silent execution or invisible answer-source substitution is allowed.
 
 ## Constraints
 - No background continuation
@@ -185,3 +210,4 @@ Runtime progress must remain visible to the user. No silent execution or invisib
 - No multi-command execution
 - No autonomous branching
 - No invisible mutation of command scope
+- No hidden answer-triggered action
