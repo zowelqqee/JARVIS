@@ -76,9 +76,9 @@ Define the minimum runtime components required for JARVIS dual-mode MVP and the 
 
 ### 11. Answer Engine
 - Purpose: build grounded answers for question-mode inputs.
-- Input: routed question input, allowed sources, optional session context, visible runtime state.
+- Input: routed question input, allowed sources, optional session context, visible runtime state, and answer-backend configuration.
 - Output: `AnswerResult` containing answer text, sources, confidence, and optional warning.
-- Allowed to do: classify supported question families, select explicit sources, and return grounded read-only answers.
+- Allowed to do: select an internal answer backend, classify supported question families, select explicit sources, and return grounded read-only answers.
 - Must NOT do: execute actions, approve confirmations, create `Command` execution plans, or guess beyond allowed sources.
 
 ### 12. User Visibility Layer
@@ -120,7 +120,7 @@ The Confirmation Gate is a hard command boundary. At command-level or step-level
 The Command Runtime State Manager is the source of truth for command execution state. Question-answer mode may read that state through allowed interfaces, but it must not force command state transitions or silently resume blocked execution.
 
 ### Answer Engine
-The Answer Engine builds grounded read-only answers. It may use docs, structured capability metadata, current runtime visibility, and session context. It must return bounded failures when grounding is missing or the question is out of scope.
+The Answer Engine builds grounded read-only answers. It may use docs, structured capability metadata, current runtime visibility, and session context. In v1 it may use a deterministic backend only. Future versions may add an LLM-backed backend behind the same `Answer Engine` contract, but routing, grounding, and safety policy must remain outside the backend. The Answer Engine must return bounded failures when grounding is missing or the question is out of scope.
 
 ### User Visibility Layer
 The User Visibility Layer must continuously publish either:
@@ -164,6 +164,7 @@ Flow rules:
 - Context storage and decision logic must remain separate.
 - Visibility/reporting must not directly control execution.
 - `Command` must remain action-only and must not absorb question-answer semantics.
+- Any future LLM backend must remain an implementation detail of `Answer Engine`, not a new top-level authority.
 
 Overlap is not allowed because it creates hidden behavior, weakens blocking guarantees, and breaks deterministic supervised interaction.
 

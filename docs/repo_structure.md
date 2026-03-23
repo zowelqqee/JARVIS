@@ -55,7 +55,7 @@ Define the minimal codebase structure required to implement the supervised dual-
 
 ### `qa/`
 - Purpose: build grounded answers for question-mode inputs.
-- Owns: question classification, source selection, capability catalog access, and answer generation.
+- Owns: question classification, source selection, capability catalog access, backend selection, and answer generation.
 - Must not own: desktop execution, confirmation control, or command planning.
 
 ### `runtime/`
@@ -110,7 +110,12 @@ Define the minimal codebase structure required to implement the supervised dual-
 
 ### `qa/`
 - `answer_engine.py`
+- `answer_backend.py`
+- `deterministic_backend.py`
 - `capability_catalog.py`
+
+Future-ready note:
+- `llm_backend.py` may be added later behind the same `answer_backend.py` seam when model-backed answering is introduced.
 
 ### `runtime/`
 - `runtime_manager.py`
@@ -190,6 +195,7 @@ Interface responsibilities:
 - `execute_step`: run one step and return one `ActionResult`.
 - `request_confirmation`: return `approved`, `denied`, or `pending`; never auto-approve.
 - `answer_question`: return a grounded read-only `AnswerResult`.
+- answer backend selection is an internal QA concern and must not leak into routing contracts.
 - `transition_runtime`: enforce legal command runtime state transitions only.
 - `handle_interaction`: orchestrate top-level dual-mode handling.
 
@@ -218,6 +224,8 @@ All shared types must live in `types/` and remain free of UI-only logic.
 - Parser cannot absorb question-answer logic.
 - Executor cannot mutate parser output shape.
 - QA modules cannot call planner or executor.
+- A future LLM backend may call an external model API only through the QA boundary.
+- A future LLM backend must not own routing, source selection policy, or execution authority.
 - UI cannot control execution directly.
 - Runtime manager is the only source of truth for active command runtime state.
 - Interaction manager is the only source of truth for top-level command-vs-question dispatch.

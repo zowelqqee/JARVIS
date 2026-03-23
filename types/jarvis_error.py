@@ -12,6 +12,7 @@ class ErrorCategory(str, Enum):
 
     INPUT_ERROR = "INPUT_ERROR"
     VALIDATION_ERROR = "VALIDATION_ERROR"
+    ANSWER_ERROR = "ANSWER_ERROR"
     CLARIFICATION_BLOCK = "CLARIFICATION_BLOCK"
     CONFIRMATION_BLOCK = "CONFIRMATION_BLOCK"
     EXECUTION_ERROR = "EXECUTION_ERROR"
@@ -31,6 +32,12 @@ class ErrorCode(str, Enum):
     MULTIPLE_MATCHES = "MULTIPLE_MATCHES"
     UNSUPPORTED_TARGET = "UNSUPPORTED_TARGET"
     UNSUPPORTED_ACTION = "UNSUPPORTED_ACTION"
+    UNSUPPORTED_QUESTION = "UNSUPPORTED_QUESTION"
+    SOURCE_NOT_AVAILABLE = "SOURCE_NOT_AVAILABLE"
+    INSUFFICIENT_CONTEXT = "INSUFFICIENT_CONTEXT"
+    MODEL_BACKEND_UNAVAILABLE = "MODEL_BACKEND_UNAVAILABLE"
+    ANSWER_NOT_GROUNDED = "ANSWER_NOT_GROUNDED"
+    ANSWER_GENERATION_FAILED = "ANSWER_GENERATION_FAILED"
     CLARIFICATION_REQUIRED = "CLARIFICATION_REQUIRED"
     FOLLOWUP_REFERENCE_UNCLEAR = "FOLLOWUP_REFERENCE_UNCLEAR"
     CONFIRMATION_REQUIRED = "CONFIRMATION_REQUIRED"
@@ -49,7 +56,7 @@ class ErrorCode(str, Enum):
 
 
 @dataclass(slots=True)
-class JarvisError:
+class JarvisError(Exception):
     """Unified error object used across MVP runtime modules."""
 
     category: ErrorCategory
@@ -59,3 +66,5 @@ class JarvisError:
     blocking: bool = False
     terminal: bool = False
 
+    def __post_init__(self) -> None:
+        Exception.__init__(self, self.message)

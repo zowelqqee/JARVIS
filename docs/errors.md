@@ -75,6 +75,7 @@ Rules:
 - `UNSUPPORTED_QUESTION`: question is outside supported grounded QA scope.
 - `SOURCE_NOT_AVAILABLE`: the required grounding source is unavailable.
 - `INSUFFICIENT_CONTEXT`: current runtime/session context is insufficient for the requested answer.
+- `MODEL_BACKEND_UNAVAILABLE`: the configured model-backed answer backend is unavailable or disabled.
 - `ANSWER_NOT_GROUNDED`: a candidate answer could not be supported by allowed sources.
 - `ANSWER_GENERATION_FAILED`: answer building failed without a valid grounded result.
 

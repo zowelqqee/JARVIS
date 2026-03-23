@@ -81,6 +81,11 @@ It may answer only from grounded sources such as:
 - current runtime state
 - active session context
 
+Architecture rule:
+- v1 may use deterministic answer generation only
+- future versions may add a model-backed answer backend behind the same answer contract
+- backend choice must not change routing, confirmation, grounding, or execution boundaries
+
 Question-answer mode must not:
 - execute actions
 - imply confirmation

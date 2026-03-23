@@ -86,6 +86,26 @@ Not allowed:
 - silent external lookups
 - fabricated sources
 
+## Backend Strategy
+Question-answer mode should be built around one stable `Answer Engine` contract with replaceable internal backends.
+
+Recommended shape:
+- v1 backend: deterministic, rules/templates plus explicit source selection
+- future backend: model-backed `llm` backend for more flexible answer wording and synthesis
+
+Hard rules:
+- routing into `question` vs `command` must happen before backend selection
+- source selection and grounding policy must happen before answer generation
+- backend choice must not change safety policy
+- no backend may create `Command` objects or `execution_steps`
+- no backend may approve confirmation or resume blocked execution
+
+Future-ready rule:
+- a later LLM backend may use an external model API such as OpenAI Responses API, but only behind the `Answer Engine` seam
+- the selected model must stay configurable, so a lower-latency model can be swapped without changing routing or visibility contracts
+- the LLM backend should receive explicit source bundles and answer instructions, not raw unrestricted authority over the session
+- if the LLM backend is unavailable or returns an ungrounded answer, the system must fall back to deterministic answering or fail honestly
+
 ## Question Contract
 Suggested internal request shape:
 

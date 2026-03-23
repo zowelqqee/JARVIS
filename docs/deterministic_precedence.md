@@ -68,8 +68,9 @@ Question-answer failures route in this order:
 1. unsupported question scope -> `UNSUPPORTED_QUESTION`
 2. missing required source -> `SOURCE_NOT_AVAILABLE`
 3. insufficient runtime/session context -> `INSUFFICIENT_CONTEXT`
-4. candidate answer lacks support -> `ANSWER_NOT_GROUNDED`
-5. answer build failure -> `ANSWER_GENERATION_FAILED`
+4. configured model backend unavailable -> `MODEL_BACKEND_UNAVAILABLE`
+5. candidate answer lacks support -> `ANSWER_NOT_GROUNDED`
+6. answer build failure -> `ANSWER_GENERATION_FAILED`
 
 Rules:
 - answer failures are terminal for the current question
