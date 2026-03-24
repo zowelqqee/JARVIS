@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import sys
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, TypedDict
 
@@ -12,6 +13,12 @@ if TYPE_CHECKING:
     from types.jarvis_error import JarvisError
     from types.runtime_state import RuntimeState
     from types.step import Step
+
+_TYPES_PATH = Path(__file__).resolve().parents[1] / "types"
+if str(_TYPES_PATH) not in sys.path:
+    sys.path.insert(0, str(_TYPES_PATH))
+
+from interaction_kind import InteractionKind, interaction_kind_value  # type: ignore  # noqa: E402
 
 
 class VisibilityPayload(TypedDict, total=False):
@@ -30,6 +37,29 @@ class VisibilityPayload(TypedDict, total=False):
     search_results: dict[str, Any] | None
     window_results: dict[str, Any] | None
     can_cancel: bool
+
+
+class InteractionVisibilityPayload(TypedDict, total=False):
+    """Minimal user-visible payload shape for top-level dual-mode interactions."""
+
+    interaction_mode: str
+    runtime_state: str
+    command_summary: str | None
+    current_step: str | None
+    completed_steps: list[str]
+    blocked_reason: str | None
+    clarification_question: str | None
+    confirmation_request: dict[str, Any] | None
+    failure_message: str | None
+    completion_result: str | None
+    next_step_hint: str | None
+    search_results: dict[str, Any] | None
+    window_results: dict[str, Any] | None
+    can_cancel: bool
+    answer_text: str | None
+    answer_sources: list[str]
+    answer_source_attributions: list[dict[str, str]]
+    answer_warning: str | None
 
 
 _CANCEL_ENABLED_STATES: set[str] = {
@@ -126,8 +156,79 @@ def map_visibility(
     return _prune_optional_none_fields(payload)
 
 
+def map_interaction_visibility(
+    *,
+    interaction_mode: InteractionKind | str,
+    runtime_result: Any | None = None,
+    answer_result: Any | None = None,
+    clarification_request: Any | None = None,
+    error: Any | None = None,
+) -> InteractionVisibilityPayload:
+    """Map a top-level command/question/clarification result into a unified visible payload."""
+    mode_text = interaction_kind_value(interaction_mode).strip()
+    if mode_text == InteractionKind.COMMAND.value:
+        runtime_visibility = dict(getattr(runtime_result, "visibility", {}) or {})
+        payload: InteractionVisibilityPayload = {
+            "interaction_mode": InteractionKind.COMMAND.value,
+            "runtime_state": str(runtime_visibility.get("runtime_state", getattr(runtime_result, "runtime_state", "idle"))),
+            "command_summary": runtime_visibility.get("command_summary"),
+            "current_step": runtime_visibility.get("current_step"),
+            "completed_steps": list(runtime_visibility.get("completed_steps", []) or []),
+            "blocked_reason": runtime_visibility.get("blocked_reason"),
+            "clarification_question": runtime_visibility.get("clarification_question"),
+            "confirmation_request": runtime_visibility.get("confirmation_request"),
+            "failure_message": runtime_visibility.get("failure_message"),
+            "completion_result": runtime_visibility.get("completion_result"),
+            "next_step_hint": runtime_visibility.get("next_step_hint"),
+            "search_results": runtime_visibility.get("search_results"),
+            "window_results": runtime_visibility.get("window_results"),
+            "can_cancel": bool(runtime_visibility.get("can_cancel", False)),
+        }
+        return _prune_interaction_optional_none_fields(payload)
+
+    if mode_text == InteractionKind.QUESTION.value:
+        answer_sources = list(getattr(answer_result, "sources", []) or [])
+        source_attributions = _answer_source_attributions(answer_result)
+        warning = str(getattr(answer_result, "warning", "") or "").strip() or None
+        answer_text = str(getattr(answer_result, "answer_text", "") or "").strip() or None
+        payload = {
+            "interaction_mode": InteractionKind.QUESTION.value,
+            "can_cancel": False,
+            "answer_text": answer_text,
+            "answer_sources": answer_sources,
+            "answer_source_attributions": source_attributions,
+            "answer_warning": warning,
+            "failure_message": _interaction_failure_message(error) if error is not None else None,
+        }
+        return _prune_interaction_optional_none_fields(payload)
+
+    clarification_message = str(getattr(clarification_request, "message", "") or "").strip() or None
+    payload = {
+        "interaction_mode": InteractionKind.CLARIFICATION.value,
+        "can_cancel": False,
+        "blocked_reason": clarification_message,
+        "clarification_question": clarification_message,
+        "failure_message": _interaction_failure_message(error) if error is not None else None,
+    }
+    return _prune_interaction_optional_none_fields(payload)
+
+
 def _state_value(state: RuntimeState | str) -> str:
     return str(getattr(state, "value", state))
+
+
+def _answer_source_attributions(answer_result: Any | None) -> list[dict[str, str]]:
+    result: list[dict[str, str]] = []
+    for attribution in list(getattr(answer_result, "source_attributions", []) or []):
+        if isinstance(attribution, dict):
+            source = str(attribution.get("source", "") or "").strip()
+            support = str(attribution.get("support", "") or "").strip()
+        else:
+            source = str(getattr(attribution, "source", "") or "").strip()
+            support = str(getattr(attribution, "support", "") or "").strip()
+        if source and support:
+            result.append({"source": source, "support": support})
+    return result
 
 
 def _intent_value(intent: Any) -> str:
@@ -779,3 +880,36 @@ def _prune_optional_none_fields(payload: VisibilityPayload) -> VisibilityPayload
         if payload.get(key) is None:
             payload.pop(key, None)
     return payload
+
+
+def _prune_interaction_optional_none_fields(payload: InteractionVisibilityPayload) -> InteractionVisibilityPayload:
+    optional_fields = (
+        "command_summary",
+        "current_step",
+        "blocked_reason",
+        "clarification_question",
+        "confirmation_request",
+        "failure_message",
+        "completion_result",
+        "search_results",
+        "window_results",
+        "next_step_hint",
+        "answer_text",
+        "answer_warning",
+    )
+    for key in optional_fields:
+        if payload.get(key) is None:
+            payload.pop(key, None)
+    if not payload.get("answer_sources"):
+        payload.pop("answer_sources", None)
+    return payload
+
+
+def _interaction_failure_message(error: Any | None) -> str | None:
+    if error is None:
+        return None
+    code = str(getattr(getattr(error, "code", ""), "value", getattr(error, "code", ""))).strip()
+    message = str(getattr(error, "message", "")).strip()
+    if code and message:
+        return f"{code}: {message}"
+    return message or code or None

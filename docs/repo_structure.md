@@ -78,6 +78,11 @@ Define the minimal codebase structure required to implement the supervised dual-
 - Owns: contract documents.
 - Must not own: runtime implementation code.
 
+### `scripts/`
+- Purpose: hold local developer wrappers for manual smoke checks and repeated operational commands.
+- Owns: convenience entrypoints only.
+- Must not own: runtime logic, routing policy, or answer-generation rules.
+
 ## Required Files Per Module
 ### `input/`
 - `adapter.py`
@@ -111,11 +116,18 @@ Define the minimal codebase structure required to implement the supervised dual-
 ### `qa/`
 - `answer_engine.py`
 - `answer_backend.py`
+- `answer_config.py`
 - `deterministic_backend.py`
+- `grounding.py`
+- `grounding_verifier.py`
 - `capability_catalog.py`
+- `llm_backend.py`
+- `llm_provider.py`
+- `openai_responses_provider.py`
+- `openai_responses_transport.py`
 
 Future-ready note:
-- `llm_backend.py` may be added later behind the same `answer_backend.py` seam when model-backed answering is introduced.
+- `llm_backend.py` stays disabled by default in v1 and exists only behind the same `answer_backend.py` seam.
 
 ### `runtime/`
 - `runtime_manager.py`
@@ -130,6 +142,7 @@ Future-ready note:
 - `step.py`
 - `action_result.py`
 - `jarvis_error.py`
+- `interaction_kind.py`
 - `runtime_state.py`
 - `clarification_request.py`
 - `confirmation_request.py`
@@ -152,6 +165,9 @@ Future-ready note:
 - `use_cases.md`
 - `repo_structure.md`
 
+### `scripts/`
+- `run_openai_live_smoke.sh`
+
 ## Component-to-Module Mapping
 | Runtime / Interaction Component | Module | File |
 | --- | --- | --- |
@@ -164,7 +180,7 @@ Future-ready note:
 | Execution Planner | `planner/` | `execution_planner.py` |
 | Desktop Executor | `executor/` | `desktop_executor.py` |
 | Confirmation Gate | `confirmation/` | `confirmation_gate.py` |
-| Answer Engine | `qa/` | `answer_engine.py` |
+| Answer Engine | `qa/` | `answer_engine.py`, `grounding.py`, `grounding_verifier.py`, `answer_config.py` |
 | Command Runtime State Manager | `runtime/` | `runtime_manager.py`, `state_machine.py` |
 | User Visibility Layer | `ui/` | `visibility_mapper.py` |
 
@@ -180,7 +196,7 @@ apply_clarification(command_or_input, user_reply) -> Command | string
 build_execution_plan(command) -> PlannedCommand
 execute_step(step) -> ActionResult
 request_confirmation(boundary) -> ConfirmationResult
-answer_question(raw_input_or_question_request, session_context, runtime_snapshot) -> AnswerResult
+answer_question(raw_input_or_question_request, session_context, runtime_snapshot, backend_config?) -> AnswerResult
 transition_runtime(state, event) -> RuntimeState
 handle_interaction(raw_input, session_context) -> InteractionResult
 ```
@@ -196,6 +212,8 @@ Interface responsibilities:
 - `request_confirmation`: return `approved`, `denied`, or `pending`; never auto-approve.
 - `answer_question`: return a grounded read-only `AnswerResult`.
 - answer backend selection is an internal QA concern and must not leak into routing contracts.
+- grounding bundle selection and provider-specific request building remain internal QA concerns and must not leak into routing contracts.
+- shared grounding verification and source-attribution policy remain internal QA concerns and must not leak into routing contracts.
 - `transition_runtime`: enforce legal command runtime state transitions only.
 - `handle_interaction`: orchestrate top-level dual-mode handling.
 

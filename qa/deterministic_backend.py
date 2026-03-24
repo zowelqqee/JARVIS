@@ -11,6 +11,8 @@ from qa.capability_catalog import MAJOR_LIMITS, SAFE_ACTIONS, SENSITIVE_ACTIONS,
 
 if TYPE_CHECKING:
     from context.session_context import SessionContext
+    from qa.answer_config import AnswerBackendConfig
+    from qa.grounding import GroundingBundle
     from types.answer_result import AnswerResult
     from types.question_request import QuestionRequest
 
@@ -35,21 +37,28 @@ class DeterministicAnswerBackend:
         *,
         session_context: SessionContext | None = None,
         runtime_snapshot: dict[str, Any] | None = None,
+        grounding_bundle: GroundingBundle | None = None,
+        config: AnswerBackendConfig | None = None,
     ) -> AnswerResult:
         question_type = getattr(question, "question_type", None)
         if question_type == QuestionType.CAPABILITIES:
-            return self._capability_answer()
+            return self._capability_answer(grounding_bundle)
         if question_type == QuestionType.RUNTIME_STATUS:
-            return self._runtime_status_answer(question, session_context=session_context, runtime_snapshot=runtime_snapshot)
+            return self._runtime_status_answer(
+                question,
+                session_context=session_context,
+                runtime_snapshot=runtime_snapshot,
+                grounding_bundle=grounding_bundle,
+            )
         if question_type == QuestionType.DOCS_RULES:
-            return self._docs_rule_answer(question)
+            return self._docs_rule_answer(question, grounding_bundle=grounding_bundle)
         if question_type == QuestionType.REPO_STRUCTURE:
-            return self._repo_structure_answer(question)
+            return self._repo_structure_answer(question, grounding_bundle=grounding_bundle)
         if question_type == QuestionType.SAFETY_EXPLANATIONS:
-            return self._safety_answer(question, runtime_snapshot=runtime_snapshot)
+            return self._safety_answer(question, runtime_snapshot=runtime_snapshot, grounding_bundle=grounding_bundle)
         raise self._answer_error(ErrorCode.UNSUPPORTED_QUESTION, "Question type is not supported by the deterministic backend.")
 
-    def _capability_answer(self) -> AnswerResult:
+    def _capability_answer(self, grounding_bundle: GroundingBundle | None) -> AnswerResult:
         supported_intents = ", ".join(entry["intent"] for entry in SUPPORTED_COMMANDS)
         qa_scopes = ", ".join(SUPPORTED_QUESTION_FAMILIES)
         safe_actions = ", ".join(SAFE_ACTIONS)
@@ -63,12 +72,15 @@ class DeterministicAnswerBackend:
                 f"Question mode currently covers {qa_scopes}. "
                 f"Key limits: {limits}."
             ),
-            sources=[
-                self._source("qa/capability_catalog.py"),
-                self._source("docs/product_rules.md"),
-                self._source("docs/question_answer_mode.md"),
-                self._source("docs/command_model.md"),
-            ],
+            sources=self._sources(
+                grounding_bundle,
+                [
+                    self._source("qa/capability_catalog.py"),
+                    self._source("docs/product_rules.md"),
+                    self._source("docs/question_answer_mode.md"),
+                    self._source("docs/command_model.md"),
+                ],
+            ),
             confidence=0.96,
         )
 
@@ -78,6 +90,7 @@ class DeterministicAnswerBackend:
         *,
         session_context: SessionContext | None,
         runtime_snapshot: dict[str, Any] | None,
+        grounding_bundle: GroundingBundle | None,
     ) -> AnswerResult:
         snapshot = dict(runtime_snapshot or {})
         state = str(snapshot.get("runtime_state", "")).strip()
@@ -91,10 +104,13 @@ class DeterministicAnswerBackend:
             if folder_context:
                 return AnswerResult(
                     answer_text=f"The current recent workspace or folder context is {folder_context}.",
-                    sources=[
-                        self._source("docs/session_context.md"),
-                        self._source("context/session_context.py"),
-                    ],
+                    sources=self._sources(
+                        grounding_bundle,
+                        [
+                            self._source("docs/session_context.md"),
+                            self._source("context/session_context.py"),
+                        ],
+                    ),
                     confidence=0.9,
                 )
 
@@ -102,12 +118,12 @@ class DeterministicAnswerBackend:
             if command_summary:
                 return AnswerResult(
                     answer_text=f"The last visible command context is {command_summary}, but nothing is actively executing right now.",
-                    sources=[self._source("docs/runtime_flow.md")],
+                    sources=self._sources(grounding_bundle, [self._source("docs/runtime_flow.md")]),
                     confidence=0.88,
                 )
             return AnswerResult(
                 answer_text="No active command is running right now.",
-                sources=[self._source("docs/runtime_flow.md")],
+                sources=self._sources(grounding_bundle, [self._source("docs/runtime_flow.md")]),
                 confidence=0.97,
             )
 
@@ -120,11 +136,14 @@ class DeterministicAnswerBackend:
             parts.append(f"Blocked on: {blocked_reason}.")
         return AnswerResult(
             answer_text=" ".join(parts),
-            sources=[self._source("docs/runtime_flow.md"), self._source("docs/session_context.md")],
+            sources=self._sources(
+                grounding_bundle,
+                [self._source("docs/runtime_flow.md"), self._source("docs/session_context.md")],
+            ),
             confidence=0.93,
         )
 
-    def _docs_rule_answer(self, question: QuestionRequest) -> AnswerResult:
+    def _docs_rule_answer(self, question: QuestionRequest, *, grounding_bundle: GroundingBundle | None) -> AnswerResult:
         lowered = str(getattr(question, "raw_input", "")).lower()
         if "clarification" in lowered:
             return AnswerResult(
@@ -132,7 +151,10 @@ class DeterministicAnswerBackend:
                     "Clarification is a hard boundary. JARVIS asks one minimal question only when ambiguity, missing data, low confidence, "
                     "or routing ambiguity blocks safe progress."
                 ),
-                sources=[self._source("docs/clarification_rules.md"), self._source("docs/runtime_flow.md")],
+                sources=self._sources(
+                    grounding_bundle,
+                    [self._source("docs/clarification_rules.md"), self._source("docs/runtime_flow.md")],
+                ),
                 confidence=0.95,
             )
         if "confirmation" in lowered:
@@ -141,7 +163,10 @@ class DeterministicAnswerBackend:
                     "Confirmation is required before sensitive command actions. JARVIS pauses at the command or step boundary and resumes only "
                     "after explicit approval."
                 ),
-                sources=[self._source("docs/product_rules.md"), self._source("docs/runtime_flow.md")],
+                sources=self._sources(
+                    grounding_bundle,
+                    [self._source("docs/product_rules.md"), self._source("docs/runtime_flow.md")],
+                ),
                 confidence=0.94,
             )
         if "session context" in lowered:
@@ -150,7 +175,7 @@ class DeterministicAnswerBackend:
                     "Session context is short-lived state for the active supervised session. It keeps recent targets, execution state, and other "
                     "narrow context needed for follow-ups and grounded status answers."
                 ),
-                sources=[self._source("docs/session_context.md")],
+                sources=self._sources(grounding_bundle, [self._source("docs/session_context.md")]),
                 confidence=0.95,
             )
         if "runtime" in lowered or "state" in lowered:
@@ -159,12 +184,15 @@ class DeterministicAnswerBackend:
                     "Command runtime flows through parsing, validating, planning, executing, and blocked terminal states. Question mode stays outside "
                     "the command execution state machine and returns a read-only answer."
                 ),
-                sources=[self._source("docs/runtime_flow.md"), self._source("docs/runtime_components.md")],
+                sources=self._sources(
+                    grounding_bundle,
+                    [self._source("docs/runtime_flow.md"), self._source("docs/runtime_components.md")],
+                ),
                 confidence=0.92,
             )
         raise self._answer_error(ErrorCode.UNSUPPORTED_QUESTION, "Docs question is outside the deterministic v1 rule set.")
 
-    def _repo_structure_answer(self, question: QuestionRequest) -> AnswerResult:
+    def _repo_structure_answer(self, question: QuestionRequest, *, grounding_bundle: GroundingBundle | None) -> AnswerResult:
         lowered = str(getattr(question, "raw_input", "")).lower()
         mappings: tuple[tuple[tuple[str, ...], str, list[str]], ...] = (
             (
@@ -205,10 +233,16 @@ class DeterministicAnswerBackend:
         )
         for keywords, answer_text, sources in mappings:
             if any(keyword in lowered for keyword in keywords):
-                return AnswerResult(answer_text=answer_text, sources=sources, confidence=0.92)
+                return AnswerResult(answer_text=answer_text, sources=self._sources(grounding_bundle, sources), confidence=0.92)
         raise self._answer_error(ErrorCode.UNSUPPORTED_QUESTION, "Repo-structure question is outside the deterministic v1 rule set.")
 
-    def _safety_answer(self, question: QuestionRequest, *, runtime_snapshot: dict[str, Any] | None) -> AnswerResult:
+    def _safety_answer(
+        self,
+        question: QuestionRequest,
+        *,
+        runtime_snapshot: dict[str, Any] | None,
+        grounding_bundle: GroundingBundle | None,
+    ) -> AnswerResult:
         lowered = str(getattr(question, "raw_input", "")).lower()
         blocked_reason = str((runtime_snapshot or {}).get("blocked_reason", "")).strip() or None
         if "confirmation" in lowered:
@@ -219,14 +253,20 @@ class DeterministicAnswerBackend:
                     "before continuing."
                     f"{suffix}"
                 ),
-                sources=[self._source("docs/product_rules.md"), self._source("docs/runtime_flow.md")],
+                sources=self._sources(
+                    grounding_bundle,
+                    [self._source("docs/product_rules.md"), self._source("docs/runtime_flow.md")],
+                ),
                 confidence=0.94,
             )
         if "execute" in lowered or "blocked" in lowered or blocked_reason:
             reason_text = blocked_reason or "the current state requires clarification, confirmation, or a valid target before execution can continue"
             return AnswerResult(
                 answer_text=f"Execution did not continue because {reason_text}. JARVIS stops on ambiguity, missing data, and confirmation boundaries.",
-                sources=[self._source("docs/product_rules.md"), self._source("docs/clarification_rules.md"), self._source("docs/runtime_flow.md")],
+                sources=self._sources(
+                    grounding_bundle,
+                    [self._source("docs/product_rules.md"), self._source("docs/clarification_rules.md"), self._source("docs/runtime_flow.md")],
+                ),
                 confidence=0.91,
             )
         raise self._answer_error(ErrorCode.UNSUPPORTED_QUESTION, "Safety question is outside the deterministic v1 rule set.")
@@ -243,3 +283,8 @@ class DeterministicAnswerBackend:
 
     def _source(self, relative_path: str) -> str:
         return str(Path(__file__).resolve().parents[1] / relative_path)
+
+    def _sources(self, grounding_bundle: GroundingBundle | None, fallback_sources: list[str]) -> list[str]:
+        if grounding_bundle is not None and grounding_bundle.source_paths:
+            return list(grounding_bundle.source_paths)
+        return fallback_sources

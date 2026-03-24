@@ -7,6 +7,8 @@ from typing import TYPE_CHECKING, Any, Protocol
 
 if TYPE_CHECKING:
     from context.session_context import SessionContext
+    from qa.answer_config import AnswerBackendConfig
+    from qa.grounding import GroundingBundle
     from types.answer_result import AnswerResult
     from types.question_request import QuestionRequest
 
@@ -29,5 +31,7 @@ class AnswerBackend(Protocol):
         *,
         session_context: SessionContext | None = None,
         runtime_snapshot: dict[str, Any] | None = None,
+        grounding_bundle: GroundingBundle | None = None,
+        config: AnswerBackendConfig | None = None,
     ) -> AnswerResult:
         """Return a grounded answer or raise a structured JarvisError."""

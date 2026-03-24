@@ -7,7 +7,9 @@ import subprocess
 
 from context.session_context import SessionContext
 from input.voice_input import VoiceInputError, capture_voice_input
-from runtime.runtime_manager import RuntimeManager, RuntimeResult
+from interaction.interaction_manager import InteractionManager
+from runtime.runtime_manager import RuntimeManager
+from ui.interaction_presenter import interaction_output_lines, interaction_speech_message
 
 _VOICE_CAPTURE_TIMEOUT_SECONDS = 7.0
 _VOICE_COMMAND_STARTERS = {
@@ -28,6 +30,15 @@ _VOICE_COMMAND_STARTERS = {
     "cancel",
     "yes",
     "no",
+    "what",
+    "how",
+    "why",
+    "which",
+    "where",
+    "when",
+    "who",
+    "explain",
+    "help",
 }
 _VOICE_WAKE_PREFIX_RE = re.compile(
     r"^\s*(?:(?:hey|ok|okay)\s+)?jarvis(?:\s*[,:;.!-]\s*|\s+)",
@@ -38,6 +49,7 @@ _VOICE_WAKE_PREFIX_RE = re.compile(
 def main() -> int:
     """Run a small REPL over the current supervised runtime."""
     runtime_manager = RuntimeManager()
+    interaction_manager = InteractionManager(runtime_manager=runtime_manager)
     session_context = SessionContext()
     speak_enabled = False
 
@@ -57,6 +69,7 @@ def main() -> int:
         should_exit, speak_enabled = _handle_cli_command(
             raw_input,
             runtime_manager=runtime_manager,
+            interaction_manager=interaction_manager,
             session_context=session_context,
             speak_enabled=speak_enabled,
         )
@@ -69,6 +82,7 @@ def _handle_cli_command(
     runtime_manager: RuntimeManager,
     session_context: SessionContext,
     speak_enabled: bool,
+    interaction_manager: InteractionManager | None = None,
 ) -> tuple[bool, bool]:
     """Handle one CLI command and return exit intent plus updated speech mode."""
     try:
@@ -86,7 +100,8 @@ def _handle_cli_command(
             return False, speak_enabled
 
         if lowered in {"reset", "/reset"}:
-            runtime_manager.clear_runtime()
+            active_runtime_manager = interaction_manager.runtime_manager if interaction_manager is not None else runtime_manager
+            active_runtime_manager.clear_runtime()
             session_context.clear_expired_or_resettable_context(preserve_recent_context=False)
             print("Runtime reset.")
             return False, speak_enabled
@@ -96,12 +111,21 @@ def _handle_cli_command(
             recognized_text = capture_voice_input(timeout_seconds=_VOICE_CAPTURE_TIMEOUT_SECONDS)
             normalized_text = _normalize_voice_command(recognized_text)
             print(f'recognized: "{normalized_text}"')
-            _handle_runtime_input(
-                normalized_text,
-                runtime_manager=runtime_manager,
-                session_context=session_context,
-                speak_enabled=speak_enabled,
-            )
+            if interaction_manager is None:
+                _handle_runtime_input(
+                    normalized_text,
+                    runtime_manager=runtime_manager,
+                    session_context=session_context,
+                    speak_enabled=speak_enabled,
+                )
+            else:
+                _handle_runtime_input(
+                    normalized_text,
+                    runtime_manager=runtime_manager,
+                    interaction_manager=interaction_manager,
+                    session_context=session_context,
+                    speak_enabled=speak_enabled,
+                )
             return False, speak_enabled
 
         if lowered in {"speak on", "/speak on", "speak off", "/speak off"}:
@@ -109,12 +133,21 @@ def _handle_cli_command(
             print(f"Speech output {'enabled' if updated_speak_enabled else 'disabled'}.")
             return False, updated_speak_enabled
 
-        _handle_runtime_input(
-            raw_input,
-            runtime_manager=runtime_manager,
-            session_context=session_context,
-            speak_enabled=speak_enabled,
-        )
+        if interaction_manager is None:
+            _handle_runtime_input(
+                raw_input,
+                runtime_manager=runtime_manager,
+                session_context=session_context,
+                speak_enabled=speak_enabled,
+            )
+        else:
+            _handle_runtime_input(
+                raw_input,
+                runtime_manager=runtime_manager,
+                interaction_manager=interaction_manager,
+                session_context=session_context,
+                speak_enabled=speak_enabled,
+            )
         return False, speak_enabled
     except KeyboardInterrupt:
         print()
@@ -151,63 +184,21 @@ def _handle_runtime_input(
     runtime_manager: RuntimeManager,
     session_context: SessionContext,
     speak_enabled: bool,
+    interaction_manager: InteractionManager | None = None,
 ) -> None:
-    """Run one text input through the runtime and print the visible result."""
-    result = runtime_manager.handle_input(raw_input, session_context=session_context)
-    _print_result(result)
+    """Run one text input through the dual-mode interaction layer and print the visible result."""
+    active_interaction_manager = interaction_manager or InteractionManager(runtime_manager=runtime_manager)
+    result = active_interaction_manager.handle_input(raw_input, session_context=session_context)
+    for line in interaction_output_lines(result):
+        print(line)
     if speak_enabled:
-        _speak_runtime_result(result)
+        _speak_message(interaction_speech_message(result))
 
 
-def _print_result(result: RuntimeResult) -> None:
-    """Print a compact user-facing runtime summary."""
-    visibility = result.visibility
-    runtime_state = visibility.get("runtime_state") or result.runtime_state
-
-    print(f"state: {runtime_state}")
-
-    command_summary = visibility.get("command_summary")
-    if command_summary:
-        print(f"command: {command_summary}")
-
-    current_step = visibility.get("current_step")
-    if current_step:
-        print(f"current: {current_step}")
-
-    completed_steps = visibility.get("completed_steps") or []
-    if completed_steps:
-        print(f"done: {', '.join(completed_steps)}")
-
-    blocked_reason = visibility.get("blocked_reason")
-    clarification_question = visibility.get("clarification_question")
-    confirmation_request = visibility.get("confirmation_request")
-
-    if blocked_reason and blocked_reason != clarification_question and (
-        not confirmation_request or blocked_reason != confirmation_request.get("message")
-    ):
-        print(f"blocked: {blocked_reason}")
-
-    if clarification_question:
-        print(f"clarify: {clarification_question}")
-
-    if confirmation_request:
-        print(f"confirm: {confirmation_request.get('message')}")
-
-    failure_message = visibility.get("failure_message")
-    if failure_message:
-        print(f"error: {failure_message}")
-
-    completion_result = visibility.get("completion_result")
-    if completion_result:
-        print(f"result: {completion_result}")
-
-
-def _speak_runtime_result(result: RuntimeResult) -> None:
-    """Speak one short user-facing runtime message when enabled."""
-    message = _spoken_message(result)
+def _speak_message(message: str | None) -> None:
+    """Speak one short user-facing message when enabled."""
     if not message:
         return
-
     try:
         speech_result = subprocess.run(["say", message], capture_output=True, text=True, check=False)
     except OSError:
@@ -218,32 +209,8 @@ def _speak_runtime_result(result: RuntimeResult) -> None:
         print("speech: unavailable.")
 
 
-def _spoken_message(result: RuntimeResult) -> str | None:
-    """Select the single runtime message worth speaking for the current result."""
-    visibility = result.visibility
-    clarification_question = visibility.get("clarification_question")
-    if clarification_question:
-        return str(clarification_question)
-
-    confirmation_request = visibility.get("confirmation_request")
-    if isinstance(confirmation_request, dict):
-        message = confirmation_request.get("message")
-        if message:
-            return str(message)
-
-    failure_message = visibility.get("failure_message")
-    if failure_message:
-        return str(failure_message)
-
-    completion_result = visibility.get("completion_result")
-    if completion_result:
-        return str(completion_result)
-
-    return None
-
-
 def _normalize_voice_command(recognized_text: str) -> str:
-    """Keep one deterministic command from a noisy voice transcription."""
+    """Keep one deterministic interaction from a noisy voice transcription."""
     compact = " ".join(recognized_text.strip().split())
     compact = _strip_voice_wake_prefix(compact)
     if not compact:

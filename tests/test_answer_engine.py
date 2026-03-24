@@ -11,7 +11,6 @@ if str(_TYPES_PATH) not in sys.path:
     sys.path.insert(0, str(_TYPES_PATH))
 
 from context.session_context import SessionContext
-from jarvis_error import ErrorCode, JarvisError
 from qa.answer_backend import AnswerBackendKind
 from qa.answer_engine import answer_question, classify_question
 
@@ -31,6 +30,8 @@ class AnswerEngineTests(unittest.TestCase):
         self.assertEqual(result.interaction_mode, "question")
         self.assertIn("open_app", result.answer_text)
         self.assertTrue(result.sources)
+        self.assertTrue(result.source_attributions)
+        self.assertEqual(result.source_attributions[0].source, result.sources[0])
 
     def test_runtime_status_answer_reports_no_active_command(self) -> None:
         result = answer_question("What are you doing now?")
@@ -58,11 +59,13 @@ class AnswerEngineTests(unittest.TestCase):
         self.assertIn("planner/execution_planner.py", result.answer_text)
         self.assertTrue(any(source.endswith("planner/execution_planner.py") for source in result.sources))
 
-    def test_llm_backend_is_reserved_but_unavailable_in_v1(self) -> None:
-        with self.assertRaises(JarvisError) as captured:
-            answer_question("What can you do?", backend_kind=AnswerBackendKind.LLM)
+    def test_llm_backend_falls_back_to_deterministic_with_warning(self) -> None:
+        result = answer_question("What can you do?", backend_kind=AnswerBackendKind.LLM)
 
-        self.assertEqual(getattr(captured.exception.code, "value", ""), ErrorCode.MODEL_BACKEND_UNAVAILABLE.value)
+        self.assertIn("open_app", result.answer_text)
+        self.assertTrue(result.sources)
+        self.assertTrue(result.source_attributions)
+        self.assertIn("LLM backend fallback", str(result.warning))
 
 
 if __name__ == "__main__":

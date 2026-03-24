@@ -63,22 +63,27 @@ The UI must always let the user understand:
 - When it appears: in question mode when the answer is grounded from docs or structured runtime data.
 - When it updates: once per answered question.
 
-### 10. Answer warning
+### 10. Answer source attributions
+- What it shows: short per-source support statements explaining what each cited source grounds.
+- When it appears: in question mode when the answer backend can expose stronger evidence mapping.
+- When it updates: once per answered question.
+
+### 11. Answer warning
 - What it shows: bounded uncertainty or partial-context note for the answer.
 - When it appears: in question mode only when needed.
 - When it updates: once per answered question.
 
-### 11. Failure message
+### 12. Failure message
 - What it shows: concise failure reason with error code/message.
 - When it appears: in failed command interactions or failed question interactions.
 - When it updates: once at failure entry; remains visible for the interaction result.
 
-### 12. Completion result
+### 13. Completion result
 - What it shows: concise success summary of completed command execution.
 - When it appears: in command mode `completed`.
 - When it updates: once at completion entry.
 
-### 13. Stop / cancel control
+### 14. Stop / cancel control
 - What it shows: explicit control to cancel the active command.
 - When it appears: during active command states (`parsing`, `validating`, `planning`, `executing`, `awaiting_clarification`, `awaiting_confirmation`).
 - When it updates: enabled while a command is active; disabled in `idle`, `completed`, `failed`, `cancelled`, and question mode.
@@ -145,6 +150,7 @@ The UI must always let the user understand:
 - show interaction mode = `question`
 - show answer text
 - show answer sources when available
+- show answer source attributions when available
 - show answer warning only when needed
 - do not show execution steps unless the answer explicitly describes already-visible runtime state
 - do not show stop/cancel control as if execution were active
@@ -180,6 +186,7 @@ The UI must always let the user understand:
 ## Answer UI Rules
 - Answer text must be concise and direct.
 - If the answer is grounded in docs or runtime data, show the source set.
+- If the backend provides stronger per-source support mapping, show it without implying hidden retrieval.
 - If the answer is partial, show one bounded warning.
 - Answer mode must not imply that desktop actions ran.
 - If the user input was actually a command, the UI must not render an answer as if it handled the request fully.

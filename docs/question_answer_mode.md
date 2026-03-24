@@ -90,8 +90,10 @@ Not allowed:
 Question-answer mode should be built around one stable `Answer Engine` contract with replaceable internal backends.
 
 Recommended shape:
-- v1 backend: deterministic, rules/templates plus explicit source selection
-- future backend: model-backed `llm` backend for more flexible answer wording and synthesis
+- default v1 backend: deterministic, rules/templates plus explicit source selection
+- opt-in model-backed backend: `llm` behind the same answer-engine seam, not the default product path
+- backend config should stay externalized so backend kind, provider, and model can be changed without touching routing code
+- grounding should be assembled into an explicit source bundle before any backend generates answer text
 
 Hard rules:
 - routing into `question` vs `command` must happen before backend selection
@@ -102,9 +104,15 @@ Hard rules:
 
 Future-ready rule:
 - a later LLM backend may use an external model API such as OpenAI Responses API, but only behind the `Answer Engine` seam
+- the current opt-in OpenAI Responses path keeps deterministic as the default backend and uses `gpt-5-nano` as the default small-model setting
 - the selected model must stay configurable, so a lower-latency model can be swapped without changing routing or visibility contracts
 - the LLM backend should receive explicit source bundles and answer instructions, not raw unrestricted authority over the session
+- source-attribution parsing and groundedness verification should live in a shared verifier layer, not inside one provider implementation
+- provider-specific request construction should live behind a provider seam such as an OpenAI Responses adapter
+- transport concerns should live behind a provider transport adapter, not inside routing or CLI
 - if the LLM backend is unavailable or returns an ungrounded answer, the system must fall back to deterministic answering or fail honestly
+- the model-backed answer payload must stay versioned; the current frozen schema version is `qa_answer_v1`
+- the manual live smoke path is `scripts/run_openai_live_smoke.sh` and requires `OPENAI_API_KEY`
 
 ## Question Contract
 Suggested internal request shape:
@@ -135,6 +143,7 @@ AnswerResult {
   interaction_mode: "question",
   answer_text: string,
   sources: string[],
+  source_attributions?: { source: string, support: string }[],
   confidence: float (0-1),
   warning?: string
 }
@@ -143,6 +152,9 @@ AnswerResult {
 Rules:
 - `answer_text` must be concise and direct.
 - `sources` should name the source files or structured runtime source used.
+- `source_attributions` should explain which source supports which part of the answer when that detail is available.
+- model-backed answers must pass shared groundedness verification against the allowed source bundle before they can be returned.
+- model-backed `source_attributions` must be claim-bearing and specific; generic placeholders or bare file paths are not sufficient support text.
 - `warning` is optional and used for partial context or bounded uncertainty.
 - No answer may imply that an action has already run unless command runtime visibility proves it.
 

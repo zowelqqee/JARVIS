@@ -8,7 +8,10 @@ from typing import TYPE_CHECKING, Any
 
 from input.adapter import normalize_input
 from qa.answer_backend import AnswerBackendKind
+from qa.answer_config import AnswerBackendConfig, load_answer_backend_config
 from qa.deterministic_backend import DeterministicAnswerBackend
+from qa.grounding import build_grounding_bundle
+from qa.grounding_verifier import ensure_source_attributions
 from qa.llm_backend import LlmAnswerBackend
 
 if TYPE_CHECKING:
@@ -61,15 +64,29 @@ def answer_question(
     raw_input: str,
     session_context: SessionContext | None = None,
     runtime_snapshot: dict[str, Any] | None = None,
-    backend_kind: AnswerBackendKind | str = AnswerBackendKind.DETERMINISTIC,
+    backend_kind: AnswerBackendKind | str | None = None,
+    backend_config: AnswerBackendConfig | None = None,
 ) -> AnswerResult:
     """Route one question through the configured answer backend."""
     question = classify_question(raw_input)
-    backend = _resolve_backend(backend_kind)
-    return backend.answer(question, session_context=session_context, runtime_snapshot=runtime_snapshot)
+    resolved_config = _resolve_answer_backend_config(backend_kind=backend_kind, backend_config=backend_config)
+    grounding_bundle = build_grounding_bundle(
+        question,
+        session_context=session_context,
+        runtime_snapshot=runtime_snapshot,
+    )
+    backend = _resolve_backend(resolved_config.backend_kind)
+    answer_result = backend.answer(
+        question,
+        session_context=session_context,
+        runtime_snapshot=runtime_snapshot,
+        grounding_bundle=grounding_bundle,
+        config=resolved_config,
+    )
+    return ensure_source_attributions(answer_result)
 
 
-def _resolve_backend(backend_kind: AnswerBackendKind | str) -> Any:
+def _resolve_backend(backend_kind: AnswerBackendKind | str) -> object:
     kind_value = getattr(backend_kind, "value", backend_kind)
     try:
         kind = AnswerBackendKind(kind_value)
@@ -83,6 +100,15 @@ def _resolve_backend(backend_kind: AnswerBackendKind | str) -> Any:
             terminal=True,
         ) from exc
     return _BACKENDS[kind]
+
+
+def _resolve_answer_backend_config(
+    *,
+    backend_kind: AnswerBackendKind | str | None,
+    backend_config: AnswerBackendConfig | None,
+) -> AnswerBackendConfig:
+    resolved_config = backend_config or load_answer_backend_config()
+    return resolved_config.with_backend_kind(backend_kind)
 
 
 def _looks_like_runtime_status_question(text: str) -> bool:
