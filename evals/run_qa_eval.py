@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from types import SimpleNamespace
@@ -17,6 +18,7 @@ from parser.command_parser import parse_command
 from qa.answer_backend import AnswerBackendKind
 from qa.answer_config import AnswerBackendConfig, LlmBackendConfig, load_answer_backend_config
 from qa.answer_engine import classify_question
+from qa.grounding_verifier import support_is_meaningful
 from qa.llm_provider import LlmProviderKind
 from target import Target, TargetType
 
@@ -29,6 +31,18 @@ _LIVE_SMOKE_QUESTION_ENV = "JARVIS_QA_OPENAI_LIVE_QUESTION"
 _LIVE_SMOKE_DEFAULT_MODEL = "gpt-5-nano"
 _LIVE_SMOKE_DEFAULT_QUESTION = "What can you do?"
 _EVAL_MISSING_KEY_ENV = "JARVIS_QA_EVAL_MISSING_API_KEY_DO_NOT_SET"
+_PROFILE_CHOICES = ("deterministic", "llm_missing_key_fallback", "llm_env", "llm_env_strict")
+_DEFAULT_GATE_BASELINE_PROFILE = "deterministic"
+_DEFAULT_GATE_CANDIDATE_PROFILE = "llm_env"
+_DEFAULT_GATE_THRESHOLDS = {
+    "routing_safety_regressions_max": 0,
+    "command_regression_pass_rate_min": 1.0,
+    "grounding_pass_rate_min": 1.0,
+    "unsupported_honesty_rate_min": 1.0,
+    "source_attribution_quality_rate_min": 0.95,
+    "fallback_frequency_max": 0.05,
+    "usage_measurement_required": True,
+}
 
 
 @dataclass(slots=True)
@@ -118,6 +132,86 @@ class QaEvalReport:
                 }
                 for result in self.results
             ],
+        }
+
+
+@dataclass(slots=True)
+class QaEvalProfileSummary:
+    """Aggregated quality and safety summary for one eval profile."""
+
+    profile: str
+    report: QaEvalReport
+    routing_total: int
+    routing_passed: int
+    grounding_total: int
+    grounding_passed: int
+    command_regression_total: int
+    command_regression_passed: int
+    unsupported_total: int
+    unsupported_passed: int
+    source_attribution_total: int
+    source_attribution_passed: int
+    answer_total: int
+    fallback_total: int
+    avg_interaction_latency_ms: float | None
+    usage_sample_count: int
+    usage_input_tokens_total: int | None
+    usage_output_tokens_total: int | None
+    usage_total_tokens_total: int | None
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "profile": self.profile,
+            "report": self.report.to_dict(),
+            "routing_total": self.routing_total,
+            "routing_passed": self.routing_passed,
+            "routing_accuracy": _rate(self.routing_passed, self.routing_total),
+            "grounding_total": self.grounding_total,
+            "grounding_passed": self.grounding_passed,
+            "grounding_pass_rate": _rate(self.grounding_passed, self.grounding_total),
+            "command_regression_total": self.command_regression_total,
+            "command_regression_passed": self.command_regression_passed,
+            "command_regression_pass_rate": _rate(self.command_regression_passed, self.command_regression_total),
+            "unsupported_total": self.unsupported_total,
+            "unsupported_passed": self.unsupported_passed,
+            "unsupported_honesty_rate": _rate(self.unsupported_passed, self.unsupported_total),
+            "source_attribution_total": self.source_attribution_total,
+            "source_attribution_passed": self.source_attribution_passed,
+            "source_attribution_quality_rate": _rate(self.source_attribution_passed, self.source_attribution_total),
+            "answer_total": self.answer_total,
+            "fallback_total": self.fallback_total,
+            "fallback_frequency": _rate(self.fallback_total, self.answer_total),
+            "avg_interaction_latency_ms": self.avg_interaction_latency_ms,
+            "usage_sample_count": self.usage_sample_count,
+            "usage_input_tokens_total": self.usage_input_tokens_total,
+            "usage_output_tokens_total": self.usage_output_tokens_total,
+            "usage_total_tokens_total": self.usage_total_tokens_total,
+        }
+
+
+@dataclass(slots=True)
+class QaEvalComparisonReport:
+    """Comparative report used for the LLM default-decision gate."""
+
+    baseline_profile: str
+    candidate_profile: str
+    summaries: list[QaEvalProfileSummary]
+    routing_safety_regressions: int
+    default_switch_allowed: bool
+    recommended_default_profile: str
+    thresholds: dict[str, Any]
+    blockers: list[str] = field(default_factory=list)
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "baseline_profile": self.baseline_profile,
+            "candidate_profile": self.candidate_profile,
+            "routing_safety_regressions": self.routing_safety_regressions,
+            "default_switch_allowed": self.default_switch_allowed,
+            "recommended_default_profile": self.recommended_default_profile,
+            "thresholds": dict(self.thresholds),
+            "blockers": list(self.blockers),
+            "summaries": [summary.to_dict() for summary in self.summaries],
         }
 
 
@@ -265,13 +359,43 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--default-profile",
         default="deterministic",
-        choices=["deterministic", "llm_missing_key_fallback", "llm_env"],
+        choices=list(_PROFILE_CHOICES),
         help="Default answer-backend profile for interaction cases that do not override it.",
+    )
+    parser.add_argument(
+        "--compare-profile",
+        action="append",
+        default=[],
+        choices=list(_PROFILE_CHOICES),
+        help="Compare multiple eval profiles on the same corpus. Pass multiple times.",
+    )
+    parser.add_argument(
+        "--gate-candidate-profile",
+        default=None,
+        choices=list(_PROFILE_CHOICES),
+        help="Run the LLM default-decision gate against the selected candidate profile.",
     )
     parser.add_argument("--json", action="store_true", help="Print the report as JSON.")
     args = parser.parse_args(argv)
 
     cases = select_eval_cases(load_qa_eval_cases(args.corpus), args.case_id)
+    if args.compare_profile or args.gate_candidate_profile:
+        compare_profiles = list(dict.fromkeys(args.compare_profile or []))
+        if args.gate_candidate_profile is not None and args.gate_candidate_profile not in compare_profiles:
+            compare_profiles.append(args.gate_candidate_profile)
+        if _DEFAULT_GATE_BASELINE_PROFILE not in compare_profiles:
+            compare_profiles.insert(0, _DEFAULT_GATE_BASELINE_PROFILE)
+        comparison = compare_eval_profiles(
+            cases,
+            profiles=compare_profiles,
+            baseline_profile=_DEFAULT_GATE_BASELINE_PROFILE,
+            candidate_profile=args.gate_candidate_profile or _default_candidate_profile(compare_profiles),
+        )
+        if args.json:
+            print(json.dumps(comparison.to_dict(), indent=2, sort_keys=True))
+        else:
+            print(format_comparison_report(comparison))
+        return 0 if comparison.default_switch_allowed else 1
     report = run_eval_cases(cases, default_profile=args.default_profile)
     if args.json:
         print(json.dumps(report.to_dict(), indent=2, sort_keys=True))
@@ -295,16 +419,26 @@ def _run_interaction_case(case: QaEvalCase, *, default_profile: str) -> QaEvalCa
         answer_calls.append({"args": args, "kwargs": kwargs})
         return real_answer_question(*args, **kwargs)
 
-    with patch("interaction.interaction_manager.answer_question", side_effect=_spy_answer_question):
+    started_at = time.perf_counter()
+    with patch("interaction.interaction_manager.answer_question", side_effect=_spy_answer_question), patch.dict(
+        "os.environ",
+        {"JARVIS_QA_DEBUG": "1"},
+        clear=False,
+    ):
         manager = InteractionManager(runtime_manager=runtime_manager, answer_backend_config=config)
         result = manager.handle_input(case.raw_input or "", session_context=session_context)
+    latency_ms = round((time.perf_counter() - started_at) * 1000.0, 3)
 
     actual_interaction_kind = _enum_value(getattr(result, "interaction_mode", ""))
     actual_error_code = _enum_value(getattr(getattr(result, "error", None), "code", ""))
     actual_warning = str(getattr(getattr(result, "answer_result", None), "warning", "") or "").strip()
     actual_answer_text = str(getattr(getattr(result, "answer_result", None), "answer_text", "") or "").strip()
     actual_sources = list(getattr(getattr(result, "answer_result", None), "sources", []) or [])
+    actual_source_attributions = list(getattr(getattr(result, "answer_result", None), "source_attributions", []) or [])
     actual_clarification = str(getattr(getattr(result, "clarification_request", None), "message", "") or "").strip()
+    debug_trace = dict((getattr(result, "metadata", None) or {}).get("debug", {}) or {})
+    provider_parse_debug = dict(debug_trace.get("provider_response_parse", {}) or {})
+    fallback_debug = dict(debug_trace.get("fallback", {}) or {})
 
     checks: dict[str, bool] = {}
     details = {
@@ -315,6 +449,17 @@ def _run_interaction_case(case: QaEvalCase, *, default_profile: str) -> QaEvalCa
         "actual_error_code": actual_error_code or None,
         "actual_warning": actual_warning or None,
         "actual_sources_count": len(actual_sources),
+        "actual_source_attribution_count": len(actual_source_attributions),
+        "actual_source_attribution_quality": _source_attribution_quality(
+            actual_sources,
+            actual_source_attributions,
+        ),
+        "fallback_used": bool(fallback_debug.get("deterministic_fallback")) or "LLM backend fallback" in actual_warning,
+        "latency_ms": latency_ms,
+        "expected_error_code": case.expected_error_code,
+        "usage_input_tokens": _int_or_none(provider_parse_debug.get("input_tokens")),
+        "usage_output_tokens": _int_or_none(provider_parse_debug.get("output_tokens")),
+        "usage_total_tokens": _int_or_none(provider_parse_debug.get("total_tokens")),
     }
 
     if case.expected_interaction_kind is not None:
@@ -363,6 +508,7 @@ def _run_interaction_case(case: QaEvalCase, *, default_profile: str) -> QaEvalCa
 
 
 def _run_voice_case(case: QaEvalCase) -> QaEvalCaseResult:
+    started_at = time.perf_counter()
     actual_normalized = cli._normalize_voice_command(case.voice_input or "")  # noqa: SLF001
     checks = {"normalized_input": actual_normalized == (case.expected_normalized_input or "")}
     return QaEvalCaseResult(
@@ -371,11 +517,12 @@ def _run_voice_case(case: QaEvalCase) -> QaEvalCaseResult:
         category=case.category,
         passed=all(checks.values()),
         checks=checks,
-        details={"actual_normalized_input": actual_normalized},
+        details={"actual_normalized_input": actual_normalized, "latency_ms": round((time.perf_counter() - started_at) * 1000.0, 3)},
     )
 
 
 def _run_live_smoke_case(case: QaEvalCase) -> QaEvalCaseResult:
+    started_at = time.perf_counter()
     env = dict(case.env or {})
     enabled = _live_smoke_enabled(env)
     skip_reason = _live_smoke_skip_reason(env)
@@ -413,7 +560,7 @@ def _run_live_smoke_case(case: QaEvalCase) -> QaEvalCaseResult:
         category=case.category,
         passed=all(checks.values()) if checks else True,
         checks=checks,
-        details=details,
+        details={**details, "latency_ms": round((time.perf_counter() - started_at) * 1000.0, 3)},
     )
 
 
@@ -479,6 +626,24 @@ def _build_backend_config(profile: str) -> AnswerBackendConfig:
                 api_key_env=env_config.llm.api_key_env,
                 api_base=env_config.llm.api_base,
                 fallback_enabled=True,
+            ),
+        )
+    if profile == "llm_env_strict":
+        env_config = load_answer_backend_config()
+        return AnswerBackendConfig(
+            backend_kind=AnswerBackendKind.LLM,
+            llm=LlmBackendConfig(
+                enabled=True,
+                provider=env_config.llm.provider,
+                model=env_config.llm.model,
+                api_key_env=env_config.llm.api_key_env,
+                api_base=env_config.llm.api_base,
+                timeout_seconds=env_config.llm.timeout_seconds,
+                max_output_tokens=env_config.llm.max_output_tokens,
+                reasoning_effort=env_config.llm.reasoning_effort,
+                strict_mode=env_config.llm.strict_mode,
+                max_retries=env_config.llm.max_retries,
+                fallback_enabled=False,
             ),
         )
     raise ValueError(f"Unsupported QA eval backend profile: {profile!r}.")
@@ -555,6 +720,228 @@ def _percent(numerator: int, denominator: int) -> str:
     if denominator == 0:
         return "n/a"
     return f"{(numerator / denominator) * 100:.1f}%"
+
+
+def summarize_eval_report(report: QaEvalReport) -> QaEvalProfileSummary:
+    """Aggregate one eval report into gate-friendly quality metrics."""
+    interaction_results = [
+        result
+        for result in report.results
+        if result.case_type == "interaction" and str(result.details.get("profile") or "") == report.default_profile
+    ]
+    answer_results = [result for result in interaction_results if bool(result.details.get("answer_calls"))]
+    routing_results = [result for result in interaction_results if "interaction_kind" in result.checks]
+    grounding_results = [result for result in interaction_results if "grounding" in result.checks]
+    command_results = [result for result in interaction_results if "command_intent" in result.checks]
+    unsupported_results = [
+        result
+        for result in interaction_results
+        if str(result.details.get("expected_error_code") or "").strip() == "UNSUPPORTED_QUESTION"
+    ]
+    source_quality_results = [
+        result
+        for result in answer_results
+        if result.details.get("actual_source_attribution_quality") is not None
+    ]
+    latency_values = [
+        float(result.details.get("latency_ms"))
+        for result in interaction_results
+        if isinstance(result.details.get("latency_ms"), (int, float))
+    ]
+    usage_input_values = [_int_or_none(result.details.get("usage_input_tokens")) for result in interaction_results]
+    usage_output_values = [_int_or_none(result.details.get("usage_output_tokens")) for result in interaction_results]
+    usage_total_values = [_int_or_none(result.details.get("usage_total_tokens")) for result in interaction_results]
+    usage_input_values = [value for value in usage_input_values if value is not None]
+    usage_output_values = [value for value in usage_output_values if value is not None]
+    usage_total_values = [value for value in usage_total_values if value is not None]
+    return QaEvalProfileSummary(
+        profile=report.default_profile,
+        report=report,
+        routing_total=len(routing_results),
+        routing_passed=sum(1 for result in routing_results if bool(result.checks.get("interaction_kind"))),
+        grounding_total=len(grounding_results),
+        grounding_passed=sum(1 for result in grounding_results if bool(result.checks.get("grounding"))),
+        command_regression_total=len(command_results),
+        command_regression_passed=sum(1 for result in command_results if bool(result.checks.get("command_intent"))),
+        unsupported_total=len(unsupported_results),
+        unsupported_passed=sum(1 for result in unsupported_results if result.passed),
+        source_attribution_total=len(source_quality_results),
+        source_attribution_passed=sum(
+            1 for result in source_quality_results if bool(result.details.get("actual_source_attribution_quality"))
+        ),
+        answer_total=len(answer_results),
+        fallback_total=sum(1 for result in answer_results if bool(result.details.get("fallback_used"))),
+        avg_interaction_latency_ms=round(sum(latency_values) / len(latency_values), 3) if latency_values else None,
+        usage_sample_count=len(usage_total_values or usage_input_values or usage_output_values),
+        usage_input_tokens_total=sum(usage_input_values) if usage_input_values else None,
+        usage_output_tokens_total=sum(usage_output_values) if usage_output_values else None,
+        usage_total_tokens_total=sum(usage_total_values) if usage_total_values else None,
+    )
+
+
+def compare_eval_profiles(
+    cases: list[QaEvalCase],
+    *,
+    profiles: list[str],
+    baseline_profile: str = _DEFAULT_GATE_BASELINE_PROFILE,
+    candidate_profile: str | None = None,
+) -> QaEvalComparisonReport:
+    """Run multiple profiles on one corpus and return the default-decision gate summary."""
+    ordered_profiles = list(dict.fromkeys(profile.strip() for profile in profiles if profile.strip()))
+    if baseline_profile not in ordered_profiles:
+        ordered_profiles.insert(0, baseline_profile)
+    if not ordered_profiles:
+        ordered_profiles = [baseline_profile]
+
+    profile_reports = [run_eval_cases(cases, default_profile=profile) for profile in ordered_profiles]
+    summaries = [summarize_eval_report(report) for report in profile_reports]
+    summaries_by_profile = {summary.profile: summary for summary in summaries}
+    baseline_summary = summaries_by_profile[baseline_profile]
+    resolved_candidate_profile = candidate_profile or _default_candidate_profile(ordered_profiles)
+    if resolved_candidate_profile not in summaries_by_profile:
+        raise ValueError(f"Candidate profile {resolved_candidate_profile!r} was not included in compare_eval_profiles().")
+    candidate_summary = summaries_by_profile[resolved_candidate_profile]
+
+    routing_safety_regressions = _routing_safety_regressions(
+        baseline_summary.report,
+        candidate_summary.report,
+    )
+    blockers = _default_switch_blockers(
+        baseline_summary=baseline_summary,
+        candidate_summary=candidate_summary,
+        routing_safety_regressions=routing_safety_regressions,
+    )
+    default_switch_allowed = not blockers
+    return QaEvalComparisonReport(
+        baseline_profile=baseline_profile,
+        candidate_profile=resolved_candidate_profile,
+        summaries=summaries,
+        routing_safety_regressions=routing_safety_regressions,
+        default_switch_allowed=default_switch_allowed,
+        recommended_default_profile=resolved_candidate_profile if default_switch_allowed else baseline_profile,
+        thresholds=dict(_DEFAULT_GATE_THRESHOLDS),
+        blockers=blockers,
+    )
+
+
+def format_comparison_report(comparison: QaEvalComparisonReport) -> str:
+    """Return a compact human-readable product-gate comparison report."""
+    lines = [
+        "JARVIS QA Profile Comparison",
+        f"baseline: {comparison.baseline_profile}",
+        f"candidate: {comparison.candidate_profile}",
+        f"routing safety regressions: {comparison.routing_safety_regressions}",
+        f"default switch allowed: {'yes' if comparison.default_switch_allowed else 'no'}",
+        f"recommended default profile: {comparison.recommended_default_profile}",
+    ]
+    for summary in comparison.summaries:
+        unsupported_rate = _percent(summary.unsupported_passed, summary.unsupported_total)
+        source_quality_rate = _percent(summary.source_attribution_passed, summary.source_attribution_total)
+        fallback_rate = _percent(summary.fallback_total, summary.answer_total)
+        lines.extend(
+            [
+                f"profile: {summary.profile}",
+                f"  routing accuracy: {summary.routing_passed}/{summary.routing_total} ({_percent(summary.routing_passed, summary.routing_total)})",
+                f"  grounding pass rate: {summary.grounding_passed}/{summary.grounding_total} ({_percent(summary.grounding_passed, summary.grounding_total)})",
+                f"  command-regression pass rate: {summary.command_regression_passed}/{summary.command_regression_total} ({_percent(summary.command_regression_passed, summary.command_regression_total)})",
+                f"  unsupported honesty: {summary.unsupported_passed}/{summary.unsupported_total} ({unsupported_rate})",
+                f"  source attribution quality: {summary.source_attribution_passed}/{summary.source_attribution_total} ({source_quality_rate})",
+                f"  fallback frequency: {summary.fallback_total}/{summary.answer_total} ({fallback_rate})",
+                f"  avg interaction latency ms: {summary.avg_interaction_latency_ms if summary.avg_interaction_latency_ms is not None else 'n/a'}",
+                f"  usage samples: {summary.usage_sample_count}",
+            ]
+        )
+    if comparison.blockers:
+        lines.append("default-switch blockers:")
+        for blocker in comparison.blockers:
+            lines.append(f"- {blocker}")
+    else:
+        lines.append("default-switch blockers: none")
+    return "\n".join(lines)
+
+
+def _routing_safety_regressions(baseline_report: QaEvalReport, candidate_report: QaEvalReport) -> int:
+    baseline_by_case = {
+        result.case_id: result
+        for result in baseline_report.results
+        if result.case_type == "interaction"
+    }
+    regressions = 0
+    for result in candidate_report.results:
+        if result.case_type != "interaction":
+            continue
+        baseline_result = baseline_by_case.get(result.case_id)
+        if baseline_result is None:
+            continue
+        baseline_kind = str(baseline_result.details.get("actual_interaction_kind") or "")
+        candidate_kind = str(result.details.get("actual_interaction_kind") or "")
+        if baseline_kind and candidate_kind and baseline_kind != candidate_kind:
+            regressions += 1
+    return regressions
+
+
+def _default_switch_blockers(
+    *,
+    baseline_summary: QaEvalProfileSummary,
+    candidate_summary: QaEvalProfileSummary,
+    routing_safety_regressions: int,
+) -> list[str]:
+    blockers: list[str] = []
+    if routing_safety_regressions > int(_DEFAULT_GATE_THRESHOLDS["routing_safety_regressions_max"]):
+        blockers.append(f"routing safety regressions > {_DEFAULT_GATE_THRESHOLDS['routing_safety_regressions_max']}")
+    if _rate(candidate_summary.command_regression_passed, candidate_summary.command_regression_total) != _DEFAULT_GATE_THRESHOLDS["command_regression_pass_rate_min"]:
+        blockers.append("command regression suite is not fully green for candidate profile")
+    if _rate(candidate_summary.grounding_passed, candidate_summary.grounding_total) != _DEFAULT_GATE_THRESHOLDS["grounding_pass_rate_min"]:
+        blockers.append("grounding pass rate is below threshold")
+    if _rate(candidate_summary.unsupported_passed, candidate_summary.unsupported_total) != _DEFAULT_GATE_THRESHOLDS["unsupported_honesty_rate_min"]:
+        blockers.append("unsupported-question honesty is below threshold")
+    source_quality_rate = _rate(candidate_summary.source_attribution_passed, candidate_summary.source_attribution_total)
+    if source_quality_rate is None or source_quality_rate < float(_DEFAULT_GATE_THRESHOLDS["source_attribution_quality_rate_min"]):
+        blockers.append("source attribution quality is below threshold")
+    fallback_frequency = _rate(candidate_summary.fallback_total, candidate_summary.answer_total)
+    if fallback_frequency is None or fallback_frequency > float(_DEFAULT_GATE_THRESHOLDS["fallback_frequency_max"]):
+        blockers.append("fallback frequency is above threshold")
+    if candidate_summary.avg_interaction_latency_ms is None:
+        blockers.append("latency was not measured for candidate profile")
+    if bool(_DEFAULT_GATE_THRESHOLDS["usage_measurement_required"]) and candidate_summary.usage_sample_count == 0:
+        blockers.append("usage/cost proxy is unavailable for candidate profile")
+    if _rate(candidate_summary.grounding_passed, candidate_summary.grounding_total) < _rate(
+        baseline_summary.grounding_passed,
+        baseline_summary.grounding_total,
+    ):
+        blockers.append("candidate grounding quality regressed versus deterministic baseline")
+    return blockers
+
+
+def _default_candidate_profile(profiles: list[str]) -> str:
+    for profile in profiles:
+        if profile != _DEFAULT_GATE_BASELINE_PROFILE:
+            return profile
+    return _DEFAULT_GATE_BASELINE_PROFILE
+
+
+def _source_attribution_quality(actual_sources: list[Any], actual_source_attributions: list[Any]) -> bool | None:
+    sources = [str(source).strip() for source in actual_sources if str(source).strip()]
+    if not sources:
+        return None
+    attributions = list(actual_source_attributions or [])
+    if not attributions:
+        return False
+    source_set = set(sources)
+    for attribution in attributions:
+        source = str(getattr(attribution, "source", "") or "").strip()
+        support = str(getattr(attribution, "support", "") or "").strip()
+        if not source or source not in source_set:
+            return False
+        if not support_is_meaningful(support, source=source):
+            return False
+    return True
+
+
+def _int_or_none(value: Any) -> int | None:
+    if isinstance(value, int):
+        return value
+    return None
 
 
 if __name__ == "__main__":

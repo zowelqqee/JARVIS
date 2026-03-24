@@ -4,10 +4,11 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from qa.answer_backend import AnswerBackendKind
 from qa.answer_config import AnswerBackendConfig
+from qa.debug_trace import set_debug_payload, update_debug_payload
 from qa.deterministic_backend import DeterministicAnswerBackend
 from qa.grounding import GroundingBundle, build_grounding_bundle
 from qa.llm_provider import LlmProvider, LlmProviderKind
@@ -46,12 +47,23 @@ class LlmAnswerBackend:
         runtime_snapshot: dict[str, object] | None = None,
         grounding_bundle: GroundingBundle | None = None,
         config: AnswerBackendConfig | None = None,
+        debug_trace: dict[str, Any] | None = None,
     ) -> AnswerResult:
         resolved_config = config or AnswerBackendConfig(backend_kind=AnswerBackendKind.LLM)
         resolved_grounding = grounding_bundle or build_grounding_bundle(
             question,
             session_context=session_context,
             runtime_snapshot=runtime_snapshot,
+            debug_trace=debug_trace,
+        )
+        set_debug_payload(
+            debug_trace,
+            "fallback",
+            {
+                "provider": resolved_config.llm.provider.value,
+                "model": resolved_config.llm.model,
+                "deterministic_fallback": False,
+            },
         )
         if not resolved_config.llm.enabled:
             error = JarvisError(
@@ -73,6 +85,7 @@ class LlmAnswerBackend:
                 runtime_snapshot=runtime_snapshot,
                 grounding_bundle=resolved_grounding,
                 config=resolved_config,
+                debug_trace=debug_trace,
             )
 
         provider = self._resolve_provider(resolved_config.llm.provider)
@@ -83,6 +96,7 @@ class LlmAnswerBackend:
                 config=resolved_config,
                 session_context=session_context,
                 runtime_snapshot=runtime_snapshot,
+                debug_trace=debug_trace,
             )
         except JarvisError as error:
             return self._handle_provider_failure(
@@ -92,6 +106,7 @@ class LlmAnswerBackend:
                 runtime_snapshot=runtime_snapshot,
                 grounding_bundle=resolved_grounding,
                 config=resolved_config,
+                debug_trace=debug_trace,
             )
 
     def _resolve_provider(self, provider_kind: LlmProviderKind | str) -> LlmProvider:
@@ -118,15 +133,25 @@ class LlmAnswerBackend:
         runtime_snapshot: dict[str, object] | None,
         grounding_bundle: GroundingBundle,
         config: AnswerBackendConfig,
+        debug_trace: dict[str, Any] | None = None,
     ) -> AnswerResult:
         if not config.llm.fallback_enabled:
             raise error
+        update_debug_payload(
+            debug_trace,
+            "fallback",
+            {
+                "deterministic_fallback": True,
+                "error_code": getattr(getattr(error, "code", None), "value", getattr(error, "code", None)),
+            },
+        )
         fallback_result = self._fallback_backend.answer(
             question,
             session_context=session_context,
             runtime_snapshot=runtime_snapshot,
             grounding_bundle=grounding_bundle,
             config=config,
+            debug_trace=debug_trace,
         )
         warning_parts = [str(fallback_result.warning or "").strip(), self._fallback_warning(error)]
         warning = " ".join(part for part in warning_parts if part).strip() or None

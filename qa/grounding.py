@@ -7,6 +7,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from qa.debug_trace import set_debug_payload
 from qa.source_registry import GroundingSource
 from qa.source_selector import select_sources
 
@@ -53,6 +54,7 @@ def build_grounding_bundle(
     *,
     session_context: SessionContext | None = None,
     runtime_snapshot: dict[str, Any] | None = None,
+    debug_trace: dict[str, Any] | None = None,
 ) -> GroundingBundle:
     """Select the local sources and visible facts allowed for one answer."""
     runtime_facts = _non_empty_mapping(runtime_snapshot)
@@ -62,13 +64,27 @@ def build_grounding_bundle(
         "Question mode is read-only and must not imply command execution.",
         "When citing docs, prefer the registered section-aware support claim instead of a bare file path.",
     ]
-    return GroundingBundle(
+    bundle = GroundingBundle(
         scope=str(getattr(question, "scope", "question") or "question"),
         sources=select_sources(question),
         source_notes=notes,
         runtime_facts=runtime_facts,
         session_facts=session_facts,
     )
+    set_debug_payload(
+        debug_trace,
+        "source_selection",
+        {
+            "scope": bundle.scope,
+            "source_count": len(bundle.sources),
+            "sources": bundle.source_paths,
+            "source_kinds": [source.kind for source in bundle.sources],
+            "section_hints": [source.section_hint for source in bundle.sources if source.section_hint],
+            "runtime_fact_keys": sorted(runtime_facts.keys()),
+            "session_fact_keys": sorted(session_facts.keys()),
+        },
+    )
+    return bundle
 
 
 def _session_facts(question: QuestionRequest, *, session_context: SessionContext | None) -> dict[str, Any]:

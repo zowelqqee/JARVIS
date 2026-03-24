@@ -48,6 +48,7 @@ class OpenAIResponsesProvider:
         config: AnswerBackendConfig,
         session_context: SessionContext | None = None,
         runtime_snapshot: dict[str, Any] | None = None,
+        debug_trace: dict[str, Any] | None = None,
     ):
         request_payload = self.build_request_payload(
             question,
@@ -84,7 +85,7 @@ class OpenAIResponsesProvider:
                     api_base=config.llm.api_base,
                     timeout_seconds=config.llm.timeout_seconds,
                 )
-                return self._parse_answer_response(response_payload, grounding_bundle=grounding_bundle)
+                return self._parse_answer_response(response_payload, grounding_bundle=grounding_bundle, debug_trace=debug_trace)
             except JarvisError as error:
                 enriched_error = self._enrich_error(
                     error,
@@ -152,8 +153,14 @@ class OpenAIResponsesProvider:
         }
         return payload
 
-    def _parse_answer_response(self, response_payload: dict[str, Any], *, grounding_bundle: GroundingBundle):
-        return self._parser.parse_response(response_payload, grounding_bundle=grounding_bundle)
+    def _parse_answer_response(
+        self,
+        response_payload: dict[str, Any],
+        *,
+        grounding_bundle: GroundingBundle,
+        debug_trace: dict[str, Any] | None = None,
+    ):
+        return self._parser.parse_response(response_payload, grounding_bundle=grounding_bundle, debug_trace=debug_trace)
 
     def _enrich_error(
         self,

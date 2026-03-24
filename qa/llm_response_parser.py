@@ -12,5 +12,11 @@ if False:  # pragma: no cover
 class LlmResponseParser(Protocol):
     """Protocol for provider-specific structured answer parsers."""
 
-    def parse_response(self, response_payload: dict, *, grounding_bundle: GroundingBundle) -> AnswerResult:
+    def parse_response(
+        self,
+        response_payload: dict,
+        *,
+        grounding_bundle: GroundingBundle,
+        debug_trace: dict | None = None,
+    ) -> AnswerResult:
         """Parse one provider response into the shared AnswerResult contract."""

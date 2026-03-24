@@ -124,6 +124,7 @@ Define the minimal codebase structure required to implement the supervised dual-
 - `answer_config.py`
 - `deterministic_backend.py`
 - `grounding.py`
+- `debug_trace.py`
 - `source_registry.py`
 - `source_selector.py`
 - `grounding_verifier.py`
@@ -175,6 +176,8 @@ Future-ready note:
 - `ui_visibility.md`
 - `use_cases.md`
 - `repo_structure.md`
+- `llm_default_decision_gate.md`
+- `qa_operator_guide.md`
 
 ### `scripts/`
 - `run_openai_live_smoke.sh`
@@ -195,7 +198,7 @@ Future-ready note:
 | Execution Planner | `planner/` | `execution_planner.py` |
 | Desktop Executor | `executor/` | `desktop_executor.py` |
 | Confirmation Gate | `confirmation/` | `confirmation_gate.py` |
-| Answer Engine | `qa/` | `answer_engine.py`, `grounding.py`, `source_registry.py`, `source_selector.py`, `grounding_verifier.py`, `answer_config.py`, `openai_responses_prompt.py`, `openai_responses_schema.py`, `openai_responses_parser.py` |
+| Answer Engine | `qa/` | `answer_engine.py`, `grounding.py`, `debug_trace.py`, `source_registry.py`, `source_selector.py`, `grounding_verifier.py`, `answer_config.py`, `openai_responses_prompt.py`, `openai_responses_schema.py`, `openai_responses_parser.py` |
 | Command Runtime State Manager | `runtime/` | `runtime_manager.py`, `state_machine.py` |
 | User Visibility Layer | `ui/` | `visibility_mapper.py` |
 

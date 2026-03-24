@@ -8,6 +8,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from qa.debug_trace import set_debug_payload
+
 _TYPES_PATH = Path(__file__).resolve().parents[1] / "types"
 if str(_TYPES_PATH) not in sys.path:
     sys.path.insert(0, str(_TYPES_PATH))
@@ -82,23 +84,54 @@ def verify_grounded_answer(
     grounded: bool,
     warning_text: str | None = None,
     details: dict[str, Any] | None = None,
+    debug_trace: dict[str, Any] | None = None,
 ) -> VerifiedGroundedAnswer:
     """Apply provider-agnostic grounding policy to one candidate answer."""
     normalized_answer_text = str(answer_text or "").strip()
     normalized_warning = str(warning_text or "").strip() or None
     if not normalized_answer_text:
+        _record_grounding_verification(
+            debug_trace,
+            result="failed",
+            grounded=grounded,
+            source_attributions=source_attributions,
+            allowed_sources=allowed_sources,
+            warning_text=warning_text,
+            error_code=ErrorCode.ANSWER_GENERATION_FAILED.value,
+            reason="missing_answer_text",
+        )
         raise _grounding_error(
             code=ErrorCode.ANSWER_GENERATION_FAILED,
             message="Structured answer payload is missing answer_text.",
             details=details,
         )
     if not grounded:
+        _record_grounding_verification(
+            debug_trace,
+            result="failed",
+            grounded=grounded,
+            source_attributions=source_attributions,
+            allowed_sources=allowed_sources,
+            warning_text=warning_text,
+            error_code=ErrorCode.ANSWER_NOT_GROUNDED.value,
+            reason="grounded_false",
+        )
         raise _grounding_error(
             code=ErrorCode.ANSWER_NOT_GROUNDED,
             message=normalized_warning or "Model indicated that grounding was insufficient.",
             details=details,
         )
     if not source_attributions:
+        _record_grounding_verification(
+            debug_trace,
+            result="failed",
+            grounded=grounded,
+            source_attributions=source_attributions,
+            allowed_sources=allowed_sources,
+            warning_text=warning_text,
+            error_code=ErrorCode.ANSWER_NOT_GROUNDED.value,
+            reason="missing_source_attributions",
+        )
         raise _grounding_error(
             code=ErrorCode.ANSWER_NOT_GROUNDED,
             message="Model answer did not declare which grounded sources it used.",
@@ -108,6 +141,16 @@ def verify_grounded_answer(
     allowed_source_set = {str(source).strip() for source in allowed_sources if str(source).strip()}
     used_sources = _deduped_sources(source_attributions)
     if any(source not in allowed_source_set for source in used_sources):
+        _record_grounding_verification(
+            debug_trace,
+            result="failed",
+            grounded=grounded,
+            source_attributions=source_attributions,
+            allowed_sources=allowed_sources,
+            warning_text=warning_text,
+            error_code=ErrorCode.ANSWER_NOT_GROUNDED.value,
+            reason="source_outside_bundle",
+        )
         raise _grounding_error(
             code=ErrorCode.ANSWER_NOT_GROUNDED,
             message="Model answer referenced sources outside the allowed grounding bundle.",
@@ -119,6 +162,16 @@ def verify_grounded_answer(
         )
     for attribution in source_attributions:
         if not support_is_meaningful(attribution.support, source=attribution.source):
+            _record_grounding_verification(
+                debug_trace,
+                result="failed",
+                grounded=grounded,
+                source_attributions=source_attributions,
+                allowed_sources=allowed_sources,
+                warning_text=warning_text,
+                error_code=ErrorCode.ANSWER_NOT_GROUNDED.value,
+                reason="weak_support_text",
+            )
             raise _grounding_error(
                 code=ErrorCode.ANSWER_NOT_GROUNDED,
                 message="Model answer included weak or generic source support text.",
@@ -131,11 +184,29 @@ def verify_grounded_answer(
                 },
             )
     if implies_execution(normalized_answer_text):
+        _record_grounding_verification(
+            debug_trace,
+            result="failed",
+            grounded=grounded,
+            source_attributions=source_attributions,
+            allowed_sources=allowed_sources,
+            warning_text=warning_text,
+            error_code=ErrorCode.ANSWER_NOT_GROUNDED.value,
+            reason="implied_execution",
+        )
         raise _grounding_error(
             code=ErrorCode.ANSWER_NOT_GROUNDED,
             message="Model answer implied command execution in question mode.",
             details={"answer_text": normalized_answer_text, **(details or {})},
         )
+    _record_grounding_verification(
+        debug_trace,
+        result="passed",
+        grounded=grounded,
+        source_attributions=source_attributions,
+        allowed_sources=allowed_sources,
+        warning_text=warning_text,
+    )
     return VerifiedGroundedAnswer(
         answer_text=normalized_answer_text,
         sources=used_sources,
@@ -195,6 +266,33 @@ def implies_execution(answer_text: str) -> bool:
 
 def _deduped_sources(source_attributions: list[AnswerSourceAttribution]) -> list[str]:
     return list(dict.fromkeys(attribution.source for attribution in source_attributions))
+
+
+def _record_grounding_verification(
+    debug_trace: dict[str, Any] | None,
+    *,
+    result: str,
+    grounded: bool,
+    source_attributions: list[AnswerSourceAttribution],
+    allowed_sources: list[str],
+    warning_text: str | None,
+    error_code: str | None = None,
+    reason: str | None = None,
+) -> None:
+    set_debug_payload(
+        debug_trace,
+        "grounding_verification",
+        {
+            "result": result,
+            "grounded": bool(grounded),
+            "allowed_source_count": len([source for source in allowed_sources if str(source).strip()]),
+            "used_source_count": len(_deduped_sources(source_attributions)),
+            "used_sources": _deduped_sources(source_attributions),
+            "warning_present": bool(str(warning_text or "").strip()),
+            "error_code": error_code,
+            "reason": reason,
+        },
+    )
 
 
 def _grounding_error(*, code: ErrorCode, message: str, details: dict[str, Any] | None) -> JarvisError:

@@ -233,6 +233,7 @@ class CliSmokeTests(unittest.TestCase):
             self.assertFalse(speak_enabled)
             self.assertIn("qa smoke command: scripts/run_openai_live_smoke.sh", smoke_output)
             self.assertIn("api key env: OPENAI_API_KEY (present)", smoke_output)
+            self.assertIn("debug flag: JARVIS_QA_DEBUG (missing)", smoke_output)
 
         runtime_mock.assert_not_called()
 

@@ -33,5 +33,6 @@ class AnswerBackend(Protocol):
         runtime_snapshot: dict[str, Any] | None = None,
         grounding_bundle: GroundingBundle | None = None,
         config: AnswerBackendConfig | None = None,
+        debug_trace: dict[str, Any] | None = None,
     ) -> AnswerResult:
         """Return a grounded answer or raise a structured JarvisError."""

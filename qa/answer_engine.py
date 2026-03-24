@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING, Any
 from input.adapter import normalize_input
 from qa.answer_backend import AnswerBackendKind
 from qa.answer_config import AnswerBackendConfig, load_answer_backend_config
+from qa.debug_trace import set_debug_payload
 from qa.deterministic_backend import DeterministicAnswerBackend
 from qa.grounding import build_grounding_bundle
 from qa.grounding_verifier import ensure_source_attributions
@@ -35,45 +36,72 @@ _BACKENDS = {
 }
 
 
-def classify_question(raw_input: str, session_context: SessionContext | None = None) -> QuestionRequest:
+def classify_question(
+    raw_input: str,
+    session_context: SessionContext | None = None,
+    debug_trace: dict[str, Any] | None = None,
+) -> QuestionRequest:
     """Classify a normalized question into one supported question family."""
     normalized = normalize_input(raw_input)
     lowered = normalized.lower()
-    follow_up_question = _classify_answer_follow_up(normalized, lowered, session_context=session_context)
+    follow_up_question = _classify_answer_follow_up(normalized, lowered, session_context=session_context, debug_trace=debug_trace)
     if follow_up_question is not None:
+        _record_question_classification(follow_up_question, debug_trace=debug_trace)
         return follow_up_question
 
     if _looks_like_blocked_state_question(lowered):
-        return QuestionRequest(raw_input=normalized, question_type=QuestionType.BLOCKED_STATE, scope="blocked_state", confidence=0.96)
+        question = QuestionRequest(raw_input=normalized, question_type=QuestionType.BLOCKED_STATE, scope="blocked_state", confidence=0.96)
+        _record_question_classification(question, debug_trace=debug_trace)
+        return question
     if _looks_like_recent_runtime_question(lowered):
-        return QuestionRequest(raw_input=normalized, question_type=QuestionType.RECENT_RUNTIME, scope="recent_runtime", confidence=0.94)
+        question = QuestionRequest(raw_input=normalized, question_type=QuestionType.RECENT_RUNTIME, scope="recent_runtime", confidence=0.94)
+        _record_question_classification(question, debug_trace=debug_trace)
+        return question
     if _looks_like_runtime_status_question(lowered):
-        return QuestionRequest(raw_input=normalized, question_type=QuestionType.RUNTIME_STATUS, scope="runtime", confidence=0.94)
+        question = QuestionRequest(raw_input=normalized, question_type=QuestionType.RUNTIME_STATUS, scope="runtime", confidence=0.94)
+        _record_question_classification(question, debug_trace=debug_trace)
+        return question
     if _looks_like_capabilities_question(lowered):
-        return QuestionRequest(raw_input=normalized, question_type=QuestionType.CAPABILITIES, scope="capabilities", confidence=0.95)
+        question = QuestionRequest(raw_input=normalized, question_type=QuestionType.CAPABILITIES, scope="capabilities", confidence=0.95)
+        _record_question_classification(question, debug_trace=debug_trace)
+        return question
     if _looks_like_repo_structure_question(lowered):
         topic = infer_repo_topic(lowered)
         context_refs = {"topic": topic} if topic else {}
-        return QuestionRequest(
+        question = QuestionRequest(
             raw_input=normalized,
             question_type=QuestionType.REPO_STRUCTURE,
             scope="repo_structure",
             context_refs=context_refs,
             confidence=0.9,
         )
+        _record_question_classification(question, debug_trace=debug_trace)
+        return question
     if _looks_like_safety_question(lowered):
-        return QuestionRequest(raw_input=normalized, question_type=QuestionType.SAFETY_EXPLANATIONS, scope="safety", confidence=0.9)
+        question = QuestionRequest(raw_input=normalized, question_type=QuestionType.SAFETY_EXPLANATIONS, scope="safety", confidence=0.9)
+        _record_question_classification(question, debug_trace=debug_trace)
+        return question
     if _looks_like_docs_rules_question(lowered):
         topic = infer_docs_topic(lowered)
         context_refs = {"topic": topic} if topic else {}
-        return QuestionRequest(
+        question = QuestionRequest(
             raw_input=normalized,
             question_type=QuestionType.DOCS_RULES,
             scope="docs",
             context_refs=context_refs,
             confidence=0.88,
         )
+        _record_question_classification(question, debug_trace=debug_trace)
+        return question
 
+    set_debug_payload(
+        debug_trace,
+        "question_classification",
+        {
+            "result": "failed",
+            "error_code": ErrorCode.UNSUPPORTED_QUESTION.value,
+        },
+    )
     raise JarvisError(
         category=ErrorCategory.ANSWER_ERROR,
         code=ErrorCode.UNSUPPORTED_QUESTION,
@@ -90,14 +118,16 @@ def answer_question(
     runtime_snapshot: dict[str, Any] | None = None,
     backend_kind: AnswerBackendKind | str | None = None,
     backend_config: AnswerBackendConfig | None = None,
+    debug_trace: dict[str, Any] | None = None,
 ) -> AnswerResult:
     """Route one question through the configured answer backend."""
-    question = classify_question(raw_input, session_context=session_context)
+    question = classify_question(raw_input, session_context=session_context, debug_trace=debug_trace)
     resolved_config = _resolve_answer_backend_config(backend_kind=backend_kind, backend_config=backend_config)
     grounding_bundle = build_grounding_bundle(
         question,
         session_context=session_context,
         runtime_snapshot=runtime_snapshot,
+        debug_trace=debug_trace,
     )
     backend = _resolve_backend(resolved_config.backend_kind)
     answer_result = backend.answer(
@@ -106,6 +136,7 @@ def answer_question(
         runtime_snapshot=runtime_snapshot,
         grounding_bundle=grounding_bundle,
         config=resolved_config,
+        debug_trace=debug_trace,
     )
     return ensure_source_attributions(answer_result)
 
@@ -233,6 +264,7 @@ def _classify_answer_follow_up(
     lowered: str,
     *,
     session_context: SessionContext | None,
+    debug_trace: dict[str, Any] | None,
 ) -> QuestionRequest | None:
     follow_up_kind = _follow_up_kind(lowered)
     if follow_up_kind is None:
@@ -240,6 +272,16 @@ def _classify_answer_follow_up(
 
     recent_answer_context = session_context.get_recent_answer_context() if session_context is not None else None
     if recent_answer_context is None:
+        set_debug_payload(
+            debug_trace,
+            "question_classification",
+            {
+                "result": "failed",
+                "error_code": ErrorCode.INSUFFICIENT_CONTEXT.value,
+                "reason": "no_recent_answer",
+                "follow_up_kind": follow_up_kind,
+            },
+        )
         raise JarvisError(
             category=ErrorCategory.ANSWER_ERROR,
             code=ErrorCode.INSUFFICIENT_CONTEXT,
@@ -305,3 +347,19 @@ def _follow_up_kind(text: str) -> str | None:
     }:
         return "why"
     return None
+
+
+def _record_question_classification(question: QuestionRequest, *, debug_trace: dict[str, Any] | None) -> None:
+    context_refs = getattr(question, "context_refs", {}) or {}
+    context_ref_keys = sorted(str(key) for key in context_refs.keys()) if isinstance(context_refs, dict) else []
+    payload = {
+        "result": "passed",
+        "question_type": getattr(getattr(question, "question_type", None), "value", getattr(question, "question_type", None)),
+        "scope": getattr(question, "scope", None),
+        "confidence": round(float(getattr(question, "confidence", 0.0) or 0.0), 3),
+        "context_ref_keys": context_ref_keys,
+    }
+    if isinstance(context_refs, dict):
+        payload["topic"] = str(context_refs.get("topic", "") or context_refs.get("answer_topic", "") or "").strip() or None
+        payload["follow_up_kind"] = str(context_refs.get("follow_up_kind", "") or "").strip() or None
+    set_debug_payload(debug_trace, "question_classification", payload)

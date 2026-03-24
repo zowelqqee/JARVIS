@@ -7,6 +7,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
+from qa.debug_trace import set_debug_payload, update_debug_payload
 from qa.grounding_verifier import parse_source_attributions, verify_grounded_answer
 from qa.llm_response_parser import LlmResponseParser
 from qa.openai_responses_schema import ANSWER_SCHEMA_VERSION
@@ -22,10 +23,32 @@ from jarvis_error import ErrorCategory, ErrorCode, JarvisError  # type: ignore  
 class OpenAIResponsesParser(LlmResponseParser):
     """Parse the OpenAI Responses structured answer contract."""
 
-    def parse_response(self, response_payload: dict[str, Any], *, grounding_bundle) -> AnswerResult:
+    def parse_response(self, response_payload: dict[str, Any], *, grounding_bundle, debug_trace: dict[str, Any] | None = None) -> AnswerResult:
         status = str(response_payload.get("status", "") or "").strip().lower()
         debug_details = _response_debug_details(response_payload)
+        set_debug_payload(
+            debug_trace,
+            "provider_response_parse",
+            {
+                "provider": debug_details.get("provider", "openai_responses"),
+                "status": status or None,
+                "request_id": debug_details.get("request_id"),
+                "correlation_id": debug_details.get("correlation_id"),
+                "retryable": debug_details.get("retryable"),
+                **_response_usage_summary(response_payload),
+                "result": "started",
+            },
+        )
         if status in {"failed", "incomplete"}:
+            update_debug_payload(
+                debug_trace,
+                "provider_response_parse",
+                {
+                    "result": "failed",
+                    "stage": "status_check",
+                    "error_code": ErrorCode.ANSWER_GENERATION_FAILED.value,
+                },
+            )
             raise JarvisError(
                 category=ErrorCategory.ANSWER_ERROR,
                 code=ErrorCode.ANSWER_GENERATION_FAILED,
@@ -40,9 +63,25 @@ class OpenAIResponsesParser(LlmResponseParser):
             )
 
         output_text = self._extract_output_text(response_payload)
+        update_debug_payload(
+            debug_trace,
+            "provider_response_parse",
+            {
+                "output_text_present": bool(output_text),
+            },
+        )
         try:
             structured_output = json.loads(output_text)
         except json.JSONDecodeError as exc:
+            update_debug_payload(
+                debug_trace,
+                "provider_response_parse",
+                {
+                    "result": "failed",
+                    "stage": "json_decode",
+                    "error_code": ErrorCode.ANSWER_GENERATION_FAILED.value,
+                },
+            )
             raise JarvisError(
                 category=ErrorCategory.ANSWER_ERROR,
                 code=ErrorCode.ANSWER_GENERATION_FAILED,
@@ -52,6 +91,15 @@ class OpenAIResponsesParser(LlmResponseParser):
                 terminal=True,
             ) from exc
         if not isinstance(structured_output, dict):
+            update_debug_payload(
+                debug_trace,
+                "provider_response_parse",
+                {
+                    "result": "failed",
+                    "stage": "payload_type",
+                    "error_code": ErrorCode.ANSWER_GENERATION_FAILED.value,
+                },
+            )
             raise JarvisError(
                 category=ErrorCategory.ANSWER_ERROR,
                 code=ErrorCode.ANSWER_GENERATION_FAILED,
@@ -62,7 +110,23 @@ class OpenAIResponsesParser(LlmResponseParser):
             )
 
         schema_version = str(structured_output.get("schema_version", "") or "").strip()
+        update_debug_payload(
+            debug_trace,
+            "provider_response_parse",
+            {
+                "schema_version": schema_version or None,
+            },
+        )
         if schema_version != ANSWER_SCHEMA_VERSION:
+            update_debug_payload(
+                debug_trace,
+                "provider_response_parse",
+                {
+                    "result": "failed",
+                    "stage": "schema_version",
+                    "error_code": ErrorCode.ANSWER_GENERATION_FAILED.value,
+                },
+            )
             raise JarvisError(
                 category=ErrorCategory.ANSWER_ERROR,
                 code=ErrorCode.ANSWER_GENERATION_FAILED,
@@ -91,6 +155,16 @@ class OpenAIResponsesParser(LlmResponseParser):
             grounded=grounded,
             warning_text=warning_text,
             details={"structured_output": structured_output, **debug_details},
+            debug_trace=debug_trace,
+        )
+        update_debug_payload(
+            debug_trace,
+            "provider_response_parse",
+            {
+                "result": "passed",
+                "stage": "completed",
+                "parsed_source_count": len(verified_answer.sources),
+            },
         )
 
         return AnswerResult(
@@ -172,3 +246,17 @@ def _normalize_source_attributions(source_attributions, *, allowed_sources: list
                 attribution.source = candidate
         normalized.append(attribution)
     return normalized
+
+
+def _response_usage_summary(response_payload: dict[str, Any]) -> dict[str, Any]:
+    usage = dict(response_payload.get("usage", {}) or {})
+    summary: dict[str, Any] = {}
+    for source_key, target_key in (
+        ("input_tokens", "input_tokens"),
+        ("output_tokens", "output_tokens"),
+        ("total_tokens", "total_tokens"),
+    ):
+        value = usage.get(source_key)
+        if isinstance(value, int) and value >= 0:
+            summary[target_key] = value
+    return summary

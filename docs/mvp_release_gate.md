@@ -1,15 +1,23 @@
 # JARVIS MVP Release Gate
 
 ## Hard Release Criteria
-- Deterministic parser/validator/runtime behavior for documented use cases.
-- Explicit unsupported behavior for unsupported capabilities.
-- No hidden retries or autonomous continuation.
+- No command regressions in parser, validator, planner, executor, runtime, or CLI shell interception.
+- Deterministic QA remains the default product path.
+- Question mode stays grounded, read-only, and separate from command runtime semantics.
 - Supervised blocked-state behavior (`awaiting_clarification`, `awaiting_confirmation`) remains intact.
+- All contract suites and centralized evals are green.
+- Live OpenAI smoke is green in the target environment before making model-backed readiness claims.
+- Comparative LLM default-decision gate still recommends deterministic unless `docs/llm_default_decision_gate.md` passes.
 - Visibility payload remains stable and additive-only.
+- Docs match the actual runtime, QA, and operator workflow.
 
 ## Mandatory Automated Checks
-- `python3 -m compileall parser/command_parser.py validator/command_validator.py runtime/runtime_manager.py ui/visibility_mapper.py executor/desktop_executor.py input/voice_input.py tests/test_runtime_smoke.py tests/test_cli_smoke.py tests/test_use_case_parity.py tests/test_parser_validator_contract.py tests/test_executor_contract.py tests/test_visibility_contract.py tests/test_voice_input_contract.py`
-- `python3 -m unittest tests/test_runtime_smoke.py tests/test_cli_smoke.py tests/test_use_case_parity.py tests/test_parser_validator_contract.py tests/test_executor_contract.py tests/test_visibility_contract.py tests/test_voice_input_contract.py`
+- `python3 -m evals.run_qa_eval`
+- `python3 -m unittest discover -s tests`
+
+If validating model-backed alpha readiness:
+- `python3 -m evals.run_qa_eval --compare-profile deterministic --compare-profile llm_env --gate-candidate-profile llm_env`
+- `scripts/run_openai_live_smoke.sh`
 
 ## Manual Verification Checklist (Scripted Local Pass)
 - Open apps flow (`open Telegram and Safari`) completes predictably.
@@ -20,7 +28,13 @@
 - Clarification block requires explicit reply and resumes deterministically.
 - Confirmation block requires explicit approval/denial and preserves boundaries.
 - Fresh command while blocked restarts cleanly and does not execute previously blocked step.
+- Capability question returns grounded read-only output with sources.
+- Docs question follow-ups (`Explain more`, `Which source?`) reuse recent grounded answer context.
+- Blocked-state question explains the boundary without approving or resuming execution.
+- Recent-runtime question answers only from current session/runtime context.
+- Mixed question + action input asks for routing clarification instead of answering and executing together.
 - Unsupported window operations remain explicit failures with no fake success.
-- CLI shell commands (`help`, `voice`, `speak on/off`, `reset`, `quit`) stay intercepted and deterministic.
+- CLI shell commands (`help`, `voice`, `speak on/off`, `reset`, `quit`, `qa backend`, `qa model`, `qa smoke`) stay intercepted and deterministic.
 - Voice failure diagnostics stay explicit and actionable (no generic `Voice capture failed` path).
-- Use the deterministic command set in `docs/manual_verification_commands.md`.
+- Use `docs/manual_verification_commands.md` for the dual-mode scripted pass.
+- Use `docs/qa_operator_guide.md` for LLM alpha enablement, live smoke, and failure diagnosis.

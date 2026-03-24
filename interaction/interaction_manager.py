@@ -11,6 +11,7 @@ from input.adapter import InputNormalizationError
 from interaction.interaction_router import route_interaction
 from qa.answer_backend import AnswerBackendKind
 from qa.answer_config import AnswerBackendConfig, load_answer_backend_config
+from qa.debug_trace import qa_debug_enabled, set_debug_payload
 from qa.answer_engine import answer_question, classify_question
 from runtime.runtime_manager import RuntimeManager
 from ui.visibility_mapper import map_interaction_visibility, map_visibility
@@ -39,10 +40,21 @@ class InteractionManager:
 
     def handle_input(self, raw_input: str, session_context: SessionContext | None = None) -> InteractionResult:
         """Handle one user input through the dual-mode routing layer."""
+        debug_trace: dict[str, Any] | None = {} if qa_debug_enabled() else None
         decision = route_interaction(
             raw_input,
             session_context=session_context,
             runtime_state=self.runtime_manager.current_state,
+        )
+        set_debug_payload(
+            debug_trace,
+            "routing_decision",
+            {
+                "interaction_kind": getattr(decision.kind, "value", decision.kind),
+                "confidence": round(float(getattr(decision, "confidence", 0.0) or 0.0), 3),
+                "reason": decision.reason,
+                "runtime_state": str(getattr(self.runtime_manager.current_state, "value", self.runtime_manager.current_state or "")).strip() or None,
+            },
         )
 
         if decision.kind == InteractionKind.CLARIFICATION:
@@ -59,7 +71,7 @@ class InteractionManager:
                     interaction_mode=InteractionKind.CLARIFICATION,
                     clarification_request=clarification_request,
                 ),
-                metadata={"reason": decision.reason},
+                metadata=_metadata_with_debug({"reason": decision.reason}, debug_trace),
             )
 
         if decision.kind == InteractionKind.COMMAND:
@@ -72,7 +84,7 @@ class InteractionManager:
                     interaction_mode=InteractionKind.COMMAND,
                     runtime_result=runtime_result,
                 ),
-                metadata={"reason": decision.reason},
+                metadata=_metadata_with_debug({"reason": decision.reason}, debug_trace),
             )
 
         try:
@@ -82,6 +94,7 @@ class InteractionManager:
                 session_context=session_context,
                 runtime_snapshot=self._runtime_snapshot(),
                 backend_config=answer_backend_config,
+                debug_trace=debug_trace,
             )
         except InputNormalizationError as exc:
             input_error = self._input_error(exc)
@@ -93,6 +106,7 @@ class InteractionManager:
                     interaction_mode=InteractionKind.QUESTION,
                     error=input_error,
                 ),
+                metadata=_metadata_with_debug(None, debug_trace),
             )
         except JarvisError as error:
             return InteractionResult(
@@ -103,6 +117,7 @@ class InteractionManager:
                     interaction_mode=InteractionKind.QUESTION,
                     error=error,
                 ),
+                metadata=_metadata_with_debug(None, debug_trace),
             )
 
         _remember_answer_context(
@@ -119,7 +134,7 @@ class InteractionManager:
                 interaction_mode=InteractionKind.QUESTION,
                 answer_result=answer_result,
             ),
-            metadata={"answer_backend": answer_backend_config.backend_kind.value},
+            metadata=_metadata_with_debug({"answer_backend": answer_backend_config.backend_kind.value}, debug_trace),
         )
 
     def _runtime_snapshot(self) -> dict[str, Any]:
@@ -193,3 +208,10 @@ def _remember_answer_context(
         scope=scope or None,
         sources=[str(source).strip() for source in list(sources or []) if str(source).strip()],
     )
+
+
+def _metadata_with_debug(base: dict[str, Any] | None, debug_trace: dict[str, Any] | None) -> dict[str, Any] | None:
+    metadata = dict(base or {})
+    if debug_trace:
+        metadata["debug"] = dict(debug_trace)
+    return metadata or None

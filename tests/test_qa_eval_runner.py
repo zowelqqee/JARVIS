@@ -4,7 +4,16 @@ from __future__ import annotations
 
 import unittest
 
-from evals.run_qa_eval import DEFAULT_CORPUS_PATH, format_report, load_qa_eval_cases, run_eval_cases, select_eval_cases
+from evals.run_qa_eval import (
+    DEFAULT_CORPUS_PATH,
+    compare_eval_profiles,
+    format_comparison_report,
+    format_report,
+    load_qa_eval_cases,
+    run_eval_cases,
+    select_eval_cases,
+    summarize_eval_report,
+)
 
 
 class QaEvalRunnerTests(unittest.TestCase):
@@ -47,6 +56,32 @@ class QaEvalRunnerTests(unittest.TestCase):
 
         self.assertEqual(report.failed_cases, 0)
         self.assertIn("LLM backend fallback", str(report.results[0].details.get("actual_warning", "")))
+
+    def test_profile_summary_tracks_fallback_and_source_quality_metrics(self) -> None:
+        cases = load_qa_eval_cases(DEFAULT_CORPUS_PATH)
+        report = run_eval_cases(cases, default_profile="llm_missing_key_fallback")
+
+        summary = summarize_eval_report(report)
+
+        self.assertEqual(summary.profile, "llm_missing_key_fallback")
+        self.assertGreater(summary.answer_total, 0)
+        self.assertEqual(summary.fallback_total, summary.answer_total)
+        self.assertGreater(summary.source_attribution_passed, 0)
+
+    def test_compare_profiles_keeps_deterministic_default_when_candidate_falls_back(self) -> None:
+        cases = load_qa_eval_cases(DEFAULT_CORPUS_PATH)
+
+        comparison = compare_eval_profiles(
+            cases,
+            profiles=["deterministic", "llm_missing_key_fallback"],
+            candidate_profile="llm_missing_key_fallback",
+        )
+
+        self.assertFalse(comparison.default_switch_allowed)
+        self.assertEqual(comparison.recommended_default_profile, "deterministic")
+        self.assertEqual(comparison.routing_safety_regressions, 0)
+        self.assertTrue(any("fallback frequency" in blocker for blocker in comparison.blockers))
+        self.assertIn("default switch allowed: no", format_comparison_report(comparison))
 
 
 if __name__ == "__main__":

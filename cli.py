@@ -252,9 +252,11 @@ def _print_qa_smoke() -> None:
     config = load_answer_backend_config()
     api_key_present = bool(os.environ.get(config.llm.api_key_env, "").strip())
     live_flag_present = bool(os.environ.get("JARVIS_QA_OPENAI_LIVE_SMOKE", "").strip())
+    debug_flag_present = bool(os.environ.get("JARVIS_QA_DEBUG", "").strip())
     print("qa smoke command: scripts/run_openai_live_smoke.sh")
     print(f"api key env: {config.llm.api_key_env} ({'present' if api_key_present else 'missing'})")
     print(f"live smoke flag: JARVIS_QA_OPENAI_LIVE_SMOKE ({'present' if live_flag_present else 'missing'})")
+    print(f"debug flag: JARVIS_QA_DEBUG ({'present' if debug_flag_present else 'missing'})")
 
 
 def _normalize_voice_command(recognized_text: str) -> str:

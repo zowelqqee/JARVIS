@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import unittest
 from types import SimpleNamespace
+from unittest.mock import patch
 
 from context.session_context import SessionContext
 from interaction.interaction_manager import InteractionManager
@@ -88,6 +89,24 @@ class InteractionManagerTests(unittest.TestCase):
         self.assertIsNotNone(result.answer_result)
         self.assertIn("docs/clarification_rules.md", getattr(result.answer_result, "answer_text", ""))
         self.assertIsNone(result.runtime_result)
+
+    def test_debug_mode_attaches_structured_question_debug_metadata(self) -> None:
+        with patch.dict("os.environ", {"JARVIS_QA_DEBUG": "1"}, clear=False):
+            result = self.manager.handle_input("How does clarification work?", session_context=self.session_context)
+
+        debug = dict((result.metadata or {}).get("debug", {}) or {})
+        self.assertEqual(debug.get("routing_decision", {}).get("interaction_kind"), "question")
+        self.assertEqual(debug.get("question_classification", {}).get("question_type"), "docs_rules")
+        self.assertEqual(debug.get("source_selection", {}).get("source_count"), 2)
+        self.assertIn("docs/clarification_rules.md", " ".join(debug.get("source_selection", {}).get("sources", [])))
+
+    def test_debug_mode_attaches_routing_debug_for_command_path(self) -> None:
+        with patch.dict("os.environ", {"JARVIS_QA_DEBUG": "1"}, clear=False):
+            result = self.manager.handle_input("open telegram", session_context=self.session_context)
+
+        debug = dict((result.metadata or {}).get("debug", {}) or {})
+        self.assertEqual(debug.get("routing_decision", {}).get("interaction_kind"), "command")
+        self.assertNotIn("question_classification", debug)
 
     def test_llm_backend_falls_back_to_question_answer(self) -> None:
         manager = InteractionManager(answer_backend_kind=AnswerBackendKind.LLM)

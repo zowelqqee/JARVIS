@@ -136,6 +136,10 @@ Future-ready rule:
 - if the LLM backend is unavailable or returns an ungrounded answer, the system must fall back to deterministic answering or fail honestly
 - the model-backed answer payload must stay versioned; the current frozen schema version is `qa_answer_v1`
 - the manual live smoke path is `scripts/run_openai_live_smoke.sh` and requires `OPENAI_API_KEY`
+- the optional QA debug flag is `JARVIS_QA_DEBUG=1`; when enabled, question interactions attach structured safe debug payloads for routing decision, question classification, source selection, provider response parse, grounding verification, and deterministic fallback state
+- live smoke output should print the chosen provider, chosen model, grounded source count, and whether deterministic fallback happened
+- model-backed question answering must not become the default product path until the comparative gate in `docs/llm_default_decision_gate.md` passes on the shared eval corpus
+- operator runbook and smoke guidance live in `docs/qa_operator_guide.md`
 
 ## Question Contract
 Suggested internal request shape:

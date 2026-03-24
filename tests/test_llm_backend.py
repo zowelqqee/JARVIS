@@ -370,6 +370,71 @@ class LlmBackendTests(unittest.TestCase):
         self.assertEqual(details.get("attempt"), 1)
         self.assertEqual(details.get("max_attempts"), 1)
 
+    def test_provider_debug_trace_includes_parse_and_grounding_sections(self) -> None:
+        fake_transport = _FakeTransport(
+            response_payload={
+                "status": "completed",
+                "output_text": json.dumps(
+                    {
+                        "schema_version": ANSWER_SCHEMA_VERSION,
+                        "answer_text": "I support open_app and grounded question answering.",
+                        "source_attributions": [
+                            {
+                                "source": self.grounding_bundle.source_paths[0],
+                                "support": "Capability catalog grounds supported action coverage.",
+                            }
+                        ],
+                        "warning": "",
+                        "grounded": True,
+                    }
+                ),
+                "_jarvis_debug": {
+                    "provider": "openai_responses",
+                    "request_id": "req_debug",
+                    "correlation_id": "corr_debug",
+                },
+            }
+        )
+        provider = OpenAIResponsesProvider(transport=fake_transport)
+        config = AnswerBackendConfig(
+            backend_kind=AnswerBackendKind.LLM,
+            llm=LlmBackendConfig(
+                enabled=True,
+                provider=LlmProviderKind.OPENAI_RESPONSES,
+                model="gpt-4o-mini",
+                api_key_env="TEST_OPENAI_KEY",
+            ),
+        )
+        debug_trace: dict[str, object] = {}
+
+        with patch.dict(os.environ, {"TEST_OPENAI_KEY": "test-key"}, clear=False):
+            provider.answer(self.question, grounding_bundle=self.grounding_bundle, config=config, debug_trace=debug_trace)
+
+        self.assertEqual(debug_trace.get("provider_response_parse", {}).get("result"), "passed")
+        self.assertEqual(debug_trace.get("provider_response_parse", {}).get("request_id"), "req_debug")
+        self.assertEqual(debug_trace.get("grounding_verification", {}).get("result"), "passed")
+        self.assertEqual(debug_trace.get("grounding_verification", {}).get("used_source_count"), 1)
+
+    def test_llm_backend_debug_trace_marks_deterministic_fallback(self) -> None:
+        backend = LlmAnswerBackend()
+        config = AnswerBackendConfig(
+            backend_kind=AnswerBackendKind.LLM,
+            llm=LlmBackendConfig(
+                enabled=True,
+                provider=LlmProviderKind.OPENAI_RESPONSES,
+                model="gpt-4o-mini",
+                api_key_env="MISSING_KEY",
+                fallback_enabled=True,
+            ),
+        )
+        debug_trace: dict[str, object] = {}
+
+        with patch.dict(os.environ, {}, clear=False):
+            backend.answer(self.question, grounding_bundle=self.grounding_bundle, config=config, debug_trace=debug_trace)
+
+        self.assertTrue(bool(debug_trace.get("fallback", {}).get("deterministic_fallback")))
+        self.assertEqual(debug_trace.get("fallback", {}).get("provider"), "openai_responses")
+
 
 if __name__ == "__main__":
     unittest.main()

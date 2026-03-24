@@ -14,6 +14,7 @@ from answer_result import AnswerResult, AnswerSourceAttribution
 from qa.answer_backend import AnswerBackendKind
 from tests.smoke_openai_responses_provider_live import (
     live_smoke_config,
+    live_smoke_diagnostics,
     live_smoke_enabled,
     live_smoke_question,
     live_smoke_result_issues,
@@ -126,6 +127,37 @@ class OpenAILiveSmokeContractTests(unittest.TestCase):
         )
 
         self.assertIn("each source_attribution support must be specific and claim-bearing", issues)
+
+    def test_live_smoke_diagnostics_include_provider_model_source_count_and_fallback(self) -> None:
+        config = live_smoke_config(
+            {
+                "JARVIS_QA_OPENAI_LIVE_SMOKE": "1",
+                "OPENAI_API_KEY": "test-key",
+            }
+        )
+
+        diagnostics = live_smoke_diagnostics(
+            config=config,
+            result=AnswerResult(
+                answer_text="I can answer grounded capability questions.",
+                sources=[
+                    "/Users/arseniyabramidze/JARVIS/docs/question_answer_mode.md",
+                    "/Users/arseniyabramidze/JARVIS/docs/product_rules.md",
+                ],
+                source_attributions=[
+                    AnswerSourceAttribution(
+                        source="/Users/arseniyabramidze/JARVIS/docs/question_answer_mode.md",
+                        support="QA mode is grounded and read-only.",
+                    )
+                ],
+            ),
+            debug_trace={"fallback": {"deterministic_fallback": False}},
+        )
+
+        self.assertEqual(diagnostics.get("provider"), "openai_responses")
+        self.assertEqual(diagnostics.get("model"), "gpt-5-nano")
+        self.assertEqual(diagnostics.get("source_count"), 2)
+        self.assertFalse(bool(diagnostics.get("deterministic_fallback")))
 
 
 if __name__ == "__main__":

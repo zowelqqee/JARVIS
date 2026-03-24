@@ -14,6 +14,7 @@ if str(_TYPES_PATH) not in sys.path:
 
 from answer_result import AnswerResult
 from interaction_kind import InteractionKind, interaction_kind_value
+from qa.debug_trace import qa_debug_enabled
 from qa.grounding_verifier import support_is_meaningful
 from qa.answer_backend import AnswerBackendKind
 from qa.answer_config import AnswerBackendConfig, LlmBackendConfig
@@ -98,6 +99,30 @@ def live_smoke_result_issues(result: AnswerResult) -> list[str]:
     return issues
 
 
+def live_smoke_diagnostics(
+    *,
+    config: AnswerBackendConfig,
+    result: AnswerResult | None,
+    debug_trace: dict[str, object] | None = None,
+) -> dict[str, object]:
+    """Return safe live-smoke diagnostics for operator output."""
+    source_selection = dict((debug_trace or {}).get("source_selection", {}) or {})
+    fallback = dict((debug_trace or {}).get("fallback", {}) or {})
+    provider_parse = dict((debug_trace or {}).get("provider_response_parse", {}) or {})
+    source_count = len(list(getattr(result, "sources", []) or []))
+    if source_count == 0:
+        source_count = int(source_selection.get("source_count", 0) or 0)
+    return {
+        "model": config.llm.model,
+        "provider": getattr(config.llm.provider, "value", config.llm.provider),
+        "source_count": source_count,
+        "deterministic_fallback": bool(fallback.get("deterministic_fallback")),
+        "request_id": provider_parse.get("request_id"),
+        "correlation_id": provider_parse.get("correlation_id"),
+        "debug_enabled": qa_debug_enabled(),
+    }
+
+
 class OpenAIResponsesLiveSmokeTests(unittest.TestCase):
     """Manual live smoke for the real OpenAI Responses question-answer path."""
 
@@ -107,10 +132,25 @@ class OpenAIResponsesLiveSmokeTests(unittest.TestCase):
             self.skipTest(reason)
 
     def test_live_grounded_capability_answer(self) -> None:
-        result = answer_question(
-            live_smoke_question(),
-            backend_config=live_smoke_config(),
-        )
+        config = live_smoke_config()
+        debug_trace: dict[str, object] = {}
+        result: AnswerResult | None = None
+        try:
+            result = answer_question(
+                live_smoke_question(),
+                backend_config=config,
+                debug_trace=debug_trace,
+            )
+        finally:
+            diagnostics = live_smoke_diagnostics(
+                config=config,
+                result=result,
+                debug_trace=debug_trace,
+            )
+            print(f"live smoke provider: {diagnostics['provider']}")
+            print(f"live smoke model: {diagnostics['model']}")
+            print(f"live smoke source count: {diagnostics['source_count']}")
+            print(f"live smoke deterministic fallback: {diagnostics['deterministic_fallback']}")
 
         self.assertEqual(live_smoke_result_issues(result), [])
 

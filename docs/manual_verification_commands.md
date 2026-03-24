@@ -1,8 +1,8 @@
 # JARVIS MVP Manual Verification Commands
 
 ## Purpose
-- Provide a deterministic local CLI checklist for supervised release verification.
-- Keep checks inside current MVP action surface and blocked-state rules.
+- Provide one dual-mode local CLI checklist for supervised release verification.
+- Keep checks inside the current command runtime and grounded QA surface.
 
 ## Run
 - `python3 cli.py`
@@ -49,6 +49,38 @@
 - Input: `qa backend`, `qa model`, `qa smoke`
 - Expected: intercepted by CLI shell layer; print QA backend/model/live-smoke readiness without mutating runtime state.
 
-### 9) Voice failure diagnostics
+### 9) Capability question
+- Input: `what can you do?`
+- Expected: `mode: question` with grounded answer, source labels, and raw paths; no execution steps.
+
+### 10) Documentation question + safe follow-ups
+- Input: `how does clarification work?`
+- Expected: grounded answer from local docs.
+- Follow-up: `explain more`
+- Expected: more detailed grounded answer, still read-only.
+- Follow-up: `which source?`
+- Expected: source-focused answer that reuses the recent answer source bundle.
+
+### 11) Blocked-state question
+- Input: `close Telegram`
+- Expected: `awaiting_confirmation`
+- Follow-up: `what exactly do you need me to confirm?`
+- Expected: `mode: question`, read-only explanation of the current confirmation boundary.
+
+### 12) Recent-runtime question
+- Input: `open Safari`
+- Follow-up: `what command did you run last?`
+- Expected: `mode: question`, answer grounded in visible runtime/session context.
+
+### 13) Mixed question + action routing
+- Input: `what can you do and open Safari`
+- Expected: routing clarification only; no silent answer+execute behavior.
+
+### 14) Voice failure diagnostics
 - Input: `voice` (with voice helper unavailable/denied path)
 - Expected: concise structured diagnostic with actionable hint (no generic `Voice capture failed.` output).
+
+### 15) Live OpenAI smoke
+- Command: `scripts/run_openai_live_smoke.sh`
+- Expected: only run when `OPENAI_API_KEY` is present and the environment is intended for live provider verification.
+- Expected output: live smoke prints provider, model, source count, and whether deterministic fallback happened.
