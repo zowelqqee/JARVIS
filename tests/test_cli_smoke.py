@@ -199,6 +199,43 @@ class CliSmokeTests(unittest.TestCase):
 
         runtime_mock.assert_not_called()
 
+    def test_qa_helper_commands_are_intercepted_before_runtime(self) -> None:
+        with patch("cli._handle_runtime_input") as runtime_mock, patch(
+            "cli.load_answer_backend_config",
+            return_value=SimpleNamespace(
+                backend_kind="deterministic",
+                llm=SimpleNamespace(
+                    provider="openai_responses",
+                    enabled=False,
+                    fallback_enabled=True,
+                    model="gpt-5-nano",
+                    reasoning_effort="minimal",
+                    strict_mode=True,
+                    max_output_tokens=800,
+                    api_key_env="OPENAI_API_KEY",
+                ),
+            ),
+        ), patch.dict("os.environ", {"OPENAI_API_KEY": "test-key"}, clear=False):
+            should_exit, speak_enabled, backend_output = self._run_command("qa backend", speak_enabled=False)
+            self.assertFalse(should_exit)
+            self.assertFalse(speak_enabled)
+            self.assertIn("qa backend: deterministic", backend_output)
+            self.assertIn("llm provider: openai_responses", backend_output)
+
+            should_exit, speak_enabled, model_output = self._run_command("qa model", speak_enabled=False)
+            self.assertFalse(should_exit)
+            self.assertFalse(speak_enabled)
+            self.assertIn("qa model: gpt-5-nano", model_output)
+            self.assertIn("reasoning effort: minimal", model_output)
+
+            should_exit, speak_enabled, smoke_output = self._run_command("qa smoke", speak_enabled=False)
+            self.assertFalse(should_exit)
+            self.assertFalse(speak_enabled)
+            self.assertIn("qa smoke command: scripts/run_openai_live_smoke.sh", smoke_output)
+            self.assertIn("api key env: OPENAI_API_KEY (present)", smoke_output)
+
+        runtime_mock.assert_not_called()
+
     def test_question_answer_output_includes_mode_answer_sources_and_warning(self) -> None:
         interaction_manager = MagicMock()
         interaction_manager.handle_input.return_value = SimpleNamespace(
@@ -225,8 +262,9 @@ class CliSmokeTests(unittest.TestCase):
 
         output = buffer.getvalue()
         self.assertIn("mode: question", output)
-        self.assertIn("answer: I can open apps and answer grounded questions.", output)
-        self.assertIn("sources: /tmp/docs/product_rules.md, /tmp/docs/question_answer_mode.md", output)
+        self.assertIn("summary: I can open apps and answer grounded questions.", output)
+        self.assertIn("sources: Product Rules, Question Answer Mode", output)
+        self.assertIn("paths: /tmp/docs/product_rules.md, /tmp/docs/question_answer_mode.md", output)
         self.assertIn("warning: Answer is limited to grounded local sources.", output)
         interaction_manager.handle_input.assert_called_once_with(
             "What can you do?",
@@ -264,9 +302,9 @@ class CliSmokeTests(unittest.TestCase):
         interaction_manager.handle_input.return_value = SimpleNamespace(
             interaction_mode="question",
             answer_result=SimpleNamespace(
-                answer_text="I can open apps and answer grounded questions.",
+                answer_text="I can open apps and answer grounded questions. I stay read-only.",
                 sources=[],
-                warning=None,
+                warning="Answer is limited to grounded local sources.",
             ),
             clarification_request=None,
             runtime_result=None,
@@ -284,7 +322,7 @@ class CliSmokeTests(unittest.TestCase):
             )
 
         speech_mock.assert_called_once_with(
-            ["say", "I can open apps and answer grounded questions."],
+            ["say", "I can open apps and answer grounded questions. Warning: Answer is limited to grounded local sources."],
             capture_output=True,
             text=True,
             check=False,

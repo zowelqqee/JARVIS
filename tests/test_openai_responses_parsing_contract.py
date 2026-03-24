@@ -65,6 +65,30 @@ class OpenAIResponsesParsingContractTests(unittest.TestCase):
         self.assertIn("grounded question answering", result.answer_text)
         self.assertEqual(len(result.source_attributions), 2)
 
+    def test_parse_answer_response_normalizes_prompt_annotated_source_path(self) -> None:
+        result = self.provider._parse_answer_response(  # noqa: SLF001
+            {
+                "status": "completed",
+                "output_text": json.dumps(
+                    {
+                        "schema_version": ANSWER_SCHEMA_VERSION,
+                        "answer_text": "I support open_app and grounded question answering.",
+                        "source_attributions": [
+                            {
+                                "source": f"{self.grounding_bundle.source_paths[0]} | kind=capability_metadata",
+                                "support": "Capability catalog grounds supported action coverage.",
+                            }
+                        ],
+                        "warning": "",
+                        "grounded": True,
+                    }
+                ),
+            },
+            grounding_bundle=self.grounding_bundle,
+        )
+
+        self.assertEqual(result.sources, [self.grounding_bundle.source_paths[0]])
+
     def test_parse_answer_response_rejects_failed_status(self) -> None:
         with self.assertRaises(JarvisError) as captured:
             self.provider._parse_answer_response(  # noqa: SLF001
@@ -73,6 +97,19 @@ class OpenAIResponsesParsingContractTests(unittest.TestCase):
             )
 
         self.assertEqual(getattr(captured.exception.code, "value", ""), ErrorCode.ANSWER_GENERATION_FAILED.value)
+
+    def test_parse_answer_response_reports_incomplete_details(self) -> None:
+        with self.assertRaises(JarvisError) as captured:
+            self.provider._parse_answer_response(  # noqa: SLF001
+                {
+                    "status": "incomplete",
+                    "incomplete_details": {"reason": "max_output_tokens"},
+                },
+                grounding_bundle=self.grounding_bundle,
+            )
+
+        self.assertEqual(getattr(captured.exception.code, "value", ""), ErrorCode.ANSWER_GENERATION_FAILED.value)
+        self.assertEqual((captured.exception.details or {}).get("incomplete_details"), {"reason": "max_output_tokens"})
 
     def test_parse_answer_response_rejects_invalid_json(self) -> None:
         with self.assertRaises(JarvisError) as captured:

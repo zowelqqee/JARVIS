@@ -54,6 +54,11 @@ Session context is not:
 - Needed: supports numbered follow-up opens and bounded answers such as which file was most recently found.
 - Expires: when an unrelated command replaces the search context or the session resets.
 
+### Recent answer context
+- Stores: the most recent grounded answer topic, answer scope, and cited sources.
+- Needed: supports safe answer follow-ups such as "Explain more", "Which source?", "Where is that written?", and "Why?".
+- Expires: when replaced by a newer grounded answer, when recent context is reset, or when the session ends.
+
 ## QA Access Rules
 Question-answer mode may read session context only to answer grounded questions about the current supervised session.
 
@@ -65,6 +70,7 @@ Allowed QA reads:
 - recent workspace context
 - recent search results
 - recent confirmation status
+- recent grounded answer topic, scope, and cited sources for safe answer follow-ups
 
 Not allowed:
 - treating session context as long-term memory
@@ -90,11 +96,21 @@ Examples:
 - "why are you blocked"
 - "what folder are you using"
 
+Safe answer follow-ups may use only the most recent grounded answer context.
+
+Examples:
+- "Explain more"
+- "Which source?"
+- "Where is that written?"
+- "Why?"
+
 Rules:
 - follow-up may reference only recent, explicit context
 - question-answer mode may describe only recent, explicit context
 - JARVIS must not invent hidden context
 - if a reference is unclear, JARVIS must ask for clarification or report insufficient context
+- answer follow-ups must reuse the recent grounded answer source bundle instead of silently selecting new sources
+- answer follow-ups must not become execution without normal routing
 
 ## Context Resolution Rules
 Resolve omitted command references in this order:

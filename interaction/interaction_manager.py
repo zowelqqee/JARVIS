@@ -11,7 +11,7 @@ from input.adapter import InputNormalizationError
 from interaction.interaction_router import route_interaction
 from qa.answer_backend import AnswerBackendKind
 from qa.answer_config import AnswerBackendConfig, load_answer_backend_config
-from qa.answer_engine import answer_question
+from qa.answer_engine import answer_question, classify_question
 from runtime.runtime_manager import RuntimeManager
 from ui.visibility_mapper import map_interaction_visibility, map_visibility
 
@@ -105,6 +105,12 @@ class InteractionManager:
                 ),
             )
 
+        _remember_answer_context(
+            session_context,
+            raw_input=decision.normalized_input or raw_input,
+            answer_result=answer_result,
+        )
+
         return InteractionResult(
             interaction_mode=InteractionKind.QUESTION,
             normalized_input=decision.normalized_input,
@@ -134,6 +140,15 @@ class InteractionManager:
             "current_step": visibility.get("current_step"),
             "completed_steps": visibility.get("completed_steps"),
             "blocked_reason": visibility.get("blocked_reason"),
+            "blocked_kind": (
+                "confirmation"
+                if self.runtime_manager.confirmation_request is not None
+                else "clarification"
+                if self.runtime_manager.clarification_request is not None
+                else None
+            ),
+            "clarification_question": getattr(self.runtime_manager.clarification_request, "message", None),
+            "confirmation_message": getattr(self.runtime_manager.confirmation_request, "message", None),
         }
 
     def _input_error(self, exc: InputNormalizationError) -> JarvisError:
@@ -150,3 +165,31 @@ class InteractionManager:
 
     def _effective_answer_backend_config(self) -> AnswerBackendConfig:
         return self.answer_backend_config.with_backend_kind(self.answer_backend_kind)
+
+
+def _remember_answer_context(
+    session_context: SessionContext | None,
+    *,
+    raw_input: str,
+    answer_result: Any,
+) -> None:
+    if session_context is None:
+        return
+    question = classify_question(raw_input, session_context=session_context)
+    question_type_value = str(getattr(getattr(question, "question_type", None), "value", getattr(question, "question_type", "")) or "").strip()
+    context_refs = getattr(question, "context_refs", {}) or {}
+    if not isinstance(context_refs, dict):
+        context_refs = {}
+    if question_type_value == "answer_follow_up":
+        topic = str(context_refs.get("answer_topic", "") or "").strip()
+        scope = str(context_refs.get("answer_scope", "") or getattr(question, "scope", "") or "").strip()
+        sources = context_refs.get("answer_sources", []) or getattr(answer_result, "sources", [])
+    else:
+        topic = str(context_refs.get("topic", "") or "").strip() or question_type_value
+        scope = str(getattr(question, "scope", "") or "").strip()
+        sources = getattr(answer_result, "sources", [])
+    session_context.set_recent_answer_context(
+        topic=topic or None,
+        scope=scope or None,
+        sources=[str(source).strip() for source in list(sources or []) if str(source).strip()],
+    )

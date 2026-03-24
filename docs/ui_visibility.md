@@ -58,32 +58,37 @@ The UI must always let the user understand:
 - When it appears: in question mode on successful answer.
 - When it updates: once per answered question.
 
-### 9. Answer sources
-- What it shows: the source files or structured runtime source used to ground the answer.
+### 9. Answer summary
+- What it shows: one short summary line for the answered question, optimized for CLI history scanning and speech output.
+- When it appears: in question mode on successful answer.
+- When it updates: once per answered question.
+
+### 10. Answer sources
+- What it shows: human-readable source labels plus the raw absolute source paths used to ground the answer.
 - When it appears: in question mode when the answer is grounded from docs or structured runtime data.
 - When it updates: once per answered question.
 
-### 10. Answer source attributions
+### 11. Answer source attributions
 - What it shows: short per-source support statements explaining what each cited source grounds.
 - When it appears: in question mode when the answer backend can expose stronger evidence mapping.
 - When it updates: once per answered question.
 
-### 11. Answer warning
+### 12. Answer warning
 - What it shows: bounded uncertainty or partial-context note for the answer.
 - When it appears: in question mode only when needed.
 - When it updates: once per answered question.
 
-### 12. Failure message
+### 13. Failure message
 - What it shows: concise failure reason with error code/message.
 - When it appears: in failed command interactions or failed question interactions.
 - When it updates: once at failure entry; remains visible for the interaction result.
 
-### 13. Completion result
+### 14. Completion result
 - What it shows: concise success summary of completed command execution.
 - When it appears: in command mode `completed`.
 - When it updates: once at completion entry.
 
-### 14. Stop / cancel control
+### 15. Stop / cancel control
 - What it shows: explicit control to cancel the active command.
 - When it appears: during active command states (`parsing`, `validating`, `planning`, `executing`, `awaiting_clarification`, `awaiting_confirmation`).
 - When it updates: enabled while a command is active; disabled in `idle`, `completed`, `failed`, `cancelled`, and question mode.
@@ -148,8 +153,9 @@ The UI must always let the user understand:
 ## Question Mode Mapping
 ### answered question
 - show interaction mode = `question`
+- show answer summary first
 - show answer text
-- show answer sources when available
+- show answer sources with readable labels and raw paths when available
 - show answer source attributions when available
 - show answer warning only when needed
 - do not show execution steps unless the answer explicitly describes already-visible runtime state
@@ -185,7 +191,8 @@ The UI must always let the user understand:
 
 ## Answer UI Rules
 - Answer text must be concise and direct.
-- If the answer is grounded in docs or runtime data, show the source set.
+- Provide one short answer summary line suitable for CLI history scanning and speech output.
+- If the answer is grounded in docs or runtime data, show the source set with readable labels and raw paths.
 - If the backend provides stronger per-source support mapping, show it without implying hidden retrieval.
 - If the answer is partial, show one bounded warning.
 - Answer mode must not imply that desktop actions ran.

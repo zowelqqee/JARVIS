@@ -58,11 +58,22 @@ Examples:
 Question-answer mode is read-only and grounded.
 
 Supported families:
+- `blocked_state`: what JARVIS is waiting on, what input is needed, and what must be confirmed or clarified
+- `recent_runtime`: the most recent visible command, target, app/file, or workspace context
 - `capabilities`: supported actions, limits, and non-goals
 - `runtime_status`: current visible state, blocked reason, current command, completed steps
 - `docs_rules`: clarification, confirmation, safety, validation, runtime behavior
 - `repo_structure`: where components and files live in the repo
 - `safety_explanations`: why execution is blocked, why confirmation is required, why unsupported behavior stays unsupported
+
+Supported safe answer follow-ups in the current session:
+- `Explain more`
+- `Which source?`
+- `Where is that written?`
+- `Why?`
+
+These follow-ups are allowed only when they clearly refer to the most recent grounded answer.
+They must reuse the recent answer topic/scope/source bundle and must not become hidden execution.
 
 Unsupported in v1:
 - open-ended world knowledge
@@ -77,14 +88,21 @@ Allowed sources:
 - repository documentation under `docs/`
 - capability catalog or equivalent fixed runtime metadata
 - active session context
+- recent grounded answer context from the same session (`recent_answer_topic`, `recent_answer_scope`, `recent_answer_sources`)
 - current visible runtime state
 - current command summary, blocked reason, and completed visible steps
+
+Grounding selection rule:
+- source selection should run through one explicit registry/selector layer
+- docs grounding should prefer section-aware support claims, not only bare file paths
+- runtime grounding should distinguish runtime visibility, session context, and docs support when multiple kinds are used
 
 Not allowed:
 - hidden assumptions about capabilities not present in code/docs
 - unstated long-term user memory
 - silent external lookups
 - fabricated sources
+- answer follow-up chaining that introduces new execution or new hidden source selection
 
 ## Backend Strategy
 Question-answer mode should be built around one stable `Answer Engine` contract with replaceable internal backends.
@@ -98,6 +116,7 @@ Recommended shape:
 Hard rules:
 - routing into `question` vs `command` must happen before backend selection
 - source selection and grounding policy must happen before answer generation
+- source selection should be explainable through a topic-aware source registry / selector seam
 - backend choice must not change safety policy
 - no backend may create `Command` objects or `execution_steps`
 - no backend may approve confirmation or resume blocked execution
@@ -107,9 +126,13 @@ Future-ready rule:
 - the current opt-in OpenAI Responses path keeps deterministic as the default backend and uses `gpt-5-nano` as the default small-model setting
 - the selected model must stay configurable, so a lower-latency model can be swapped without changing routing or visibility contracts
 - the LLM backend should receive explicit source bundles and answer instructions, not raw unrestricted authority over the session
+- prompt/instructions building, schema building, and structured response parsing should stay behind explicit seams instead of living inline in one provider method
 - source-attribution parsing and groundedness verification should live in a shared verifier layer, not inside one provider implementation
 - provider-specific request construction should live behind a provider seam such as an OpenAI Responses adapter
 - transport concerns should live behind a provider transport adapter, not inside routing or CLI
+- provider settings should stay externalized and include model, timeout, max output tokens, reasoning effort, strict mode, retry policy, and fallback mode
+- retries must be limited to transient transport/provider failures such as 429/500/502/503 and network timeouts
+- schema mismatch, malformed structured output, and grounding failures must fail honestly without retry loops
 - if the LLM backend is unavailable or returns an ungrounded answer, the system must fall back to deterministic answering or fail honestly
 - the model-backed answer payload must stay versioned; the current frozen schema version is `qa_answer_v1`
 - the manual live smoke path is `scripts/run_openai_live_smoke.sh` and requires `OPENAI_API_KEY`
@@ -179,12 +202,14 @@ Failure behavior:
 - do not execute anything
 - state the boundary clearly
 - suggest the narrowest next user action when useful
+- if a safe answer follow-up has no recent grounded answer context, fail with bounded insufficient-context output
 
 ## Visibility Rules
 Question-answer mode should expose:
 - `interaction_mode = question`
+- `answer_summary` for concise CLI/speech rendering
 - `answer_text`
-- `sources` when grounded from docs or structured runtime data
+- human-readable source labels plus raw `sources` when grounded from docs or structured runtime data
 - `warning` when answer is partial or bounded
 
 Question-answer mode must not expose:

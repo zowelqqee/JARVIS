@@ -13,7 +13,7 @@ _TYPES_PATH = Path(__file__).resolve().parents[1] / "types"
 if str(_TYPES_PATH) not in sys.path:
     sys.path.insert(0, str(_TYPES_PATH))
 
-from jarvis_error import ErrorCode, JarvisError
+from jarvis_error import ErrorCategory, ErrorCode, JarvisError
 from qa.answer_backend import AnswerBackendKind
 from qa.answer_config import AnswerBackendConfig, LlmBackendConfig
 from qa.grounding import build_grounding_bundle
@@ -41,6 +41,28 @@ class _FakeTransport:
         if self.error is not None:
             raise self.error
         return self.response_payload
+
+
+class _SequencedFakeTransport:
+    def __init__(self, outcomes: list[dict | Exception]) -> None:
+        self.outcomes = list(outcomes)
+        self.calls: list[dict] = []
+
+    def create_response(self, request_payload: dict, *, api_key: str, api_base: str | None = None, timeout_seconds: float = 30.0) -> dict:
+        self.calls.append(
+            {
+                "request_payload": request_payload,
+                "api_key": api_key,
+                "api_base": api_base,
+                "timeout_seconds": timeout_seconds,
+            }
+        )
+        if not self.outcomes:
+            raise AssertionError("No fake transport outcomes left.")
+        outcome = self.outcomes.pop(0)
+        if isinstance(outcome, Exception):
+            raise outcome
+        return outcome
 
 
 class LlmBackendTests(unittest.TestCase):
@@ -120,6 +142,7 @@ class LlmBackendTests(unittest.TestCase):
                 provider=LlmProviderKind.OPENAI_RESPONSES,
                 model="gpt-4o-mini",
                 api_key_env="TEST_OPENAI_KEY",
+                timeout_seconds=12.5,
             ),
         )
 
@@ -132,6 +155,7 @@ class LlmBackendTests(unittest.TestCase):
         self.assertEqual(result.source_attributions[0].support, "Capability catalog grounds supported action coverage.")
         self.assertIsNone(result.warning)
         self.assertEqual(fake_transport.calls[0]["api_key"], "test-key")
+        self.assertEqual(fake_transport.calls[0]["timeout_seconds"], 12.5)
 
     def test_enabled_llm_backend_falls_back_to_deterministic_when_api_key_missing(self) -> None:
         backend = LlmAnswerBackend()
@@ -220,6 +244,131 @@ class LlmBackendTests(unittest.TestCase):
 
         self.assertIn("open_app", result.answer_text)
         self.assertIn("ANSWER_NOT_GROUNDED", str(result.warning))
+
+    def test_provider_retries_retryable_transport_failure_once(self) -> None:
+        retryable_error = JarvisError(
+            category=ErrorCategory.ANSWER_ERROR,
+            code=ErrorCode.ANSWER_GENERATION_FAILED,
+            message="temporary upstream failure",
+            details={"retryable": True, "request_id": "req_retry"},
+            blocking=False,
+            terminal=True,
+        )
+        fake_transport = _SequencedFakeTransport(
+            [
+                retryable_error,
+                {
+                    "status": "completed",
+                    "output_text": json.dumps(
+                        {
+                            "schema_version": ANSWER_SCHEMA_VERSION,
+                            "answer_text": "I support open_app and grounded question answering.",
+                            "source_attributions": [
+                                {
+                                    "source": self.grounding_bundle.source_paths[0],
+                                    "support": "Capability catalog grounds supported action coverage.",
+                                }
+                            ],
+                            "warning": "",
+                            "grounded": True,
+                        }
+                    ),
+                },
+            ]
+        )
+        provider = OpenAIResponsesProvider(transport=fake_transport)
+        config = AnswerBackendConfig(
+            backend_kind=AnswerBackendKind.LLM,
+            llm=LlmBackendConfig(
+                enabled=True,
+                provider=LlmProviderKind.OPENAI_RESPONSES,
+                model="gpt-4o-mini",
+                api_key_env="TEST_OPENAI_KEY",
+                max_retries=1,
+            ),
+        )
+
+        with patch.dict(os.environ, {"TEST_OPENAI_KEY": "test-key"}, clear=False):
+            result = provider.answer(self.question, grounding_bundle=self.grounding_bundle, config=config)
+
+        self.assertIn("open_app", result.answer_text)
+        self.assertEqual(len(fake_transport.calls), 2)
+
+    def test_provider_does_not_retry_non_retryable_parse_failure(self) -> None:
+        fake_transport = _SequencedFakeTransport(
+            [
+                {
+                    "status": "completed",
+                    "output_text": "not-json",
+                },
+                {
+                    "status": "completed",
+                    "output_text": json.dumps(
+                        {
+                            "schema_version": ANSWER_SCHEMA_VERSION,
+                            "answer_text": "I support open_app.",
+                            "source_attributions": [
+                                {
+                                    "source": self.grounding_bundle.source_paths[0],
+                                    "support": "Capability catalog grounds supported action coverage.",
+                                }
+                            ],
+                            "warning": "",
+                            "grounded": True,
+                        }
+                    ),
+                },
+            ]
+        )
+        provider = OpenAIResponsesProvider(transport=fake_transport)
+        config = AnswerBackendConfig(
+            backend_kind=AnswerBackendKind.LLM,
+            llm=LlmBackendConfig(
+                enabled=True,
+                provider=LlmProviderKind.OPENAI_RESPONSES,
+                model="gpt-4o-mini",
+                api_key_env="TEST_OPENAI_KEY",
+                max_retries=1,
+            ),
+        )
+
+        with patch.dict(os.environ, {"TEST_OPENAI_KEY": "test-key"}, clear=False), self.assertRaises(JarvisError) as captured:
+            provider.answer(self.question, grounding_bundle=self.grounding_bundle, config=config)
+
+        self.assertEqual(getattr(captured.exception.code, "value", ""), ErrorCode.ANSWER_GENERATION_FAILED.value)
+        self.assertEqual(len(fake_transport.calls), 1)
+
+    def test_provider_failure_details_include_request_and_correlation_ids(self) -> None:
+        fake_transport = _FakeTransport(
+            error=JarvisError(
+                category=ErrorCategory.ANSWER_ERROR,
+                code=ErrorCode.ANSWER_GENERATION_FAILED,
+                message="upstream rejected request",
+                details={"retryable": False, "request_id": "req_fail"},
+                blocking=False,
+                terminal=True,
+            )
+        )
+        provider = OpenAIResponsesProvider(transport=fake_transport)
+        config = AnswerBackendConfig(
+            backend_kind=AnswerBackendKind.LLM,
+            llm=LlmBackendConfig(
+                enabled=True,
+                provider=LlmProviderKind.OPENAI_RESPONSES,
+                model="gpt-4o-mini",
+                api_key_env="TEST_OPENAI_KEY",
+                max_retries=0,
+            ),
+        )
+
+        with patch.dict(os.environ, {"TEST_OPENAI_KEY": "test-key"}, clear=False), self.assertRaises(JarvisError) as captured:
+            provider.answer(self.question, grounding_bundle=self.grounding_bundle, config=config)
+
+        details = captured.exception.details or {}
+        self.assertEqual(details.get("request_id"), "req_fail")
+        self.assertTrue(str(details.get("correlation_id", "")).strip())
+        self.assertEqual(details.get("attempt"), 1)
+        self.assertEqual(details.get("max_attempts"), 1)
 
 
 if __name__ == "__main__":

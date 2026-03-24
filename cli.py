@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+import os
 import re
 import subprocess
 
 from context.session_context import SessionContext
 from input.voice_input import VoiceInputError, capture_voice_input
 from interaction.interaction_manager import InteractionManager
+from qa.answer_config import load_answer_backend_config
 from runtime.runtime_manager import RuntimeManager
 from ui.interaction_presenter import interaction_output_lines, interaction_speech_message
 
@@ -106,6 +108,18 @@ def _handle_cli_command(
             print("Runtime reset.")
             return False, speak_enabled
 
+        if lowered in {"qa backend", "/qa backend"}:
+            _print_qa_backend()
+            return False, speak_enabled
+
+        if lowered in {"qa model", "/qa model"}:
+            _print_qa_model()
+            return False, speak_enabled
+
+        if lowered in {"qa smoke", "/qa smoke"}:
+            _print_qa_smoke()
+            return False, speak_enabled
+
         if lowered in {"voice", "/voice"}:
             print("voice: listening... speak now.")
             recognized_text = capture_voice_input(timeout_seconds=_VOICE_CAPTURE_TIMEOUT_SECONDS)
@@ -174,6 +188,12 @@ def _print_help() -> None:
     print("  /speak on        Enable spoken output for key runtime messages.")
     print("  speak off        Disable spoken output.")
     print("  /speak off       Disable spoken output.")
+    print("  qa backend       Show the current QA backend mode.")
+    print("  /qa backend      Show the current QA backend mode.")
+    print("  qa model         Show the configured QA model path.")
+    print("  /qa model        Show the configured QA model path.")
+    print("  qa smoke         Show live smoke readiness and command.")
+    print("  /qa smoke        Show live smoke readiness and command.")
     print("  reset            Clear runtime and session context.")
     print("  quit             Exit the CLI.")
     print("  exit             Exit the CLI.")
@@ -207,6 +227,34 @@ def _speak_message(message: str | None) -> None:
 
     if speech_result.returncode != 0:
         print("speech: unavailable.")
+
+
+def _print_qa_backend() -> None:
+    """Print the current QA backend selection without mutating runtime state."""
+    config = load_answer_backend_config()
+    print(f"qa backend: {getattr(config.backend_kind, 'value', config.backend_kind)}")
+    print(f"llm provider: {getattr(config.llm.provider, 'value', config.llm.provider)}")
+    print(f"llm enabled: {'on' if config.llm.enabled else 'off'}")
+    print(f"llm fallback: {'on' if config.llm.fallback_enabled else 'off'}")
+
+
+def _print_qa_model() -> None:
+    """Print the current QA model configuration in a concise operator-friendly form."""
+    config = load_answer_backend_config()
+    print(f"qa model: {config.llm.model}")
+    print(f"reasoning effort: {config.llm.reasoning_effort}")
+    print(f"strict mode: {'on' if config.llm.strict_mode else 'off'}")
+    print(f"max output tokens: {config.llm.max_output_tokens}")
+
+
+def _print_qa_smoke() -> None:
+    """Print the current live-smoke readiness without triggering network calls."""
+    config = load_answer_backend_config()
+    api_key_present = bool(os.environ.get(config.llm.api_key_env, "").strip())
+    live_flag_present = bool(os.environ.get("JARVIS_QA_OPENAI_LIVE_SMOKE", "").strip())
+    print("qa smoke command: scripts/run_openai_live_smoke.sh")
+    print(f"api key env: {config.llm.api_key_env} ({'present' if api_key_present else 'missing'})")
+    print(f"live smoke flag: JARVIS_QA_OPENAI_LIVE_SMOKE ({'present' if live_flag_present else 'missing'})")
 
 
 def _normalize_voice_command(recognized_text: str) -> str:

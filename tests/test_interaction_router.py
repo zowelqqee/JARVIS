@@ -42,8 +42,14 @@ class InteractionRouterTests(unittest.TestCase):
         self.assertEqual(decision.kind, InteractionKind.CLARIFICATION)
         self.assertIn("answer", decision.clarification_message or "")
 
-    def test_blocked_state_priority_for_confirmation_keeps_command_path(self) -> None:
-        decision = route_interaction("Why are you waiting?", runtime_state="awaiting_confirmation")
+    def test_blocked_state_question_routes_to_question_path(self) -> None:
+        decision = route_interaction("What exactly do you need me to confirm?", runtime_state="awaiting_confirmation")
+
+        self.assertEqual(decision.kind, InteractionKind.QUESTION)
+        self.assertEqual(decision.reason, "blocked_state_question")
+
+    def test_blocked_state_priority_for_confirmation_reply_keeps_command_path(self) -> None:
+        decision = route_interaction("yes", runtime_state="awaiting_confirmation")
 
         self.assertEqual(decision.kind, InteractionKind.COMMAND)
         self.assertEqual(decision.reason, "blocked_state_priority")

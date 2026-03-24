@@ -96,6 +96,14 @@ _MIXED_COMMAND_MARKERS = (
     " then close ",
     " then search ",
 )
+_BLOCKED_STATE_QUESTION_MARKERS = (
+    "what are you waiting",
+    "what are you waiting for",
+    "why did you stop",
+    "what do you need from me",
+    "what exactly do you need me to confirm",
+    "what do you need me to confirm",
+)
 
 
 def route_interaction(
@@ -109,6 +117,13 @@ def route_interaction(
     normalized = _normalize_for_routing(raw_input)
     state_text = str(getattr(runtime_state, "value", runtime_state or "")).strip()
     if state_text in {"awaiting_confirmation", "awaiting_clarification"}:
+        if _looks_like_blocked_state_question(normalized):
+            return InteractionDecision(
+                kind=InteractionKind.QUESTION,
+                normalized_input=normalized,
+                confidence=0.93,
+                reason="blocked_state_question",
+            )
         return InteractionDecision(
             kind=InteractionKind.COMMAND,
             normalized_input=normalized,
@@ -173,3 +188,8 @@ def _looks_like_question(text: str) -> bool:
 def _contains_embedded_command_request(text: str) -> bool:
     lowered = f" {text.lower()} "
     return any(marker in lowered for marker in _MIXED_COMMAND_MARKERS)
+
+
+def _looks_like_blocked_state_question(text: str) -> bool:
+    lowered = text.lower()
+    return any(marker in lowered for marker in _BLOCKED_STATE_QUESTION_MARKERS)

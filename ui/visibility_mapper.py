@@ -20,6 +20,8 @@ if str(_TYPES_PATH) not in sys.path:
 
 from interaction_kind import InteractionKind, interaction_kind_value  # type: ignore  # noqa: E402
 
+_REPO_ROOT = Path(__file__).resolve().parents[1]
+
 
 class VisibilityPayload(TypedDict, total=False):
     """Minimal user-visible runtime payload shape."""
@@ -57,7 +59,9 @@ class InteractionVisibilityPayload(TypedDict, total=False):
     window_results: dict[str, Any] | None
     can_cancel: bool
     answer_text: str | None
+    answer_summary: str | None
     answer_sources: list[str]
+    answer_source_labels: list[str]
     answer_source_attributions: list[dict[str, str]]
     answer_warning: str | None
 
@@ -195,7 +199,9 @@ def map_interaction_visibility(
             "interaction_mode": InteractionKind.QUESTION.value,
             "can_cancel": False,
             "answer_text": answer_text,
+            "answer_summary": _answer_summary(answer_text),
             "answer_sources": answer_sources,
+            "answer_source_labels": _answer_source_labels(answer_sources),
             "answer_source_attributions": source_attributions,
             "answer_warning": warning,
             "failure_message": _interaction_failure_message(error) if error is not None else None,
@@ -229,6 +235,41 @@ def _answer_source_attributions(answer_result: Any | None) -> list[dict[str, str
         if source and support:
             result.append({"source": source, "support": support})
     return result
+
+
+def _answer_summary(answer_text: str | None) -> str | None:
+    text = str(answer_text or "").strip()
+    if not text:
+        return None
+    normalized = " ".join(text.split())
+    for punctuation in (". ", "! ", "? "):
+        split_index = normalized.find(punctuation)
+        if 0 < split_index <= 110:
+            return normalized[: split_index + 1].strip()
+    if len(normalized) <= 110:
+        return normalized
+    clipped = normalized[:107].rsplit(" ", 1)[0].strip() or normalized[:107].strip()
+    return f"{clipped}..."
+
+
+def _answer_source_labels(sources: list[str]) -> list[str]:
+    return [_source_label(source) for source in sources if str(source).strip()]
+
+
+def _source_label(source: str) -> str:
+    raw_source = str(source or "").strip()
+    if not raw_source:
+        return ""
+    source_path = Path(raw_source)
+    try:
+        relative_source = source_path.resolve().relative_to(_REPO_ROOT)
+    except (ValueError, OSError):
+        relative_source = Path(source_path.name or raw_source)
+    label_seed = relative_source.stem or relative_source.name or raw_source
+    words = str(label_seed).replace("_", " ").replace("-", " ").split()
+    if not words:
+        return raw_source
+    return " ".join(word.capitalize() for word in words)
 
 
 def _intent_value(intent: Any) -> str:
@@ -895,6 +936,7 @@ def _prune_interaction_optional_none_fields(payload: InteractionVisibilityPayloa
         "window_results",
         "next_step_hint",
         "answer_text",
+        "answer_summary",
         "answer_warning",
     )
     for key in optional_fields:
@@ -902,6 +944,8 @@ def _prune_interaction_optional_none_fields(payload: InteractionVisibilityPayloa
             payload.pop(key, None)
     if not payload.get("answer_sources"):
         payload.pop("answer_sources", None)
+    if not payload.get("answer_source_labels"):
+        payload.pop("answer_source_labels", None)
     return payload
 
 

@@ -83,6 +83,11 @@ Define the minimal codebase structure required to implement the supervised dual-
 - Owns: convenience entrypoints only.
 - Must not own: runtime logic, routing policy, or answer-generation rules.
 
+### `evals/`
+- Purpose: hold centralized eval corpora and standalone evaluation runners.
+- Owns: reproducible QA case datasets and reporting harnesses.
+- Must not own: product runtime logic, routing policy, or unit-test-only assertions.
+
 ## Required Files Per Module
 ### `input/`
 - `adapter.py`
@@ -119,11 +124,17 @@ Define the minimal codebase structure required to implement the supervised dual-
 - `answer_config.py`
 - `deterministic_backend.py`
 - `grounding.py`
+- `source_registry.py`
+- `source_selector.py`
 - `grounding_verifier.py`
 - `capability_catalog.py`
 - `llm_backend.py`
 - `llm_provider.py`
+- `llm_response_parser.py`
 - `openai_responses_provider.py`
+- `openai_responses_prompt.py`
+- `openai_responses_schema.py`
+- `openai_responses_parser.py`
 - `openai_responses_transport.py`
 
 Future-ready note:
@@ -168,6 +179,10 @@ Future-ready note:
 ### `scripts/`
 - `run_openai_live_smoke.sh`
 
+### `evals/`
+- `qa_cases.json`
+- `run_qa_eval.py`
+
 ## Component-to-Module Mapping
 | Runtime / Interaction Component | Module | File |
 | --- | --- | --- |
@@ -180,7 +195,7 @@ Future-ready note:
 | Execution Planner | `planner/` | `execution_planner.py` |
 | Desktop Executor | `executor/` | `desktop_executor.py` |
 | Confirmation Gate | `confirmation/` | `confirmation_gate.py` |
-| Answer Engine | `qa/` | `answer_engine.py`, `grounding.py`, `grounding_verifier.py`, `answer_config.py` |
+| Answer Engine | `qa/` | `answer_engine.py`, `grounding.py`, `source_registry.py`, `source_selector.py`, `grounding_verifier.py`, `answer_config.py`, `openai_responses_prompt.py`, `openai_responses_schema.py`, `openai_responses_parser.py` |
 | Command Runtime State Manager | `runtime/` | `runtime_manager.py`, `state_machine.py` |
 | User Visibility Layer | `ui/` | `visibility_mapper.py` |
 

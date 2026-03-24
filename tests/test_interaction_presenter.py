@@ -25,7 +25,9 @@ class InteractionPresenterTests(unittest.TestCase):
             visibility={
                 "interaction_mode": "question",
                 "answer_text": "I can open apps and answer grounded questions.",
+                "answer_summary": "I can open apps and answer grounded questions.",
                 "answer_sources": ["/tmp/docs/product_rules.md", "/tmp/docs/question_answer_mode.md"],
+                "answer_source_labels": ["Product Rules", "Question Answer Mode"],
                 "answer_source_attributions": [
                     {
                         "source": "/tmp/docs/product_rules.md",
@@ -40,15 +42,16 @@ class InteractionPresenterTests(unittest.TestCase):
             interaction_output_lines(result),
             [
                 "mode: question",
-                "answer: I can open apps and answer grounded questions.",
-                "sources: /tmp/docs/product_rules.md, /tmp/docs/question_answer_mode.md",
-                "evidence: /tmp/docs/product_rules.md -> Product rules define supported command families.",
+                "summary: I can open apps and answer grounded questions.",
+                "sources: Product Rules, Question Answer Mode",
+                "paths: /tmp/docs/product_rules.md, /tmp/docs/question_answer_mode.md",
+                "evidence: Product Rules -> Product rules define supported command families.",
                 "warning: Answer is limited to grounded local sources.",
             ],
         )
         self.assertEqual(
             interaction_speech_message(result),
-            "I can open apps and answer grounded questions.",
+            "I can open apps and answer grounded questions. Warning: Answer is limited to grounded local sources.",
         )
 
     def test_question_failure_falls_back_to_structured_error(self) -> None:

@@ -37,7 +37,9 @@ class InteractionVisibilityContractTests(unittest.TestCase):
 
         self.assertEqual(visibility.get("interaction_mode"), "question")
         self.assertEqual(visibility.get("answer_text"), "I can open apps and answer grounded questions.")
+        self.assertEqual(visibility.get("answer_summary"), "I can open apps and answer grounded questions.")
         self.assertEqual(visibility.get("answer_sources"), ["/tmp/docs/product_rules.md"])
+        self.assertEqual(visibility.get("answer_source_labels"), ["Product Rules"])
         self.assertEqual(
             visibility.get("answer_source_attributions"),
             [

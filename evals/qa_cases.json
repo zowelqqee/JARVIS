@@ -1,0 +1,306 @@
+[
+  {
+    "id": "route_open_app_command",
+    "case_type": "interaction",
+    "category": "command_vs_question_routing",
+    "raw_input": "Open Safari.",
+    "expected_interaction_kind": "command",
+    "expected_command_intent": "open_app",
+    "should_call_runtime": true,
+    "should_call_answer_engine": false
+  },
+  {
+    "id": "route_polite_open_command",
+    "case_type": "interaction",
+    "category": "command_vs_question_routing",
+    "raw_input": "Can you open Safari?",
+    "expected_interaction_kind": "command",
+    "should_call_runtime": true,
+    "should_call_answer_engine": false
+  },
+  {
+    "id": "route_capabilities_question",
+    "case_type": "interaction",
+    "category": "deterministic_grounded_answers",
+    "raw_input": "What can you do?",
+    "expected_interaction_kind": "question",
+    "expected_question_type": "capabilities",
+    "should_call_runtime": false,
+    "should_call_answer_engine": true,
+    "expected_sources_count_min": 4,
+    "expected_answer_contains": "I support command intents"
+  },
+  {
+    "id": "route_runtime_status_idle_question",
+    "case_type": "interaction",
+    "category": "deterministic_grounded_answers",
+    "raw_input": "What are you doing now?",
+    "expected_interaction_kind": "question",
+    "expected_question_type": "runtime_status",
+    "should_call_runtime": false,
+    "should_call_answer_engine": true,
+    "expected_sources_count_min": 1
+  },
+  {
+    "id": "route_runtime_status_with_folder_context",
+    "case_type": "interaction",
+    "category": "deterministic_grounded_answers",
+    "raw_input": "What folder are you using?",
+    "session_context": {
+      "recent_project_context": "/tmp/demo"
+    },
+    "expected_interaction_kind": "question",
+    "expected_question_type": "runtime_status",
+    "should_call_runtime": false,
+    "should_call_answer_engine": true,
+    "expected_sources_count_min": 2,
+    "expected_answer_contains": "/tmp/demo"
+  },
+  {
+    "id": "route_docs_clarification_question",
+    "case_type": "interaction",
+    "category": "deterministic_grounded_answers",
+    "raw_input": "How does clarification work?",
+    "expected_interaction_kind": "question",
+    "expected_question_type": "docs_rules",
+    "should_call_runtime": false,
+    "should_call_answer_engine": true,
+    "expected_sources_count_min": 2,
+    "expected_answer_contains": "Clarification is a hard boundary"
+  },
+  {
+    "id": "route_repo_structure_question",
+    "case_type": "interaction",
+    "category": "deterministic_grounded_answers",
+    "raw_input": "Where is the planner?",
+    "expected_interaction_kind": "question",
+    "expected_question_type": "repo_structure",
+    "should_call_runtime": false,
+    "should_call_answer_engine": true,
+    "expected_sources_count_min": 2,
+    "expected_answer_contains": "planner/execution_planner.py"
+  },
+  {
+    "id": "route_safety_question",
+    "case_type": "interaction",
+    "category": "deterministic_grounded_answers",
+    "raw_input": "Why do you need confirmation?",
+    "expected_interaction_kind": "question",
+    "expected_question_type": "safety_explanations",
+    "should_call_runtime": false,
+    "should_call_answer_engine": true,
+    "expected_sources_count_min": 2,
+    "expected_answer_contains": "Confirmation exists to protect sensitive actions"
+  },
+  {
+    "id": "route_runtime_status_executing_question",
+    "case_type": "interaction",
+    "category": "deterministic_grounded_answers",
+    "raw_input": "What are you doing now?",
+    "runtime_state": "executing",
+    "expected_interaction_kind": "question",
+    "expected_question_type": "runtime_status",
+    "should_call_runtime": false,
+    "should_call_answer_engine": true,
+    "expected_sources_count_min": 1
+  },
+  {
+    "id": "route_blocked_state_question",
+    "case_type": "interaction",
+    "category": "phase_2_blocked_state_questions",
+    "raw_input": "What exactly do you need me to confirm?",
+    "runtime_state": "awaiting_confirmation",
+    "expected_interaction_kind": "question",
+    "expected_question_type": "blocked_state",
+    "should_call_runtime": false,
+    "should_call_answer_engine": true,
+    "expected_sources_count_min": 3,
+    "expected_answer_contains": "confirm"
+  },
+  {
+    "id": "route_recent_runtime_question",
+    "case_type": "interaction",
+    "category": "phase_2_recent_runtime_questions",
+    "raw_input": "What app did you open last?",
+    "session_context": {
+      "recent_primary_target": {
+        "type": "application",
+        "name": "Safari"
+      },
+      "recent_primary_action": "open_app"
+    },
+    "expected_interaction_kind": "question",
+    "expected_question_type": "recent_runtime",
+    "should_call_runtime": false,
+    "should_call_answer_engine": true,
+    "expected_sources_count_min": 2,
+    "expected_answer_contains": "Safari"
+  },
+  {
+    "id": "route_answer_follow_up_explain_more",
+    "case_type": "interaction",
+    "category": "session_context_followups",
+    "raw_input": "Explain more",
+    "session_context": {
+      "recent_answer_topic": "clarification",
+      "recent_answer_scope": "docs",
+      "recent_answer_sources": [
+        "docs/clarification_rules.md",
+        "docs/runtime_flow.md"
+      ]
+    },
+    "expected_interaction_kind": "question",
+    "expected_question_type": "answer_follow_up",
+    "should_call_runtime": false,
+    "should_call_answer_engine": true,
+    "expected_sources_count_min": 2,
+    "expected_answer_contains": "In more detail: clarification happens"
+  },
+  {
+    "id": "route_answer_follow_up_sources",
+    "case_type": "interaction",
+    "category": "session_context_followups",
+    "raw_input": "Which source?",
+    "session_context": {
+      "recent_answer_topic": "clarification",
+      "recent_answer_scope": "docs",
+      "recent_answer_sources": [
+        "docs/clarification_rules.md",
+        "docs/runtime_flow.md"
+      ]
+    },
+    "expected_interaction_kind": "question",
+    "expected_question_type": "answer_follow_up",
+    "should_call_runtime": false,
+    "should_call_answer_engine": true,
+    "expected_sources_count_min": 2,
+    "expected_answer_contains": "docs/clarification_rules.md"
+  },
+  {
+    "id": "route_mixed_interaction",
+    "case_type": "interaction",
+    "category": "mixed_input_routing",
+    "raw_input": "What can you do and open Safari",
+    "expected_interaction_kind": "clarification",
+    "should_call_runtime": false,
+    "should_call_answer_engine": false,
+    "expected_clarification_contains": "answer first"
+  },
+  {
+    "id": "route_blocked_confirmation_priority",
+    "case_type": "interaction",
+    "category": "blocked_state_precedence",
+    "raw_input": "Why are you waiting?",
+    "runtime_state": "awaiting_confirmation",
+    "expected_interaction_kind": "command",
+    "should_call_runtime": true,
+    "should_call_answer_engine": false
+  },
+  {
+    "id": "route_blocked_clarification_priority",
+    "case_type": "interaction",
+    "category": "blocked_state_precedence",
+    "raw_input": "What can you do?",
+    "runtime_state": "awaiting_clarification",
+    "expected_interaction_kind": "command",
+    "should_call_runtime": true,
+    "should_call_answer_engine": false
+  },
+  {
+    "id": "route_unsupported_world_question",
+    "case_type": "interaction",
+    "category": "unsupported_question_failures",
+    "raw_input": "Who is the president of France?",
+    "expected_interaction_kind": "question",
+    "should_call_runtime": false,
+    "should_call_answer_engine": true,
+    "expected_error_code": "UNSUPPORTED_QUESTION"
+  },
+  {
+    "id": "route_llm_missing_key_fallback",
+    "case_type": "interaction",
+    "category": "llm_fallback_behavior",
+    "raw_input": "What can you do?",
+    "backend_profile": "llm_missing_key_fallback",
+    "expected_interaction_kind": "question",
+    "expected_question_type": "capabilities",
+    "should_call_runtime": false,
+    "should_call_answer_engine": true,
+    "expected_sources_count_min": 4,
+    "expected_warning_contains": "LLM backend fallback"
+  },
+  {
+    "id": "command_regression_list_windows",
+    "case_type": "interaction",
+    "category": "command_vs_question_routing",
+    "raw_input": "show windows",
+    "expected_interaction_kind": "command",
+    "expected_command_intent": "list_windows",
+    "should_call_runtime": true,
+    "should_call_answer_engine": false
+  },
+  {
+    "id": "command_regression_prepare_workspace",
+    "case_type": "interaction",
+    "category": "command_vs_question_routing",
+    "raw_input": "prepare workspace for JARVIS",
+    "expected_interaction_kind": "command",
+    "expected_command_intent": "prepare_workspace",
+    "should_call_runtime": true,
+    "should_call_answer_engine": false
+  },
+  {
+    "id": "voice_repeat_command",
+    "case_type": "voice",
+    "category": "voice_normalization_cases",
+    "voice_input": "Open Safari open Safari",
+    "expected_normalized_input": "Open Safari"
+  },
+  {
+    "id": "voice_wake_prefix",
+    "case_type": "voice",
+    "category": "voice_normalization_cases",
+    "voice_input": "Jarvis, open telegram",
+    "expected_normalized_input": "open telegram"
+  },
+  {
+    "id": "voice_repeat_question",
+    "case_type": "voice",
+    "category": "voice_normalization_cases",
+    "voice_input": "What can you do what can you do",
+    "expected_normalized_input": "What can you do"
+  },
+  {
+    "id": "live_smoke_disabled_default",
+    "case_type": "live_smoke",
+    "category": "live_smoke_gating",
+    "env": {},
+    "expected_enabled": false,
+    "expected_skip_reason_contains": "JARVIS_QA_OPENAI_LIVE_SMOKE"
+  },
+  {
+    "id": "live_smoke_missing_api_key",
+    "case_type": "live_smoke",
+    "category": "live_smoke_gating",
+    "env": {
+      "JARVIS_QA_OPENAI_LIVE_SMOKE": "1"
+    },
+    "expected_enabled": true,
+    "expected_skip_reason_contains": "OPENAI_API_KEY"
+  },
+  {
+    "id": "live_smoke_config_with_key",
+    "case_type": "live_smoke",
+    "category": "live_smoke_gating",
+    "env": {
+      "JARVIS_QA_OPENAI_LIVE_SMOKE": "1",
+      "OPENAI_API_KEY": "test-key",
+      "JARVIS_QA_OPENAI_LIVE_QUESTION": "How does clarification work?"
+    },
+    "expected_enabled": true,
+    "expected_backend_kind": "llm",
+    "expected_model": "gpt-5-nano",
+    "expected_api_key_env": "OPENAI_API_KEY",
+    "expected_question": "How does clarification work?"
+  }
+]

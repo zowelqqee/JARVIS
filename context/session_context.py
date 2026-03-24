@@ -34,6 +34,9 @@ class SessionContext:
     recent_search_results: list[dict[str, str]] = field(default_factory=list)
     recent_search_query: str | None = None
     recent_search_scope_path: str | None = None
+    recent_answer_topic: str | None = None
+    recent_answer_scope: str | None = None
+    recent_answer_sources: list[str] = field(default_factory=list)
 
     def set_active_command(self, command: Command | None) -> None:
         """Store the active command for the current supervised interaction."""
@@ -223,6 +226,49 @@ class SessionContext:
         self.recent_search_query = None
         self.recent_search_scope_path = None
 
+    def set_recent_answer_context(
+        self,
+        *,
+        topic: str | None,
+        scope: str | None,
+        sources: list[str] | None = None,
+    ) -> None:
+        """Store one short-lived answer context for safe question follow-ups."""
+        normalized_topic = str(topic or "").strip()
+        normalized_scope = str(scope or "").strip()
+        normalized_sources: list[str] = []
+        seen_sources: set[str] = set()
+        for source in list(sources or []):
+            source_text = str(source or "").strip()
+            if not source_text or source_text in seen_sources:
+                continue
+            normalized_sources.append(source_text)
+            seen_sources.add(source_text)
+
+        if not normalized_topic and not normalized_scope and not normalized_sources:
+            self.clear_recent_answer_context()
+            return
+
+        self.recent_answer_topic = normalized_topic or None
+        self.recent_answer_scope = normalized_scope or None
+        self.recent_answer_sources = normalized_sources
+
+    def get_recent_answer_context(self) -> dict[str, Any] | None:
+        """Return the latest grounded answer context available for safe follow-ups."""
+        if not self.recent_answer_topic and not self.recent_answer_scope and not self.recent_answer_sources:
+            return None
+        return {
+            "topic": self.recent_answer_topic,
+            "scope": self.recent_answer_scope,
+            "sources": list(self.recent_answer_sources),
+        }
+
+    def clear_recent_answer_context(self) -> None:
+        """Clear short-lived answer context used for safe question follow-ups."""
+        self.recent_answer_topic = None
+        self.recent_answer_scope = None
+        self.recent_answer_sources = []
+
     def clear_expired_or_resettable_context(self, preserve_recent_context: bool = True) -> None:
         """Clear active execution state while optionally preserving recent follow-up context."""
         self.active_command = None
@@ -240,6 +286,7 @@ class SessionContext:
             self.recent_primary_action = None
             self.recent_target_version = 0
             self.clear_recent_search_results()
+            self.clear_recent_answer_context()
 
 
 def _target_type_value(target_type: Any) -> str:

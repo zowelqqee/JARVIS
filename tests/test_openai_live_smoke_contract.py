@@ -48,6 +48,8 @@ class OpenAILiveSmokeContractTests(unittest.TestCase):
         self.assertFalse(config.llm.fallback_enabled)
         self.assertEqual(config.llm.api_key_env, "OPENAI_API_KEY")
         self.assertEqual(config.llm.model, "gpt-5-nano")
+        self.assertEqual(config.llm.reasoning_effort, "minimal")
+        self.assertTrue(config.llm.strict_mode)
         self.assertEqual(live_smoke_question({"JARVIS_QA_OPENAI_LIVE_QUESTION": "How does clarification work?"}), "How does clarification work?")
 
     def test_live_smoke_result_contract_accepts_grounded_llm_answer(self) -> None:

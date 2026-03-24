@@ -10,6 +10,9 @@ from typing import Any
 class QuestionType(str, Enum):
     """Supported question families for deterministic QA routing."""
 
+    BLOCKED_STATE = "blocked_state"
+    RECENT_RUNTIME = "recent_runtime"
+    ANSWER_FOLLOW_UP = "answer_follow_up"
     CAPABILITIES = "capabilities"
     RUNTIME_STATUS = "runtime_status"
     DOCS_RULES = "docs_rules"

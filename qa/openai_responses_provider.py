@@ -2,20 +2,22 @@
 
 from __future__ import annotations
 
-import json
 import os
 import sys
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from qa.grounding_verifier import parse_source_attributions, verify_grounded_answer
 from qa.llm_provider import LlmProviderKind
+from qa.openai_responses_parser import OpenAIResponsesParser
+from qa.openai_responses_prompt import build_instructions, build_request_metadata, build_user_text
+from qa.openai_responses_schema import ANSWER_SCHEMA_NAME, ANSWER_SCHEMA_VERSION, build_text_format
 from qa.openai_responses_transport import OpenAIResponsesTransport
 
 if TYPE_CHECKING:
     from context.session_context import SessionContext
     from qa.answer_config import AnswerBackendConfig
     from qa.grounding import GroundingBundle
+    from qa.llm_response_parser import LlmResponseParser
     from types.question_request import QuestionRequest
 
 _TYPES_PATH = Path(__file__).resolve().parents[1] / "types"
@@ -23,19 +25,20 @@ if str(_TYPES_PATH) not in sys.path:
     sys.path.insert(0, str(_TYPES_PATH))
 
 from jarvis_error import ErrorCategory, ErrorCode, JarvisError  # type: ignore  # noqa: E402
-from answer_result import AnswerResult  # type: ignore  # noqa: E402
-
-ANSWER_SCHEMA_NAME = "jarvis_grounded_answer"
-ANSWER_SCHEMA_VERSION = "qa_answer_v1"
 
 
 class OpenAIResponsesProvider:
-    """Prepare grounded OpenAI Responses API requests without enabling transport in v1."""
+    """Prepare grounded OpenAI Responses API requests without enabling transport by default."""
 
     provider_kind = LlmProviderKind.OPENAI_RESPONSES
 
-    def __init__(self, transport: OpenAIResponsesTransport | None = None) -> None:
+    def __init__(
+        self,
+        transport: OpenAIResponsesTransport | None = None,
+        parser: LlmResponseParser | None = None,
+    ) -> None:
         self._transport = transport or OpenAIResponsesTransport()
+        self._parser = parser or OpenAIResponsesParser()
 
     def answer(
         self,
@@ -45,7 +48,7 @@ class OpenAIResponsesProvider:
         config: AnswerBackendConfig,
         session_context: SessionContext | None = None,
         runtime_snapshot: dict[str, Any] | None = None,
-    ) -> AnswerResult:
+    ):
         request_payload = self.build_request_payload(
             question,
             grounding_bundle=grounding_bundle,
@@ -53,6 +56,7 @@ class OpenAIResponsesProvider:
             session_context=session_context,
             runtime_snapshot=runtime_snapshot,
         )
+        request_debug = _safe_request_debug(request_payload)
         api_key_env = str(config.llm.api_key_env).strip() or "OPENAI_API_KEY"
         api_key = str(os.environ.get(api_key_env, "") or "").strip()
         if not api_key:
@@ -64,17 +68,50 @@ class OpenAIResponsesProvider:
                     "provider": self.provider_kind.value,
                     "model": config.llm.model,
                     "api_key_env": api_key_env,
-                    "request_payload": request_payload,
+                    **request_debug,
                 },
                 blocking=False,
                 terminal=True,
             )
-        response_payload = self._transport.create_response(
-            request_payload,
-            api_key=api_key,
-            api_base=config.llm.api_base,
+
+        max_attempts = int(getattr(config.llm, "max_retries", 0) or 0) + 1
+        last_error: JarvisError | None = None
+        for attempt in range(1, max_attempts + 1):
+            try:
+                response_payload = self._transport.create_response(
+                    request_payload,
+                    api_key=api_key,
+                    api_base=config.llm.api_base,
+                    timeout_seconds=config.llm.timeout_seconds,
+                )
+                return self._parse_answer_response(response_payload, grounding_bundle=grounding_bundle)
+            except JarvisError as error:
+                enriched_error = self._enrich_error(
+                    error,
+                    request_payload=request_payload,
+                    config=config,
+                    attempt=attempt,
+                    max_attempts=max_attempts,
+                )
+                if attempt < max_attempts and _is_retryable_error(enriched_error):
+                    last_error = enriched_error
+                    continue
+                raise enriched_error
+
+        if last_error is not None:
+            raise last_error
+        raise JarvisError(
+            category=ErrorCategory.ANSWER_ERROR,
+            code=ErrorCode.ANSWER_GENERATION_FAILED,
+            message="OpenAI Responses provider exhausted retries without a terminal error.",
+            details={
+                "provider": self.provider_kind.value,
+                "model": config.llm.model,
+                **request_debug,
+            },
+            blocking=False,
+            terminal=True,
         )
-        return self._parse_answer_response(response_payload, grounding_bundle=grounding_bundle)
 
     def build_request_payload(
         self,
@@ -85,248 +122,89 @@ class OpenAIResponsesProvider:
         session_context: SessionContext | None = None,
         runtime_snapshot: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
-        question_type = getattr(getattr(question, "question_type", None), "value", None)
-        metadata = _metadata(
-            jarvis_mode="question",
-            question_type=question_type,
-            grounding_scope=grounding_bundle.scope,
-            source_count=len(grounding_bundle.source_paths),
+        metadata = build_request_metadata(
+            question=question,
+            grounding_bundle=grounding_bundle,
             provider=self.provider_kind.value,
-            answer_schema_version=ANSWER_SCHEMA_VERSION,
-        )
-        instructions = (
-            "You are the JARVIS answer backend. Answer only from the provided local grounding bundle, do not invent sources, "
-            "and do not imply that any command was executed. If grounding is insufficient, set grounded to false and explain that in warning. "
-            f"Return schema_version exactly {ANSWER_SCHEMA_VERSION}. "
-            "Return one source_attributions entry for each source actually used, and keep each support field concise and factual."
-        )
-        user_text = "\n\n".join(
-            section for section in (
-                _question_section(question),
-                _sources_section(grounding_bundle.source_paths),
-                _notes_section(grounding_bundle.source_notes),
-                _json_section("Runtime facts", grounding_bundle.runtime_facts),
-                _json_section("Session facts", grounding_bundle.session_facts),
-            )
-            if section
         )
         payload: dict[str, Any] = {
             "model": config.llm.model,
-            "instructions": instructions,
+            "instructions": build_instructions(config=config),
             "input": [
                 {
                     "role": "user",
                     "content": [
                         {
                             "type": "input_text",
-                            "text": user_text,
+                            "text": build_user_text(question, grounding_bundle=grounding_bundle),
                         }
                     ],
                 }
             ],
             "metadata": metadata,
+            "max_output_tokens": int(config.llm.max_output_tokens),
+            "reasoning": {
+                "effort": str(config.llm.reasoning_effort),
+            },
         }
         payload["text"] = {
-            "format": {
-                "type": "json_schema",
-                "name": ANSWER_SCHEMA_NAME,
-                "schema": _ANSWER_SCHEMA,
-                "strict": True,
-            }
+            "format": build_text_format(strict_mode=config.llm.strict_mode),
         }
         return payload
 
-    def _parse_answer_response(self, response_payload: dict[str, Any], *, grounding_bundle: GroundingBundle) -> AnswerResult:
-        status = str(response_payload.get("status", "") or "").strip().lower()
-        if status in {"failed", "incomplete"}:
-            raise JarvisError(
-                category=ErrorCategory.ANSWER_ERROR,
-                code=ErrorCode.ANSWER_GENERATION_FAILED,
-                message=f"OpenAI Responses returned status {status}.",
-                details={"status": status, "response": response_payload},
-                blocking=False,
-                terminal=True,
-            )
+    def _parse_answer_response(self, response_payload: dict[str, Any], *, grounding_bundle: GroundingBundle):
+        return self._parser.parse_response(response_payload, grounding_bundle=grounding_bundle)
 
-        output_text = self._extract_output_text(response_payload)
-        try:
-            structured_output = json.loads(output_text)
-        except json.JSONDecodeError as exc:
-            raise JarvisError(
-                category=ErrorCategory.ANSWER_ERROR,
-                code=ErrorCode.ANSWER_GENERATION_FAILED,
-                message="OpenAI Responses did not return valid structured answer JSON.",
-                details={"output_text": output_text},
-                blocking=False,
-                terminal=True,
-            ) from exc
-        if not isinstance(structured_output, dict):
-            raise JarvisError(
-                category=ErrorCategory.ANSWER_ERROR,
-                code=ErrorCode.ANSWER_GENERATION_FAILED,
-                message="Structured answer payload is not an object.",
-                details={"output_type": type(structured_output).__name__},
-                blocking=False,
-                terminal=True,
-            )
-
-        schema_version = str(structured_output.get("schema_version", "") or "").strip()
-        if schema_version != ANSWER_SCHEMA_VERSION:
-            raise JarvisError(
-                category=ErrorCategory.ANSWER_ERROR,
-                code=ErrorCode.ANSWER_GENERATION_FAILED,
-                message=f"Structured answer schema_version must be {ANSWER_SCHEMA_VERSION}.",
-                details={
-                    "schema_version": schema_version or None,
-                    "expected_schema_version": ANSWER_SCHEMA_VERSION,
-                },
-                blocking=False,
-                terminal=True,
-            )
-
-        answer_text = str(structured_output.get("answer_text", "") or "").strip()
-        warning_text = str(structured_output.get("warning", "") or "").strip() or None
-        grounded = bool(structured_output.get("grounded", False))
-        raw_source_attributions = list(structured_output.get("source_attributions", []) or [])
-        source_attributions = parse_source_attributions(raw_source_attributions)
-        verified_answer = verify_grounded_answer(
-            answer_text=answer_text,
-            source_attributions=source_attributions,
-            allowed_sources=grounding_bundle.source_paths,
-            grounded=grounded,
-            warning_text=warning_text,
-            details={"structured_output": structured_output},
+    def _enrich_error(
+        self,
+        error: JarvisError,
+        *,
+        request_payload: dict[str, Any],
+        config: AnswerBackendConfig,
+        attempt: int,
+        max_attempts: int,
+    ) -> JarvisError:
+        raw_details = dict(getattr(error, "details", {}) or {})
+        request_debug = _safe_request_debug(request_payload)
+        if "body" in raw_details and isinstance(raw_details.get("body"), str):
+            raw_details["body"] = _truncate(raw_details["body"], limit=500)
+        details = {
+            **raw_details,
+            "provider": self.provider_kind.value,
+            "model": config.llm.model,
+            "attempt": attempt,
+            "max_attempts": max_attempts,
+            **request_debug,
+        }
+        return JarvisError(
+            category=error.category,
+            code=error.code,
+            message=error.message,
+            details=details,
+            blocking=error.blocking,
+            terminal=error.terminal,
         )
 
-        return AnswerResult(
-            answer_text=verified_answer.answer_text,
-            sources=verified_answer.sources,
-            source_attributions=verified_answer.source_attributions,
-            confidence=0.82,
-            warning=verified_answer.warning,
-        )
 
-    def _extract_output_text(self, response_payload: dict[str, Any]) -> str:
-        direct_output_text = str(response_payload.get("output_text", "") or "").strip()
-        if direct_output_text:
-            return direct_output_text
-
-        response_output = list(response_payload.get("output", []) or [])
-        text_chunks: list[str] = []
-        refusal_chunks: list[str] = []
-        for item in response_output:
-            if not isinstance(item, dict):
-                continue
-            if str(item.get("type", "")) != "message":
-                continue
-            if str(item.get("role", "")) != "assistant":
-                continue
-            for content_item in list(item.get("content", []) or []):
-                if not isinstance(content_item, dict):
-                    continue
-                content_type = str(content_item.get("type", "") or "")
-                if content_type == "output_text":
-                    text = str(content_item.get("text", "") or "").strip()
-                    if text:
-                        text_chunks.append(text)
-                elif content_type == "refusal":
-                    refusal = str(content_item.get("refusal", "") or "").strip()
-                    if refusal:
-                        refusal_chunks.append(refusal)
-        if text_chunks:
-            return "\n".join(text_chunks).strip()
-        if refusal_chunks:
-            raise JarvisError(
-                category=ErrorCategory.ANSWER_ERROR,
-                code=ErrorCode.ANSWER_GENERATION_FAILED,
-                message=f"Model refused structured answer generation: {' '.join(refusal_chunks)}",
-                details={"refusal": refusal_chunks},
-                blocking=False,
-                terminal=True,
-            )
-        raise JarvisError(
-            category=ErrorCategory.ANSWER_ERROR,
-            code=ErrorCode.ANSWER_GENERATION_FAILED,
-            message="OpenAI Responses did not return assistant output text.",
-            details={"response": response_payload},
-            blocking=False,
-            terminal=True,
-        )
-
-_ANSWER_SCHEMA: dict[str, Any] = {
-    "type": "object",
-    "properties": {
-        "schema_version": {
-            "type": "string",
-            "enum": [ANSWER_SCHEMA_VERSION],
-            "description": "Versioned contract identifier for grounded answer parsing.",
-        },
-        "answer_text": {
-            "type": "string",
-            "description": "The grounded answer text for the user.",
-        },
-        "source_attributions": {
-            "type": "array",
-            "description": "Exact grounded sources plus the claim support each source backs.",
-            "items": {
-                "type": "object",
-                "properties": {
-                    "source": {
-                        "type": "string",
-                    },
-                    "support": {
-                        "type": "string",
-                    },
-                },
-                "required": ["source", "support"],
-                "additionalProperties": False,
-            },
-        },
-        "warning": {
-            "type": "string",
-            "description": "Empty string when there is no warning, otherwise a short bounded warning.",
-        },
-        "grounded": {
-            "type": "boolean",
-            "description": "True only when the answer is fully supported by the allowed grounding bundle.",
-        },
-    },
-    "required": ["schema_version", "answer_text", "source_attributions", "warning", "grounded"],
-    "additionalProperties": False,
-}
+def _safe_request_debug(request_payload: dict[str, Any]) -> dict[str, Any]:
+    metadata = dict(request_payload.get("metadata", {}) or {})
+    text_format = dict((request_payload.get("text") or {}).get("format", {}) or {})
+    safe_keys = ("correlation_id", "question_type", "grounding_scope", "source_count", "answer_schema_version")
+    return {
+        **{key: metadata[key] for key in safe_keys if metadata.get(key) not in (None, "")},
+        "strict_mode": bool(text_format.get("strict")),
+        "max_output_tokens": int(request_payload.get("max_output_tokens", 0) or 0),
+        "reasoning_effort": str(((request_payload.get("reasoning") or {}).get("effort", "")) or "").strip() or None,
+    }
 
 
-def _question_section(question: QuestionRequest) -> str:
-    question_type = getattr(getattr(question, "question_type", None), "value", "question")
-    return f"Question type: {question_type}\nQuestion: {getattr(question, 'raw_input', '')}"
+def _is_retryable_error(error: JarvisError) -> bool:
+    details = dict(getattr(error, "details", {}) or {})
+    return bool(details.get("retryable"))
 
 
-def _sources_section(source_paths: list[str]) -> str:
-    if not source_paths:
-        return "Allowed local sources: none"
-    source_lines = "\n".join(f"- {path}" for path in source_paths)
-    return f"Allowed local sources:\n{source_lines}"
-
-
-def _notes_section(source_notes: list[str]) -> str:
-    if not source_notes:
-        return ""
-    note_lines = "\n".join(f"- {note}" for note in source_notes)
-    return f"Grounding rules:\n{note_lines}"
-
-
-def _json_section(title: str, data: dict[str, Any]) -> str:
-    if not data:
-        return ""
-    return f"{title}:\n{json.dumps(data, sort_keys=True, ensure_ascii=True)}"
-
-
-def _metadata(**values: object) -> dict[str, str]:
-    metadata: dict[str, str] = {}
-    for key, value in values.items():
-        if value is None:
-            continue
-        normalized = str(value).strip()
-        if normalized:
-            metadata[key] = normalized
-    return metadata
+def _truncate(text: str, *, limit: int) -> str:
+    compact = str(text or "").strip()
+    if len(compact) <= limit:
+        return compact
+    return f"{compact[:limit]}..."

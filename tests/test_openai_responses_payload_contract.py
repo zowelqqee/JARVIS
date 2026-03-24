@@ -43,6 +43,7 @@ class OpenAIResponsesPayloadContractTests(unittest.TestCase):
         self.assertTrue(all(isinstance(value, str) for value in metadata.values()))
         self.assertEqual(metadata.get("source_count"), str(len(self.grounding_bundle.source_paths)))
         self.assertEqual(metadata.get("answer_schema_version"), ANSWER_SCHEMA_VERSION)
+        self.assertTrue(str(metadata.get("correlation_id", "")).strip())
 
     def test_payload_does_not_inline_api_base(self) -> None:
         payload = self.provider.build_request_payload(
@@ -72,6 +73,19 @@ class OpenAIResponsesPayloadContractTests(unittest.TestCase):
             ["schema_version", "answer_text", "source_attributions", "warning", "grounded"],
         )
         self.assertEqual((schema.get("properties") or {}).get("schema_version", {}).get("enum"), [ANSWER_SCHEMA_VERSION])
+        self.assertEqual(payload.get("max_output_tokens"), 800)
+        self.assertEqual(((payload.get("reasoning") or {}).get("effort")), "minimal")
+
+    def test_payload_can_disable_strict_mode_explicitly(self) -> None:
+        payload = self.provider.build_request_payload(
+            self.question,
+            grounding_bundle=self.grounding_bundle,
+            config=self._config(strict_mode=False, max_output_tokens=256),
+        )
+
+        format_config = ((payload.get("text") or {}).get("format") or {})
+        self.assertFalse(format_config.get("strict"))
+        self.assertEqual(payload.get("max_output_tokens"), 256)
 
     def test_payload_instructions_lock_grounding_and_no_execution(self) -> None:
         payload = self.provider.build_request_payload(
@@ -104,8 +118,16 @@ class OpenAIResponsesPayloadContractTests(unittest.TestCase):
         self.assertIn("Question: What can you do?", input_text)
         self.assertIn("Allowed local sources:", input_text)
         self.assertIn(self.grounding_bundle.source_paths[0], input_text)
+        self.assertIn("kind=capability_metadata", input_text)
+        self.assertNotIn("support=", input_text)
 
-    def _config(self, *, api_base: str | None = None) -> AnswerBackendConfig:
+    def _config(
+        self,
+        *,
+        api_base: str | None = None,
+        strict_mode: bool = True,
+        max_output_tokens: int = 800,
+    ) -> AnswerBackendConfig:
         return AnswerBackendConfig(
             backend_kind=AnswerBackendKind.LLM,
             llm=LlmBackendConfig(
@@ -113,6 +135,8 @@ class OpenAIResponsesPayloadContractTests(unittest.TestCase):
                 provider=LlmProviderKind.OPENAI_RESPONSES,
                 model="gpt-5-nano",
                 api_base=api_base,
+                strict_mode=strict_mode,
+                max_output_tokens=max_output_tokens,
             ),
         )
 

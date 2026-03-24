@@ -24,7 +24,16 @@ _ENV_LLM_MODEL = "JARVIS_QA_LLM_MODEL"
 _ENV_LLM_API_BASE = "JARVIS_QA_LLM_API_BASE"
 _ENV_LLM_API_KEY_ENV = "JARVIS_QA_LLM_API_KEY_ENV"
 _ENV_LLM_FALLBACK_ENABLED = "JARVIS_QA_LLM_FALLBACK_ENABLED"
+_ENV_LLM_TIMEOUT_SECONDS = "JARVIS_QA_LLM_TIMEOUT_SECONDS"
+_ENV_LLM_MAX_OUTPUT_TOKENS = "JARVIS_QA_LLM_MAX_OUTPUT_TOKENS"
+_ENV_LLM_STRICT_MODE = "JARVIS_QA_LLM_STRICT_MODE"
+_ENV_LLM_MAX_RETRIES = "JARVIS_QA_LLM_MAX_RETRIES"
+_ENV_LLM_REASONING_EFFORT = "JARVIS_QA_LLM_REASONING_EFFORT"
 _DEFAULT_OPENAI_MODEL = "gpt-5-nano"
+_DEFAULT_TIMEOUT_SECONDS = 30.0
+_DEFAULT_MAX_OUTPUT_TOKENS = 800
+_DEFAULT_MAX_RETRIES = 1
+_DEFAULT_REASONING_EFFORT = "minimal"
 
 
 @dataclass(slots=True, frozen=True)
@@ -36,6 +45,11 @@ class LlmBackendConfig:
     model: str = _DEFAULT_OPENAI_MODEL
     api_key_env: str = "OPENAI_API_KEY"
     api_base: str | None = None
+    timeout_seconds: float = _DEFAULT_TIMEOUT_SECONDS
+    max_output_tokens: int = _DEFAULT_MAX_OUTPUT_TOKENS
+    reasoning_effort: str = _DEFAULT_REASONING_EFFORT
+    strict_mode: bool = True
+    max_retries: int = _DEFAULT_MAX_RETRIES
     fallback_enabled: bool = True
 
 
@@ -56,6 +70,31 @@ class AnswerBackendConfig:
         llm_model = str(env.get(_ENV_LLM_MODEL, _DEFAULT_OPENAI_MODEL) or _DEFAULT_OPENAI_MODEL).strip() or _DEFAULT_OPENAI_MODEL
         llm_api_base = str(env.get(_ENV_LLM_API_BASE, "") or "").strip() or None
         llm_api_key_env = str(env.get(_ENV_LLM_API_KEY_ENV, "OPENAI_API_KEY") or "OPENAI_API_KEY").strip() or "OPENAI_API_KEY"
+        llm_timeout_seconds = _parse_positive_float(
+            env.get(_ENV_LLM_TIMEOUT_SECONDS),
+            env_name=_ENV_LLM_TIMEOUT_SECONDS,
+            default=_DEFAULT_TIMEOUT_SECONDS,
+        )
+        llm_max_output_tokens = _parse_non_negative_int(
+            env.get(_ENV_LLM_MAX_OUTPUT_TOKENS),
+            env_name=_ENV_LLM_MAX_OUTPUT_TOKENS,
+            default=_DEFAULT_MAX_OUTPUT_TOKENS,
+        )
+        llm_reasoning_effort = _parse_reasoning_effort(
+            env.get(_ENV_LLM_REASONING_EFFORT),
+            env_name=_ENV_LLM_REASONING_EFFORT,
+            default=_DEFAULT_REASONING_EFFORT,
+        )
+        llm_strict_mode = _parse_bool(
+            env.get(_ENV_LLM_STRICT_MODE),
+            env_name=_ENV_LLM_STRICT_MODE,
+            default=True,
+        )
+        llm_max_retries = _parse_non_negative_int(
+            env.get(_ENV_LLM_MAX_RETRIES),
+            env_name=_ENV_LLM_MAX_RETRIES,
+            default=_DEFAULT_MAX_RETRIES,
+        )
         llm_fallback_enabled = _parse_bool(
             env.get(_ENV_LLM_FALLBACK_ENABLED),
             env_name=_ENV_LLM_FALLBACK_ENABLED,
@@ -69,6 +108,11 @@ class AnswerBackendConfig:
                 model=llm_model,
                 api_key_env=llm_api_key_env,
                 api_base=llm_api_base,
+                timeout_seconds=llm_timeout_seconds,
+                max_output_tokens=llm_max_output_tokens,
+                reasoning_effort=llm_reasoning_effort,
+                strict_mode=llm_strict_mode,
+                max_retries=llm_max_retries,
                 fallback_enabled=llm_fallback_enabled,
             ),
         )
@@ -119,6 +163,39 @@ def _parse_bool(raw_value: str | None, *, env_name: str, default: bool) -> bool:
     if value in {"0", "false", "no", "off"}:
         return False
     raise _config_error(env_name=env_name, raw_value=str(raw_value), message="Boolean config value is invalid.")
+
+
+def _parse_positive_float(raw_value: str | None, *, env_name: str, default: float) -> float:
+    if raw_value is None:
+        return default
+    try:
+        value = float(str(raw_value).strip())
+    except ValueError as exc:
+        raise _config_error(env_name=env_name, raw_value=str(raw_value), message="Numeric config value is invalid.") from exc
+    if value <= 0:
+        raise _config_error(env_name=env_name, raw_value=str(raw_value), message="Numeric config value must be positive.")
+    return value
+
+
+def _parse_non_negative_int(raw_value: str | None, *, env_name: str, default: int) -> int:
+    if raw_value is None:
+        return default
+    try:
+        value = int(str(raw_value).strip())
+    except ValueError as exc:
+        raise _config_error(env_name=env_name, raw_value=str(raw_value), message="Integer config value is invalid.") from exc
+    if value < 0:
+        raise _config_error(env_name=env_name, raw_value=str(raw_value), message="Integer config value must be non-negative.")
+    return value
+
+
+def _parse_reasoning_effort(raw_value: str | None, *, env_name: str, default: str) -> str:
+    if raw_value is None:
+        return default
+    value = str(raw_value).strip().lower()
+    if value in {"none", "minimal", "low", "medium", "high", "xhigh"}:
+        return value
+    raise _config_error(env_name=env_name, raw_value=str(raw_value), message="Reasoning effort config value is invalid.")
 
 
 def _config_error(*, env_name: str, raw_value: str, message: str) -> JarvisError:

@@ -231,6 +231,48 @@ Ask what JARVIS is doing now or why it is blocked.
 - Runtime status answers must describe only visible supervised state.
 - Question mode must not act as a hidden control channel.
 
+### Use Case 10A: Blocked-State Question
+
+**User Intent**  
+Ask what a currently blocked command needs without approving or resuming it.
+
+**Example Input**  
+- "What are you waiting for?"
+- "What exactly do you need me to confirm?"
+
+**System Behavior**  
+1. If the active command is blocked, JARVIS routes the input to question-answer mode only when it is clearly asking about the blocked state.
+2. JARVIS classifies the question as `blocked_state`.
+3. JARVIS grounds the answer in current blocked runtime visibility plus clarification/confirmation rules.
+4. JARVIS answers what confirmation or clarification is needed.
+5. JARVIS does not resume execution and does not treat the question as approval.
+
+**Notes**
+- Confirmation replies such as "yes" or "cancel" still stay on the command path.
+- Blocked-state questions must stay read-only.
+- If no blocked command is active, JARVIS must fail honestly instead of inventing a reason.
+
+### Use Case 10B: Recent Runtime Question
+
+**User Intent**  
+Ask about the most recent visible command or target from the current supervised session.
+
+**Example Input**  
+- "What command did you run last?"
+- "What app did you open last?"
+
+**System Behavior**  
+1. JARVIS routes the input to question-answer mode.
+2. JARVIS classifies the question as `recent_runtime`.
+3. JARVIS reads only short-lived session/runtime context such as recent command summary, recent target, and recent workspace context.
+4. JARVIS returns the most recent visible command or target when that context exists.
+5. JARVIS does not search the repo or execute anything to answer.
+
+**Notes**
+- Recent-runtime answers are limited to the current supervised session.
+- If no recent target or command is available, JARVIS must return bounded insufficient-context failure.
+- This does not introduce long-term memory.
+
 ### Use Case 11: Documentation Question
 
 **User Intent**  
@@ -293,3 +335,26 @@ Ask a question and request an action in one input.
 - Mixed requests are a routing ambiguity, not an opportunity for hidden multi-action behavior.
 - Clarification must stay short and decision-oriented.
 - No execution occurs before routing is resolved.
+
+### Use Case 14: Safe Answer Follow-up
+
+**User Intent**  
+Ask for one more grounded detail about the most recent answer without changing execution state.
+
+**Example Input**  
+- "How does clarification work?" -> "Explain more"
+- "Which source?"
+- "Where is that written?"
+- "Why?"
+
+**System Behavior**  
+1. JARVIS answers the first question in question-answer mode and stores only short-lived recent answer context: topic, scope, and cited sources.
+2. A follow-up such as "Explain more" or "Which source?" routes to question-answer mode only if it clearly refers to that recent answer.
+3. JARVIS reuses the recent grounded source bundle instead of silently selecting new unrelated sources.
+4. JARVIS returns a more detailed explanation, source list, or bounded why-answer grounded in that same answer context.
+5. JARVIS does not execute anything and does not mutate command runtime state.
+
+**Notes**
+- If no recent grounded answer context exists, JARVIS must fail honestly with insufficient context.
+- Safe answer follow-ups are session-scoped, not cross-session memory.
+- Follow-up wording must not bypass command routing or trigger hidden execution.

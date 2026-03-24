@@ -12,6 +12,8 @@ if str(_TYPES_PATH) not in sys.path:
 
 from interaction_kind import InteractionKind, interaction_kind_value  # type: ignore  # noqa: E402
 
+_REPO_ROOT = Path(__file__).resolve().parents[1]
+
 
 def interaction_output_lines(result: object) -> list[str]:
     """Return deterministic CLI output lines for a top-level interaction result."""
@@ -33,6 +35,15 @@ def interaction_speech_message(result: object) -> str | None:
     visibility = _interaction_visibility(result)
 
     if mode == InteractionKind.QUESTION.value:
+        summary = _question_summary(result=result, visibility=visibility)
+        if summary:
+            warning = str(visibility.get("answer_warning", "") or "").strip()
+            if not warning:
+                answer_result = getattr(result, "answer_result", None)
+                warning = str(getattr(answer_result, "warning", "") or "").strip()
+            if warning:
+                return f"{summary} Warning: {warning}"
+            return summary
         answer_text = str(visibility.get("answer_text", "") or "").strip()
         if not answer_text:
             answer_result = getattr(result, "answer_result", None)
@@ -64,23 +75,34 @@ def interaction_speech_message(result: object) -> str | None:
 def _question_output_lines(*, result: object, visibility: dict[str, Any]) -> list[str]:
     lines = [f"mode: {visibility.get('interaction_mode', InteractionKind.QUESTION.value)}"]
 
+    answer_summary = _question_summary(result=result, visibility=visibility)
+    if answer_summary:
+        lines.append(f"summary: {answer_summary}")
+
     answer_text = str(visibility.get("answer_text", "") or "").strip()
     if not answer_text:
         answer_result = getattr(result, "answer_result", None)
         answer_text = str(getattr(answer_result, "answer_text", "") or "").strip()
-    if answer_text:
+    if answer_text and answer_text != answer_summary:
         lines.append(f"answer: {answer_text}")
 
     sources = list(visibility.get("answer_sources", []) or [])
     if not sources:
         answer_result = getattr(result, "answer_result", None)
         sources = list(getattr(answer_result, "sources", []) or [])
+    source_labels = list(visibility.get("answer_source_labels", []) or [])
+    if not source_labels and sources:
+        source_labels = [_source_label(source) for source in sources]
+    if source_labels:
+        lines.append(f"sources: {', '.join(str(label) for label in source_labels)}")
     if sources:
-        lines.append(f"sources: {', '.join(str(source) for source in sources)}")
+        lines.append(f"paths: {', '.join(str(source) for source in sources)}")
 
     source_attributions = _question_source_attributions(result=result, visibility=visibility)
+    source_label_map = _source_label_map(sources, source_labels)
     for attribution in source_attributions:
-        lines.append(f"evidence: {attribution['source']} -> {attribution['support']}")
+        source_name = source_label_map.get(attribution["source"], attribution["source"])
+        lines.append(f"evidence: {source_name} -> {attribution['support']}")
 
     warning = str(visibility.get("answer_warning", "") or "").strip()
     if not warning:
@@ -181,6 +203,57 @@ def _question_source_attributions(*, result: object, visibility: dict[str, Any])
         if source and support:
             fallback_attributions.append({"source": source, "support": support})
     return fallback_attributions
+
+
+def _question_summary(*, result: object, visibility: dict[str, Any]) -> str:
+    summary = str(visibility.get("answer_summary", "") or "").strip()
+    if summary:
+        return summary
+    answer_text = str(visibility.get("answer_text", "") or "").strip()
+    if not answer_text:
+        answer_result = getattr(result, "answer_result", None)
+        answer_text = str(getattr(answer_result, "answer_text", "") or "").strip()
+    return _answer_summary(answer_text)
+
+
+def _source_label_map(sources: list[str], labels: list[str]) -> dict[str, str]:
+    result: dict[str, str] = {}
+    for source, label in zip(sources, labels):
+        source_text = str(source).strip()
+        label_text = str(label).strip()
+        if source_text and label_text:
+            result[source_text] = label_text
+    return result
+
+
+def _source_label(source: str) -> str:
+    raw_source = str(source or "").strip()
+    if not raw_source:
+        return ""
+    source_path = Path(raw_source)
+    try:
+        relative_source = source_path.resolve().relative_to(_REPO_ROOT)
+    except (ValueError, OSError):
+        relative_source = Path(source_path.name or raw_source)
+    label_seed = relative_source.stem or relative_source.name or raw_source
+    words = str(label_seed).replace("_", " ").replace("-", " ").split()
+    if not words:
+        return raw_source
+    return " ".join(word.capitalize() for word in words)
+
+
+def _answer_summary(answer_text: str) -> str:
+    normalized = " ".join(str(answer_text or "").split()).strip()
+    if not normalized:
+        return ""
+    for punctuation in (". ", "! ", "? "):
+        split_index = normalized.find(punctuation)
+        if 0 < split_index <= 110:
+            return normalized[: split_index + 1].strip()
+    if len(normalized) <= 110:
+        return normalized
+    clipped = normalized[:107].rsplit(" ", 1)[0].strip() or normalized[:107].strip()
+    return f"{clipped}..."
 
 
 def _command_speech_message(visibility: dict[str, Any]) -> str | None:

@@ -4,13 +4,15 @@
 `route_interaction` resolves user inputs in this exact order:
 1. confirmation reply forms when command runtime is `awaiting_confirmation`
 2. clarification reply forms when command runtime is `awaiting_clarification`
-3. explicit executable command families
-4. explicit grounded question families
+3. explicit blocked-state status questions about the active blocked command
+4. explicit executable command families
+5. explicit grounded question families
 5. mixed command/question forms -> clarification
 6. fallback clarification or bounded unsupported question outcome
 
 Rules:
 - blocked replies outrank fresh routing
+- blocked-state status questions may route to question mode only when they ask what the active block needs; they must not auto-resume execution
 - a polite action request remains a command if execution is requested
 - a how/what/why question remains a question unless execution is explicitly requested
 - mixed requests must not silently answer and execute in the same pass
@@ -29,14 +31,18 @@ After routing chooses the command branch, `parse_command` resolves command famil
 
 ## Question Classification Precedence
 After routing chooses the question branch, `answer_question` classifies question families in this exact order:
-1. `runtime_status`
-2. `capabilities`
-3. `docs_rules`
-4. `repo_structure`
-5. `safety_explanations`
-6. unsupported question outcome
+1. `blocked_state`
+2. `recent_runtime`
+3. `runtime_status`
+4. `capabilities`
+5. `docs_rules`
+6. `repo_structure`
+7. `safety_explanations`
+8. unsupported question outcome
 
 Rules:
+- blocked-state questions win over generic runtime-status questions when both are plausible
+- recent-runtime questions win over generic runtime-status questions when both are plausible
 - runtime-status questions win over generic docs questions when both are plausible
 - capabilities questions win over repo-structure questions when the user asks what JARVIS supports
 - unsupported question routing must fail honestly, not guess

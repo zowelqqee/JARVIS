@@ -15,6 +15,8 @@ SUPPORTED_COMMANDS: tuple[dict[str, str], ...] = (
 )
 
 SUPPORTED_QUESTION_FAMILIES: tuple[str, ...] = (
+    "blocked_state",
+    "recent_runtime",
     "capabilities",
     "runtime_status",
     "docs_rules",
