@@ -38,10 +38,12 @@ Optional env:
 - `JARVIS_QA_LLM_STRICT_MODE=true`
 - `JARVIS_QA_LLM_MAX_RETRIES=1`
 - `JARVIS_QA_LLM_FALLBACK_ENABLED=true`
+- `JARVIS_QA_LLM_OPEN_DOMAIN_ENABLED=true`
 - `JARVIS_QA_DEBUG=1`
 
 Notes:
 - Do not enable LLM by default in product config.
+- `JARVIS_QA_LLM_OPEN_DOMAIN_ENABLED=true` is required before broader open-domain GPT answers are allowed; otherwise unsupported world-knowledge questions should still fail honestly.
 - Keep deterministic fallback enabled for alpha experiments unless you are intentionally running a strict no-fallback diagnostic pass.
 
 ## Smoke Commands
@@ -56,6 +58,9 @@ Live OpenAI path:
 
 Comparative default-decision gate:
 - `python3 -m evals.run_qa_eval --compare-profile deterministic --compare-profile llm_env --gate-candidate-profile llm_env`
+
+Open-domain mock harness:
+- `python3 -m evals.run_qa_eval --default-profile llm_open_domain_mock`
 
 ## How To Diagnose Failures
 `MODEL_BACKEND_UNAVAILABLE`

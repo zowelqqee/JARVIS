@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import os
 import sys
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 _TYPES_PATH = Path(__file__).resolve().parents[1] / "types"
 if str(_TYPES_PATH) not in sys.path:
@@ -12,6 +14,7 @@ if str(_TYPES_PATH) not in sys.path:
 
 from context.session_context import SessionContext
 from qa.answer_backend import AnswerBackendKind
+from qa.answer_config import AnswerBackendConfig, LlmBackendConfig
 from qa.answer_engine import answer_question, classify_question
 from jarvis_error import ErrorCode, JarvisError
 from target import Target, TargetType
@@ -183,6 +186,35 @@ class AnswerEngineTests(unittest.TestCase):
 
         self.assertIn("planner/execution_planner.py", result.answer_text)
         self.assertTrue(any(source.endswith("planner/execution_planner.py") for source in result.sources))
+
+    def test_open_domain_question_routes_to_general_family_when_enabled(self) -> None:
+        question = classify_question(
+            "Who is the president of France?",
+            backend_config=AnswerBackendConfig(
+                backend_kind=AnswerBackendKind.LLM,
+                llm=LlmBackendConfig(enabled=True, open_domain_enabled=True),
+            ),
+        )
+
+        self.assertEqual(getattr(question.question_type, "value", ""), "open_domain_general")
+        self.assertEqual(question.scope, "open_domain")
+        self.assertFalse(question.requires_grounding)
+
+    def test_open_domain_question_fails_honestly_when_provider_is_unavailable(self) -> None:
+        config = AnswerBackendConfig(
+            backend_kind=AnswerBackendKind.LLM,
+            llm=LlmBackendConfig(
+                enabled=True,
+                open_domain_enabled=True,
+                api_key_env="MISSING_KEY",
+                fallback_enabled=True,
+            ),
+        )
+
+        with patch.dict(os.environ, {}, clear=False), self.assertRaises(JarvisError) as captured:
+            answer_question("Who is the president of France?", backend_config=config)
+
+        self.assertEqual(getattr(captured.exception.code, "value", ""), ErrorCode.MODEL_BACKEND_UNAVAILABLE.value)
 
     def test_llm_backend_falls_back_to_deterministic_with_warning(self) -> None:
         result = answer_question("What can you do?", backend_kind=AnswerBackendKind.LLM)

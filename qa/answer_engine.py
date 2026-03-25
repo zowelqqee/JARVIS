@@ -271,9 +271,7 @@ def _looks_like_docs_rules_question(text: str) -> bool:
         "what is clarification",
         "what is confirmation",
     )
-    if any(phrase in text for phrase in phrases):
-        return True
-    return text.endswith("?") and text.startswith(("what ", "how ", "why ", "which ", "where ", "when ", "who ", "explain "))
+    return any(phrase in text for phrase in phrases)
 
 
 def _classify_answer_follow_up(

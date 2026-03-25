@@ -22,6 +22,7 @@ class AnswerConfigTests(unittest.TestCase):
 
         self.assertEqual(getattr(config.backend_kind, "value", ""), "deterministic")
         self.assertFalse(config.llm.enabled)
+        self.assertFalse(config.llm.open_domain_enabled)
         self.assertEqual(getattr(config.llm.provider, "value", ""), "openai_responses")
         self.assertEqual(config.llm.model, "gpt-5-nano")
         self.assertEqual(config.llm.timeout_seconds, 30.0)
@@ -59,6 +60,19 @@ class AnswerConfigTests(unittest.TestCase):
         self.assertFalse(config.llm.strict_mode)
         self.assertEqual(config.llm.max_retries, 3)
         self.assertFalse(config.llm.fallback_enabled)
+
+    def test_llm_env_can_enable_open_domain_explicitly(self) -> None:
+        config = load_answer_backend_config(
+            {
+                "JARVIS_QA_BACKEND": "llm",
+                "JARVIS_QA_LLM_ENABLED": "true",
+                "JARVIS_QA_LLM_OPEN_DOMAIN_ENABLED": "true",
+            }
+        )
+
+        self.assertEqual(getattr(config.backend_kind, "value", ""), "llm")
+        self.assertTrue(config.llm.enabled)
+        self.assertTrue(config.llm.open_domain_enabled)
 
     def test_invalid_boolean_raises_structured_error(self) -> None:
         with self.assertRaises(JarvisError) as captured:

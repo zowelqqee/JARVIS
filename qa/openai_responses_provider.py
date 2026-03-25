@@ -8,6 +8,13 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from qa.llm_provider import LlmProviderKind
+from qa.openai_responses_general_parser import OpenAIResponsesGeneralParser
+from qa.openai_responses_general_prompt import (
+    build_general_instructions,
+    build_general_request_metadata,
+    build_general_user_text,
+)
+from qa.openai_responses_general_schema import build_general_text_format
 from qa.openai_responses_parser import OpenAIResponsesParser
 from qa.openai_responses_prompt import build_instructions, build_request_metadata, build_user_text
 from qa.openai_responses_schema import ANSWER_SCHEMA_NAME, ANSWER_SCHEMA_VERSION, build_text_format
@@ -38,7 +45,9 @@ class OpenAIResponsesProvider:
         parser: LlmResponseParser | None = None,
     ) -> None:
         self._transport = transport or OpenAIResponsesTransport()
-        self._parser = parser or OpenAIResponsesParser()
+        self._parser_override = parser
+        self._grounded_parser = OpenAIResponsesParser()
+        self._general_parser = OpenAIResponsesGeneralParser()
 
     def answer(
         self,
@@ -85,7 +94,12 @@ class OpenAIResponsesProvider:
                     api_base=config.llm.api_base,
                     timeout_seconds=config.llm.timeout_seconds,
                 )
-                return self._parse_answer_response(response_payload, grounding_bundle=grounding_bundle, debug_trace=debug_trace)
+                return self._parse_answer_response(
+                    response_payload,
+                    question=question,
+                    grounding_bundle=grounding_bundle,
+                    debug_trace=debug_trace,
+                )
             except JarvisError as error:
                 enriched_error = self._enrich_error(
                     error,
@@ -123,21 +137,34 @@ class OpenAIResponsesProvider:
         session_context: SessionContext | None = None,
         runtime_snapshot: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
-        metadata = build_request_metadata(
-            question=question,
-            grounding_bundle=grounding_bundle,
-            provider=self.provider_kind.value,
-        )
+        if _uses_open_domain_contract(question):
+            metadata = build_general_request_metadata(
+                question=question,
+                grounding_bundle=grounding_bundle,
+                provider=self.provider_kind.value,
+            )
+            instructions = build_general_instructions(config=config)
+            user_text = build_general_user_text(question, grounding_bundle=grounding_bundle)
+            text_format = build_general_text_format(strict_mode=config.llm.strict_mode)
+        else:
+            metadata = build_request_metadata(
+                question=question,
+                grounding_bundle=grounding_bundle,
+                provider=self.provider_kind.value,
+            )
+            instructions = build_instructions(config=config)
+            user_text = build_user_text(question, grounding_bundle=grounding_bundle)
+            text_format = build_text_format(strict_mode=config.llm.strict_mode)
         payload: dict[str, Any] = {
             "model": config.llm.model,
-            "instructions": build_instructions(config=config),
+            "instructions": instructions,
             "input": [
                 {
                     "role": "user",
                     "content": [
                         {
                             "type": "input_text",
-                            "text": build_user_text(question, grounding_bundle=grounding_bundle),
+                            "text": user_text,
                         }
                     ],
                 }
@@ -149,7 +176,7 @@ class OpenAIResponsesProvider:
             },
         }
         payload["text"] = {
-            "format": build_text_format(strict_mode=config.llm.strict_mode),
+            "format": text_format,
         }
         return payload
 
@@ -157,10 +184,22 @@ class OpenAIResponsesProvider:
         self,
         response_payload: dict[str, Any],
         *,
+        question: QuestionRequest | None = None,
         grounding_bundle: GroundingBundle,
         debug_trace: dict[str, Any] | None = None,
     ):
-        return self._parser.parse_response(response_payload, grounding_bundle=grounding_bundle, debug_trace=debug_trace)
+        return self._select_parser(question).parse_response(
+            response_payload,
+            grounding_bundle=grounding_bundle,
+            debug_trace=debug_trace,
+        )
+
+    def _select_parser(self, question: QuestionRequest | None) -> LlmResponseParser:
+        if self._parser_override is not None:
+            return self._parser_override
+        if _uses_open_domain_contract(question):
+            return self._general_parser
+        return self._grounded_parser
 
     def _enrich_error(
         self,
@@ -196,7 +235,7 @@ class OpenAIResponsesProvider:
 def _safe_request_debug(request_payload: dict[str, Any]) -> dict[str, Any]:
     metadata = dict(request_payload.get("metadata", {}) or {})
     text_format = dict((request_payload.get("text") or {}).get("format", {}) or {})
-    safe_keys = ("correlation_id", "question_type", "grounding_scope", "source_count", "answer_schema_version")
+    safe_keys = ("correlation_id", "question_type", "grounding_scope", "source_count", "answer_mode", "answer_schema_version")
     return {
         **{key: metadata[key] for key in safe_keys if metadata.get(key) not in (None, "")},
         "strict_mode": bool(text_format.get("strict")),
@@ -215,3 +254,8 @@ def _truncate(text: str, *, limit: int) -> str:
     if len(compact) <= limit:
         return compact
     return f"{compact[:limit]}..."
+
+
+def _uses_open_domain_contract(question: QuestionRequest | None) -> bool:
+    question_type = getattr(getattr(question, "question_type", None), "value", getattr(question, "question_type", None))
+    return str(question_type or "").strip() == "open_domain_general"

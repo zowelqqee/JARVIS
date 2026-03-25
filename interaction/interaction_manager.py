@@ -210,6 +210,7 @@ class InteractionManager:
             session_context,
             raw_input=raw_input,
             answer_result=answer_result,
+            answer_backend_config=answer_backend_config,
         )
 
         return InteractionResult(
@@ -324,10 +325,18 @@ def _remember_answer_context(
     *,
     raw_input: str,
     answer_result: Any,
+    answer_backend_config: AnswerBackendConfig | None,
 ) -> None:
     if session_context is None:
         return
-    question = classify_question(raw_input, session_context=session_context)
+    try:
+        question = classify_question(
+            raw_input,
+            session_context=session_context,
+            backend_config=answer_backend_config,
+        )
+    except JarvisError:
+        return
     question_type_value = str(getattr(getattr(question, "question_type", None), "value", getattr(question, "question_type", "")) or "").strip()
     context_refs = getattr(question, "context_refs", {}) or {}
     if not isinstance(context_refs, dict):

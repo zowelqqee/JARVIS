@@ -14,6 +14,7 @@ from qa.answer_backend import AnswerBackendKind
 from qa.answer_config import AnswerBackendConfig, LlmBackendConfig
 from qa.grounding import build_grounding_bundle
 from qa.llm_provider import LlmProviderKind
+from qa.openai_responses_general_schema import GENERAL_ANSWER_SCHEMA_NAME, GENERAL_ANSWER_SCHEMA_VERSION
 from qa.openai_responses_provider import ANSWER_SCHEMA_NAME, ANSWER_SCHEMA_VERSION, OpenAIResponsesProvider
 from question_request import QuestionRequest, QuestionType
 
@@ -29,6 +30,14 @@ class OpenAIResponsesPayloadContractTests(unittest.TestCase):
             confidence=0.95,
         )
         self.grounding_bundle = build_grounding_bundle(self.question)
+        self.open_domain_question = QuestionRequest(
+            raw_input="Who is Ada Lovelace?",
+            question_type=QuestionType.OPEN_DOMAIN_GENERAL,
+            scope="open_domain",
+            confidence=0.7,
+            requires_grounding=False,
+        )
+        self.open_domain_grounding_bundle = build_grounding_bundle(self.open_domain_question)
         self.provider = OpenAIResponsesProvider()
 
     def test_payload_uses_string_only_metadata(self) -> None:
@@ -120,6 +129,39 @@ class OpenAIResponsesPayloadContractTests(unittest.TestCase):
         self.assertIn(self.grounding_bundle.source_paths[0], input_text)
         self.assertIn("kind=capability_metadata", input_text)
         self.assertNotIn("support=", input_text)
+
+    def test_open_domain_payload_uses_general_schema_and_metadata(self) -> None:
+        payload = self.provider.build_request_payload(
+            self.open_domain_question,
+            grounding_bundle=self.open_domain_grounding_bundle,
+            config=self._config(),
+        )
+
+        metadata = payload.get("metadata") or {}
+        self.assertEqual(metadata.get("answer_mode"), "open_domain")
+        self.assertEqual(metadata.get("answer_schema_version"), GENERAL_ANSWER_SCHEMA_VERSION)
+        format_config = ((payload.get("text") or {}).get("format") or {})
+        self.assertEqual(format_config.get("name"), GENERAL_ANSWER_SCHEMA_NAME)
+        schema = format_config.get("schema") or {}
+        self.assertEqual(schema.get("required"), ["schema_version", "answer_text", "answer_kind", "warning"])
+        self.assertEqual((schema.get("properties") or {}).get("answer_kind", {}).get("enum"), ["open_domain_model", "refusal"])
+
+    def test_open_domain_payload_uses_model_knowledge_instructions_without_fake_sources(self) -> None:
+        payload = self.provider.build_request_payload(
+            self.open_domain_question,
+            grounding_bundle=self.open_domain_grounding_bundle,
+            config=self._config(),
+        )
+
+        instructions = str(payload.get("instructions", "") or "")
+        self.assertIn("model knowledge", instructions)
+        self.assertIn("current or changing real-world facts", instructions)
+        input_items = payload.get("input") or []
+        content_items = input_items[0].get("content") or []
+        input_text = str(content_items[0].get("text", "") or "")
+        self.assertIn("Question type: open_domain_general", input_text)
+        self.assertIn("Local grounded sources: none for this answer mode.", input_text)
+        self.assertNotIn("Allowed local sources:", input_text)
 
     def _config(
         self,

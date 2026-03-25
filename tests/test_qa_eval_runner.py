@@ -68,6 +68,29 @@ class QaEvalRunnerTests(unittest.TestCase):
         self.assertEqual(summary.fallback_total, summary.answer_total)
         self.assertGreater(summary.source_attribution_passed, 0)
 
+    def test_open_domain_mock_profile_tracks_answer_kind_provenance_and_refusal_metrics(self) -> None:
+        cases = load_qa_eval_cases(DEFAULT_CORPUS_PATH)
+        selected = select_eval_cases(
+            cases,
+            [
+                "open_domain_explanation_answer",
+                "open_domain_temporal_warning_answer",
+                "open_domain_refusal_answer",
+            ],
+        )
+
+        report = run_eval_cases(selected, default_profile="llm_open_domain_mock")
+        summary = summarize_eval_report(report)
+
+        self.assertEqual(report.failed_cases, 0)
+        self.assertEqual(report.total_cases, 3)
+        self.assertEqual(summary.open_domain_total, 2)
+        self.assertEqual(summary.open_domain_passed, 2)
+        self.assertEqual(summary.refusal_total, 1)
+        self.assertEqual(summary.refusal_passed, 1)
+        self.assertEqual(summary.provenance_total, 3)
+        self.assertEqual(summary.provenance_passed, 3)
+
     def test_compare_profiles_keeps_deterministic_default_when_candidate_falls_back(self) -> None:
         cases = load_qa_eval_cases(DEFAULT_CORPUS_PATH)
 

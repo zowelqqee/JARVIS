@@ -23,6 +23,7 @@ Notes:
 - `llm_env` uses current QA env settings and leaves deterministic fallback enabled.
 - `llm_env_strict` uses current QA env settings with fallback disabled, so provider and grounding failures stay visible.
 - `llm_missing_key_fallback` is a harness/debug profile, not a candidate default profile.
+- `llm_open_domain_mock` is a harness/debug profile for deterministic open-domain answer, warning, refusal, and provenance checks without a live API dependency.
 
 ## Metrics To Review
 The gate compares at least these signals:
@@ -31,6 +32,9 @@ The gate compares at least these signals:
 - groundedness pass rate
 - unsupported-question honesty
 - source attribution quality
+- open-domain answer pass rate
+- refusal pass rate
+- provenance correctness
 - fallback frequency
 - average interaction latency
 - usage/cost proxy availability
@@ -40,6 +44,9 @@ Interpretation:
 - command regressions must remain zero because command runtime semantics are not allowed to drift
 - unsupported-question honesty must stay explicit and bounded
 - source attribution quality must remain grounded and specific
+- open-domain answer cases must stay available when that path is enabled
+- refusal cases must stay explicit and policy-bounded
+- provenance correctness must stay truthful for grounded vs model-backed answers
 - fallback frequency must stay low enough that the LLM path is actually carrying the product path
 - latency and usage must be measured in the target environment before any default switch discussion
 
@@ -50,6 +57,9 @@ Current default-switch thresholds:
 - groundedness pass rate: `100%`
 - unsupported-question honesty: `100%`
 - source attribution quality: at least `95%`
+- open-domain answer pass rate: `100%` when open-domain cases are in scope
+- refusal pass rate: `100%` when refusal cases are in scope
+- provenance correctness: `100%` when provenance-labeled answer cases are in scope
 - fallback frequency: at most `5%`
 - latency: must be measured on the candidate profile
 - usage/cost proxy: must be available on the candidate profile

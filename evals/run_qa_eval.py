@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 import time
+from contextlib import ExitStack, nullcontext
 from dataclasses import dataclass, field
 from pathlib import Path
 from types import SimpleNamespace
@@ -17,7 +18,8 @@ from interaction.interaction_manager import InteractionManager
 from parser.command_parser import parse_command
 from qa.answer_backend import AnswerBackendKind
 from qa.answer_config import AnswerBackendConfig, LlmBackendConfig, load_answer_backend_config
-from qa.answer_engine import classify_question
+from qa.answer_engine import ErrorCategory, ErrorCode, JarvisError, classify_question
+from qa.deterministic_backend import DeterministicAnswerBackend
 from qa.grounding_verifier import support_is_meaningful
 from qa.llm_provider import LlmProviderKind
 from target import Target, TargetType
@@ -31,7 +33,14 @@ _LIVE_SMOKE_QUESTION_ENV = "JARVIS_QA_OPENAI_LIVE_QUESTION"
 _LIVE_SMOKE_DEFAULT_MODEL = "gpt-5-nano"
 _LIVE_SMOKE_DEFAULT_QUESTION = "What can you do?"
 _EVAL_MISSING_KEY_ENV = "JARVIS_QA_EVAL_MISSING_API_KEY_DO_NOT_SET"
-_PROFILE_CHOICES = ("deterministic", "llm_missing_key_fallback", "llm_env", "llm_env_strict")
+_PROFILE_CHOICES = (
+    "deterministic",
+    "llm_missing_key_fallback",
+    "llm_open_domain_mock",
+    "llm_open_domain_missing_key",
+    "llm_env",
+    "llm_env_strict",
+)
 _DEFAULT_GATE_BASELINE_PROFILE = "deterministic"
 _DEFAULT_GATE_CANDIDATE_PROFILE = "llm_env"
 _DEFAULT_GATE_THRESHOLDS = {
@@ -40,6 +49,9 @@ _DEFAULT_GATE_THRESHOLDS = {
     "grounding_pass_rate_min": 1.0,
     "unsupported_honesty_rate_min": 1.0,
     "source_attribution_quality_rate_min": 0.95,
+    "open_domain_answer_pass_rate_min": 1.0,
+    "refusal_pass_rate_min": 1.0,
+    "provenance_pass_rate_min": 1.0,
     "fallback_frequency_max": 0.05,
     "usage_measurement_required": True,
 }
@@ -52,6 +64,7 @@ class QaEvalCase:
     id: str
     case_type: str
     category: str
+    profiles: list[str] = field(default_factory=list)
     raw_input: str | None = None
     runtime_state: str | None = None
     session_context: dict[str, Any] = field(default_factory=dict)
@@ -61,11 +74,15 @@ class QaEvalCase:
     expected_command_intent: str | None = None
     should_call_runtime: bool | None = None
     should_call_answer_engine: bool | None = None
+    expected_answer_kind: str | None = None
+    expected_answer_provenance: str | None = None
     expected_sources_count_min: int | None = None
+    expected_sources_count_max: int | None = None
     expected_warning_contains: str | None = None
     expected_error_code: str | None = None
     expected_answer_contains: str | None = None
     expected_clarification_contains: str | None = None
+    mock_answer_result: dict[str, Any] = field(default_factory=dict)
     voice_input: str | None = None
     expected_normalized_input: str | None = None
     env: dict[str, str] = field(default_factory=dict)
@@ -151,6 +168,12 @@ class QaEvalProfileSummary:
     unsupported_passed: int
     source_attribution_total: int
     source_attribution_passed: int
+    open_domain_total: int
+    open_domain_passed: int
+    refusal_total: int
+    refusal_passed: int
+    provenance_total: int
+    provenance_passed: int
     answer_total: int
     fallback_total: int
     avg_interaction_latency_ms: float | None
@@ -178,6 +201,15 @@ class QaEvalProfileSummary:
             "source_attribution_total": self.source_attribution_total,
             "source_attribution_passed": self.source_attribution_passed,
             "source_attribution_quality_rate": _rate(self.source_attribution_passed, self.source_attribution_total),
+            "open_domain_total": self.open_domain_total,
+            "open_domain_passed": self.open_domain_passed,
+            "open_domain_answer_pass_rate": _rate(self.open_domain_passed, self.open_domain_total),
+            "refusal_total": self.refusal_total,
+            "refusal_passed": self.refusal_passed,
+            "refusal_pass_rate": _rate(self.refusal_passed, self.refusal_total),
+            "provenance_total": self.provenance_total,
+            "provenance_passed": self.provenance_passed,
+            "provenance_pass_rate": _rate(self.provenance_passed, self.provenance_total),
             "answer_total": self.answer_total,
             "fallback_total": self.fallback_total,
             "fallback_frequency": _rate(self.fallback_total, self.answer_total),
@@ -254,6 +286,86 @@ class _EvalRuntimeManager:
         )
 
 
+class _EvalMockLlmProvider:
+    """Deterministic mock provider used for profile-scoped open-domain evals."""
+
+    provider_kind = LlmProviderKind.OPENAI_RESPONSES
+
+    def __init__(self, case: QaEvalCase) -> None:
+        self._case = case
+        self._fallback_backend = DeterministicAnswerBackend()
+
+    def answer(
+        self,
+        question: object,
+        *,
+        grounding_bundle: object,
+        config: object,
+        session_context: SessionContext | None = None,
+        runtime_snapshot: dict[str, Any] | None = None,
+        debug_trace: dict[str, Any] | None = None,
+    ) -> object:
+        question_type = _enum_value(getattr(question, "question_type", ""))
+        if question_type != "open_domain_general":
+            return self._fallback_backend.answer(
+                question,
+                session_context=session_context,
+                runtime_snapshot=runtime_snapshot,
+                grounding_bundle=grounding_bundle,
+                config=config,
+                debug_trace=debug_trace,
+            )
+        del question, grounding_bundle, config, session_context, runtime_snapshot
+        if debug_trace is not None:
+            debug_trace["provider_response_parse"] = {
+                "provider": "eval_mock_open_domain",
+                "result": "passed",
+                "request_id": "eval-mock-request",
+                "correlation_id": self._case.id,
+            }
+        payload = dict(self._case.mock_answer_result or {})
+        if not payload:
+            raise JarvisError(
+                category=ErrorCategory.ANSWER_ERROR,
+                code=ErrorCode.UNSUPPORTED_QUESTION,
+                message="No mock open-domain answer was configured for this eval case.",
+                details={"case_id": self._case.id},
+                blocking=False,
+                terminal=True,
+            )
+        raw_attributions = list(payload.get("source_attributions", []) or [])
+        source_attributions = [
+            SimpleNamespace(
+                source=str((entry or {}).get("source", "") or "").strip(),
+                support=str((entry or {}).get("support", "") or "").strip(),
+            )
+            for entry in raw_attributions
+            if isinstance(entry, dict)
+        ]
+        return SimpleNamespace(
+            answer_text=str(payload.get("answer_text", "") or "").strip(),
+            sources=[str(source).strip() for source in list(payload.get("sources", []) or []) if str(source).strip()],
+            source_attributions=source_attributions,
+            confidence=float(payload.get("confidence", 0.72) or 0.72),
+            warning=str(payload.get("warning", "") or "").strip() or None,
+            answer_kind=str(payload.get("answer_kind", "") or "").strip() or "open_domain_model",
+            provenance=str(payload.get("provenance", "") or "").strip() or "model_knowledge",
+            interaction_mode="question",
+        )
+
+    def build_request_payload(
+        self,
+        question: object,
+        *,
+        grounding_bundle: object,
+        config: object,
+        session_context: SessionContext | None = None,
+        runtime_snapshot: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        del question, grounding_bundle, config, session_context, runtime_snapshot
+        return {"provider": "eval_mock_open_domain", "case_id": self._case.id}
+
+
 def load_qa_eval_cases(path: Path | str = DEFAULT_CORPUS_PATH) -> list[QaEvalCase]:
     """Load and validate the centralized QA eval corpus."""
     corpus_path = Path(path)
@@ -287,6 +399,8 @@ def run_eval_cases(cases: list[QaEvalCase], *, default_profile: str = "determini
     """Run the selected QA eval cases and return a reproducible report."""
     results: list[QaEvalCaseResult] = []
     for case in cases:
+        if not _case_applies_to_profile(case, default_profile):
+            continue
         if case.case_type == "interaction":
             results.append(_run_interaction_case(case, default_profile=default_profile))
             continue
@@ -420,17 +534,18 @@ def _run_interaction_case(case: QaEvalCase, *, default_profile: str) -> QaEvalCa
         return real_answer_question(*args, **kwargs)
 
     started_at = time.perf_counter()
-    with patch("interaction.interaction_manager.answer_question", side_effect=_spy_answer_question), patch.dict(
-        "os.environ",
-        {"JARVIS_QA_DEBUG": "1"},
-        clear=False,
-    ):
+    with ExitStack() as stack:
+        stack.enter_context(patch("interaction.interaction_manager.answer_question", side_effect=_spy_answer_question))
+        stack.enter_context(patch.dict("os.environ", {"JARVIS_QA_DEBUG": "1"}, clear=False))
+        stack.enter_context(_provider_patch_for_profile(profile, case))
         manager = InteractionManager(runtime_manager=runtime_manager, answer_backend_config=config)
         result = manager.handle_input(case.raw_input or "", session_context=session_context)
     latency_ms = round((time.perf_counter() - started_at) * 1000.0, 3)
 
     actual_interaction_kind = _enum_value(getattr(result, "interaction_mode", ""))
     actual_error_code = _enum_value(getattr(getattr(result, "error", None), "code", ""))
+    actual_answer_kind = _enum_value(getattr(getattr(result, "answer_result", None), "answer_kind", ""))
+    actual_answer_provenance = _enum_value(getattr(getattr(result, "answer_result", None), "provenance", ""))
     actual_warning = str(getattr(getattr(result, "answer_result", None), "warning", "") or "").strip()
     actual_answer_text = str(getattr(getattr(result, "answer_result", None), "answer_text", "") or "").strip()
     actual_sources = list(getattr(getattr(result, "answer_result", None), "sources", []) or [])
@@ -447,6 +562,8 @@ def _run_interaction_case(case: QaEvalCase, *, default_profile: str) -> QaEvalCa
         "runtime_calls": len(runtime_manager.handle_calls),
         "answer_calls": len(answer_calls),
         "actual_error_code": actual_error_code or None,
+        "actual_answer_kind": actual_answer_kind or None,
+        "actual_answer_provenance": actual_answer_provenance or None,
         "actual_warning": actual_warning or None,
         "actual_sources_count": len(actual_sources),
         "actual_source_attribution_count": len(actual_source_attributions),
@@ -457,6 +574,8 @@ def _run_interaction_case(case: QaEvalCase, *, default_profile: str) -> QaEvalCa
         "fallback_used": bool(fallback_debug.get("deterministic_fallback")) or "LLM backend fallback" in actual_warning,
         "latency_ms": latency_ms,
         "expected_error_code": case.expected_error_code,
+        "expected_answer_kind": case.expected_answer_kind,
+        "expected_answer_provenance": case.expected_answer_provenance,
         "usage_input_tokens": _int_or_none(provider_parse_debug.get("input_tokens")),
         "usage_output_tokens": _int_or_none(provider_parse_debug.get("output_tokens")),
         "usage_total_tokens": _int_or_none(provider_parse_debug.get("total_tokens")),
@@ -473,7 +592,13 @@ def _run_interaction_case(case: QaEvalCase, *, default_profile: str) -> QaEvalCa
         if answer_calls:
             classified_input = str(answer_calls[0].get("args", [""])[0] or "")
         try:
-            actual_question_type = _enum_value(classify_question(classified_input, session_context=session_context).question_type)
+            actual_question_type = _enum_value(
+                classify_question(
+                    classified_input,
+                    session_context=session_context,
+                    backend_config=config,
+                ).question_type
+            )
         except Exception:
             actual_question_type = None
         details["actual_question_input"] = classified_input or None
@@ -488,8 +613,14 @@ def _run_interaction_case(case: QaEvalCase, *, default_profile: str) -> QaEvalCa
                 actual_command_intent = None
         details["actual_command_intent"] = actual_command_intent
         checks["command_intent"] = actual_command_intent == case.expected_command_intent
+    if case.expected_answer_kind is not None:
+        checks["answer_kind"] = actual_answer_kind == case.expected_answer_kind
+    if case.expected_answer_provenance is not None:
+        checks["answer_provenance"] = actual_answer_provenance == case.expected_answer_provenance
     if case.expected_sources_count_min is not None:
         checks["grounding"] = getattr(result, "error", None) is None and len(actual_sources) >= case.expected_sources_count_min
+    if case.expected_sources_count_max is not None:
+        checks["sources_count_max"] = getattr(result, "error", None) is None and len(actual_sources) <= case.expected_sources_count_max
     if case.expected_warning_contains is not None:
         checks["warning"] = case.expected_warning_contains in actual_warning
     if case.expected_error_code is not None:
@@ -626,6 +757,29 @@ def _build_backend_config(profile: str) -> AnswerBackendConfig:
                 fallback_enabled=True,
             ),
         )
+    if profile == "llm_open_domain_mock":
+        return AnswerBackendConfig(
+            backend_kind=AnswerBackendKind.LLM,
+            llm=LlmBackendConfig(
+                enabled=True,
+                provider=LlmProviderKind.OPENAI_RESPONSES,
+                model=_LIVE_SMOKE_DEFAULT_MODEL,
+                fallback_enabled=False,
+                open_domain_enabled=True,
+            ),
+        )
+    if profile == "llm_open_domain_missing_key":
+        return AnswerBackendConfig(
+            backend_kind=AnswerBackendKind.LLM,
+            llm=LlmBackendConfig(
+                enabled=True,
+                provider=LlmProviderKind.OPENAI_RESPONSES,
+                model=_LIVE_SMOKE_DEFAULT_MODEL,
+                api_key_env=_EVAL_MISSING_KEY_ENV,
+                fallback_enabled=False,
+                open_domain_enabled=True,
+            ),
+        )
     if profile == "llm_env":
         env_config = load_answer_backend_config()
         return AnswerBackendConfig(
@@ -637,6 +791,7 @@ def _build_backend_config(profile: str) -> AnswerBackendConfig:
                 api_key_env=env_config.llm.api_key_env,
                 api_base=env_config.llm.api_base,
                 fallback_enabled=True,
+                open_domain_enabled=env_config.llm.open_domain_enabled,
             ),
         )
     if profile == "llm_env_strict":
@@ -655,6 +810,7 @@ def _build_backend_config(profile: str) -> AnswerBackendConfig:
                 strict_mode=env_config.llm.strict_mode,
                 max_retries=env_config.llm.max_retries,
                 fallback_enabled=False,
+                open_domain_enabled=env_config.llm.open_domain_enabled,
             ),
         )
     raise ValueError(f"Unsupported QA eval backend profile: {profile!r}.")
@@ -699,12 +855,32 @@ def _validate_case(case: QaEvalCase) -> None:
         raise ValueError("QA eval case id must be non-empty.")
     if case.case_type not in {"interaction", "voice", "live_smoke"}:
         raise ValueError(f"Unsupported QA eval case_type: {case.case_type!r}.")
+    if case.backend_profile is not None and case.backend_profile not in _PROFILE_CHOICES:
+        raise ValueError(f"Unsupported QA eval backend profile override: {case.backend_profile!r}.")
+    if case.profiles and any(profile not in _PROFILE_CHOICES for profile in case.profiles):
+        raise ValueError(f"QA eval case {case.id} references unsupported profile scoping.")
     if case.case_type == "interaction" and not str(case.raw_input or "").strip():
         raise ValueError(f"Interaction eval case {case.id} must define raw_input.")
     if case.case_type == "voice" and not str(case.voice_input or "").strip():
         raise ValueError(f"Voice eval case {case.id} must define voice_input.")
     if case.case_type == "live_smoke" and not isinstance(case.env, dict):
         raise ValueError(f"Live smoke eval case {case.id} must define env as an object.")
+    if case.expected_sources_count_min is not None and case.expected_sources_count_min < 0:
+        raise ValueError(f"QA eval case {case.id} must not use a negative expected_sources_count_min.")
+    if case.expected_sources_count_max is not None and case.expected_sources_count_max < 0:
+        raise ValueError(f"QA eval case {case.id} must not use a negative expected_sources_count_max.")
+    effective_profiles = set(case.profiles or [])
+    if case.backend_profile is not None:
+        effective_profiles.add(case.backend_profile)
+    if "llm_open_domain_mock" in effective_profiles and not isinstance(case.mock_answer_result, dict):
+        raise ValueError(f"QA eval case {case.id} must define mock_answer_result for llm_open_domain_mock.")
+
+
+def _case_applies_to_profile(case: QaEvalCase, default_profile: str) -> bool:
+    if not case.profiles:
+        return True
+    effective_profile = case.backend_profile or default_profile
+    return effective_profile in set(case.profiles)
 
 
 def _enum_value(value: Any) -> str:
@@ -740,7 +916,11 @@ def summarize_eval_report(report: QaEvalReport) -> QaEvalProfileSummary:
         for result in report.results
         if result.case_type == "interaction" and str(result.details.get("profile") or "") == report.default_profile
     ]
-    answer_results = [result for result in interaction_results if bool(result.details.get("answer_calls"))]
+    answer_results = [
+        result
+        for result in interaction_results
+        if bool(result.details.get("answer_calls")) and not str(result.details.get("actual_error_code") or "").strip()
+    ]
     routing_results = [result for result in interaction_results if "interaction_kind" in result.checks]
     grounding_results = [result for result in interaction_results if "grounding" in result.checks]
     command_results = [result for result in interaction_results if "command_intent" in result.checks]
@@ -754,6 +934,17 @@ def summarize_eval_report(report: QaEvalReport) -> QaEvalProfileSummary:
         for result in answer_results
         if result.details.get("actual_source_attribution_quality") is not None
     ]
+    open_domain_results = [
+        result
+        for result in interaction_results
+        if str(result.details.get("expected_answer_kind") or "").strip() == "open_domain_model"
+    ]
+    refusal_results = [
+        result
+        for result in interaction_results
+        if str(result.details.get("expected_answer_kind") or "").strip() == "refusal"
+    ]
+    provenance_results = [result for result in interaction_results if "answer_provenance" in result.checks]
     latency_values = [
         float(result.details.get("latency_ms"))
         for result in interaction_results
@@ -780,6 +971,12 @@ def summarize_eval_report(report: QaEvalReport) -> QaEvalProfileSummary:
         source_attribution_passed=sum(
             1 for result in source_quality_results if bool(result.details.get("actual_source_attribution_quality"))
         ),
+        open_domain_total=len(open_domain_results),
+        open_domain_passed=sum(1 for result in open_domain_results if bool(result.checks.get("answer_kind")) and result.passed),
+        refusal_total=len(refusal_results),
+        refusal_passed=sum(1 for result in refusal_results if bool(result.checks.get("answer_kind")) and result.passed),
+        provenance_total=len(provenance_results),
+        provenance_passed=sum(1 for result in provenance_results if bool(result.checks.get("answer_provenance"))),
         answer_total=len(answer_results),
         fallback_total=sum(1 for result in answer_results if bool(result.details.get("fallback_used"))),
         avg_interaction_latency_ms=round(sum(latency_values) / len(latency_values), 3) if latency_values else None,
@@ -848,6 +1045,9 @@ def format_comparison_report(comparison: QaEvalComparisonReport) -> str:
     for summary in comparison.summaries:
         unsupported_rate = _percent(summary.unsupported_passed, summary.unsupported_total)
         source_quality_rate = _percent(summary.source_attribution_passed, summary.source_attribution_total)
+        open_domain_rate = _percent(summary.open_domain_passed, summary.open_domain_total)
+        refusal_rate = _percent(summary.refusal_passed, summary.refusal_total)
+        provenance_rate = _percent(summary.provenance_passed, summary.provenance_total)
         fallback_rate = _percent(summary.fallback_total, summary.answer_total)
         lines.extend(
             [
@@ -857,6 +1057,9 @@ def format_comparison_report(comparison: QaEvalComparisonReport) -> str:
                 f"  command-regression pass rate: {summary.command_regression_passed}/{summary.command_regression_total} ({_percent(summary.command_regression_passed, summary.command_regression_total)})",
                 f"  unsupported honesty: {summary.unsupported_passed}/{summary.unsupported_total} ({unsupported_rate})",
                 f"  source attribution quality: {summary.source_attribution_passed}/{summary.source_attribution_total} ({source_quality_rate})",
+                f"  open-domain answer pass rate: {summary.open_domain_passed}/{summary.open_domain_total} ({open_domain_rate})",
+                f"  refusal pass rate: {summary.refusal_passed}/{summary.refusal_total} ({refusal_rate})",
+                f"  provenance correctness: {summary.provenance_passed}/{summary.provenance_total} ({provenance_rate})",
                 f"  fallback frequency: {summary.fallback_total}/{summary.answer_total} ({fallback_rate})",
                 f"  avg interaction latency ms: {summary.avg_interaction_latency_ms if summary.avg_interaction_latency_ms is not None else 'n/a'}",
                 f"  usage samples: {summary.usage_sample_count}",
@@ -909,6 +1112,15 @@ def _default_switch_blockers(
     source_quality_rate = _rate(candidate_summary.source_attribution_passed, candidate_summary.source_attribution_total)
     if source_quality_rate is None or source_quality_rate < float(_DEFAULT_GATE_THRESHOLDS["source_attribution_quality_rate_min"]):
         blockers.append("source attribution quality is below threshold")
+    open_domain_rate = _rate(candidate_summary.open_domain_passed, candidate_summary.open_domain_total)
+    if open_domain_rate is not None and open_domain_rate < float(_DEFAULT_GATE_THRESHOLDS["open_domain_answer_pass_rate_min"]):
+        blockers.append("open-domain answer pass rate is below threshold")
+    refusal_rate = _rate(candidate_summary.refusal_passed, candidate_summary.refusal_total)
+    if refusal_rate is not None and refusal_rate < float(_DEFAULT_GATE_THRESHOLDS["refusal_pass_rate_min"]):
+        blockers.append("refusal pass rate is below threshold")
+    provenance_rate = _rate(candidate_summary.provenance_passed, candidate_summary.provenance_total)
+    if provenance_rate is not None and provenance_rate < float(_DEFAULT_GATE_THRESHOLDS["provenance_pass_rate_min"]):
+        blockers.append("provenance correctness is below threshold")
     fallback_frequency = _rate(candidate_summary.fallback_total, candidate_summary.answer_total)
     if fallback_frequency is None or fallback_frequency > float(_DEFAULT_GATE_THRESHOLDS["fallback_frequency_max"]):
         blockers.append("fallback frequency is above threshold")
@@ -953,6 +1165,16 @@ def _int_or_none(value: Any) -> int | None:
     if isinstance(value, int):
         return value
     return None
+
+
+def _provider_patch_for_profile(profile: str, case: QaEvalCase):
+    if profile == "llm_open_domain_mock":
+        return patch.dict(
+            "qa.llm_backend._PROVIDERS",
+            {LlmProviderKind.OPENAI_RESPONSES: _EvalMockLlmProvider(case)},
+            clear=False,
+        )
+    return nullcontext()
 
 
 if __name__ == "__main__":

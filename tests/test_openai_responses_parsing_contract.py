@@ -13,6 +13,7 @@ if str(_TYPES_PATH) not in sys.path:
 
 from jarvis_error import ErrorCode, JarvisError
 from qa.grounding import build_grounding_bundle
+from qa.openai_responses_general_schema import GENERAL_ANSWER_SCHEMA_VERSION
 from qa.openai_responses_provider import ANSWER_SCHEMA_VERSION, OpenAIResponsesProvider
 from question_request import QuestionRequest, QuestionType
 
@@ -28,6 +29,14 @@ class OpenAIResponsesParsingContractTests(unittest.TestCase):
             confidence=0.95,
         )
         self.grounding_bundle = build_grounding_bundle(self.question)
+        self.open_domain_question = QuestionRequest(
+            raw_input="Who is Ada Lovelace?",
+            question_type=QuestionType.OPEN_DOMAIN_GENERAL,
+            scope="open_domain",
+            confidence=0.7,
+            requires_grounding=False,
+        )
+        self.open_domain_grounding_bundle = build_grounding_bundle(self.open_domain_question)
         self.provider = OpenAIResponsesProvider()
 
     def test_parse_answer_response_accepts_direct_output_text(self) -> None:
@@ -236,6 +245,54 @@ class OpenAIResponsesParsingContractTests(unittest.TestCase):
             )
 
         self.assertEqual(getattr(captured.exception.code, "value", ""), ErrorCode.ANSWER_NOT_GROUNDED.value)
+
+    def test_parse_answer_response_accepts_open_domain_structured_output(self) -> None:
+        result = self.provider._parse_answer_response(  # noqa: SLF001
+            {
+                "status": "completed",
+                "output_text": json.dumps(
+                    {
+                        "schema_version": GENERAL_ANSWER_SCHEMA_VERSION,
+                        "answer_text": "Ada Lovelace is widely regarded as an early computing pioneer.",
+                        "answer_kind": "open_domain_model",
+                        "warning": "May be out of date for changing facts.",
+                    }
+                ),
+            },
+            question=self.open_domain_question,
+            grounding_bundle=self.open_domain_grounding_bundle,
+        )
+
+        self.assertIn("Ada Lovelace", result.answer_text)
+        self.assertEqual(result.sources, [])
+        self.assertEqual(getattr(result.answer_kind, "value", ""), "open_domain_model")
+        self.assertEqual(getattr(result.provenance, "value", ""), "model_knowledge")
+        self.assertEqual(result.warning, "May be out of date for changing facts.")
+
+    def test_parse_answer_response_accepts_open_domain_refusal_output(self) -> None:
+        result = self.provider._parse_answer_response(  # noqa: SLF001
+            {
+                "status": "completed",
+                "output": [
+                    {
+                        "type": "message",
+                        "role": "assistant",
+                        "content": [
+                            {
+                                "type": "refusal",
+                                "refusal": "I can't help with that request.",
+                            }
+                        ],
+                    }
+                ],
+            },
+            question=self.open_domain_question,
+            grounding_bundle=self.open_domain_grounding_bundle,
+        )
+
+        self.assertEqual(getattr(result.answer_kind, "value", ""), "refusal")
+        self.assertEqual(getattr(result.provenance, "value", ""), "model_knowledge")
+        self.assertEqual(result.answer_text, "I can't help with that request.")
 
     def _valid_output_text(self) -> str:
         return json.dumps(
