@@ -278,7 +278,7 @@ class CliSmokeTests(unittest.TestCase):
             interaction_mode="clarification",
             answer_result=None,
             clarification_request=SimpleNamespace(
-                message="Do you want an answer first or should I execute the command?"
+                message="Do you want an answer first or should I open Safari?"
             ),
             runtime_result=None,
             error=None,
@@ -296,7 +296,7 @@ class CliSmokeTests(unittest.TestCase):
 
         output = buffer.getvalue()
         self.assertIn("mode: clarification", output)
-        self.assertIn("clarify: Do you want an answer first or should I execute the command?", output)
+        self.assertIn("clarify: Do you want an answer first or should I open Safari?", output)
 
     def test_question_answer_is_spoken_when_enabled(self) -> None:
         interaction_manager = MagicMock()

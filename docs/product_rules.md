@@ -3,28 +3,40 @@
 ## Product Definition
 JARVIS is a supervised desktop assistant with two top-level interaction modes:
 - `command mode`: understand natural language commands and perform desktop actions clearly, safely, and under user control.
-- `question-answer mode`: answer grounded questions about capabilities, current runtime state, documented behavior, and repository structure without executing actions.
+- `question-answer mode`: answer user questions without executing actions.
 
-JARVIS remains desktop-focused. It is not a general-purpose assistant, and it does not run autonomous background workflows.
+Current shipped/default question-answer path:
+- grounded local answers about capabilities, current runtime state, documented behavior, and repository structure
+- explicit local sources for grounded answers
+
+Planned next expansion:
+- broader GPT-backed answers for open-domain user questions
+- still read-only
+- still visibly separate from `command` mode
+- still required to expose truthful provenance and safety boundaries
+
+JARVIS remains desktop-focused. A broader question-answer surface does not change that positioning, and it does not create autonomous background workflows.
 JARVIS executes only explicit user commands and does not initiate actions independently.
 JARVIS does not persist long-running workflows in MVP.
 
 ## Core Principles
 1. Single active task: JARVIS handles one active command task at a time.
-2. Full visibility: JARVIS shows step-by-step execution as it works and exposes grounded answers clearly.
+2. Full visibility: JARVIS shows step-by-step execution as it works and exposes answers with truthful provenance.
 3. Explicit confirmation for risk: JARVIS asks before sensitive actions.
 4. No hidden actions: JARVIS does not execute invisible or silent operations.
 5. User control at all times: the user can confirm, redirect, or stop actions at any point.
 6. Answering is read-only: question-answer mode must not execute actions.
-7. Grounded answers only: question-answer mode must not guess beyond allowed sources.
+7. Grounded answers stay grounded: local-source answers must not guess beyond allowed sources.
+8. Model answers stay labeled: broader model-knowledge answers must not pretend to come from local docs/runtime sources.
 
 ## Non-Goals (MVP)
 - No autonomous task execution
 - No background agents
 - No multi-step long workflows across many systems
 - No payments, authentication, or sensitive data handling
-- No "assistant for everything" positioning
-- No internet-backed general Q&A
+- No hidden "assistant for everything" behavior that bypasses desktop-product boundaries
+- No internet-backed general Q&A by default
+- No fabricated citations or fake local grounding for model answers
 
 ## Desktop Execution
 ### MVP scope
@@ -61,6 +73,11 @@ Routing rules:
 - explicit questions route to question-answer mode
 - mixed or unclear requests trigger one short clarification
 
+Future-ready rule:
+- broader GPT answering may widen what happens inside question mode
+- it must not change top-level routing precedence
+- it must not let question mode silently capture execution requests
+
 ### Command mode
 JARVIS converts natural language into a structured executable intent and runs only what is clear and in scope.
 
@@ -75,21 +92,25 @@ If confidence is low, JARVIS must not execute and must ask for clarification.
 
 ### Question-answer mode
 Question-answer mode is read-only.
-It may answer only from grounded sources such as:
+Current shipped/default path may answer only from grounded sources such as:
 - repository docs
 - explicit capability metadata
 - current runtime state
 - active session context
 
+Planned broader path may answer open-domain questions through GPT, but only when that rollout is explicitly enabled and only with truthful model-knowledge provenance.
+
 Architecture rule:
 - default v1 product path uses deterministic answer generation
 - an opt-in model-backed answer backend may exist behind the same answer contract
+- a later broader GPT answer path may exist behind the same top-level `question` mode
 - backend choice must not change routing, confirmation, grounding, or execution boundaries
 
 Question-answer mode must not:
 - execute actions
 - imply confirmation
 - hide missing grounding
+- pretend model knowledge came from local docs/runtime state
 - answer mixed action requests without clarification
 
 ## Safety Model
@@ -125,7 +146,9 @@ For each interaction, JARVIS must respond in one of these visible modes:
 - confirmation request
 
 Rules:
-- `answer` is read-only and grounded.
+- `answer` is read-only.
+- grounded local answers must remain source-backed.
+- broader model-backed answers must stay explicitly labeled as model knowledge when that path is enabled.
 - `plan`, `execution update`, and `confirmation request` belong to command mode.
 - `clarification` may be used to resolve either command ambiguity or question/command routing ambiguity.
 - No silent execution is allowed.
@@ -140,7 +163,7 @@ Rules:
 5. If command -> show short execution plan
 6. If command -> execute step-by-step (visible)
 7. If command and sensitive -> confirmation
-8. If question -> build grounded answer
+8. If question -> build the configured read-only answer path
 9. Return result and remain ready for next input
 
 ## Failure Handling
@@ -148,4 +171,9 @@ Rules:
 - Explain what failed.
 - Suggest next action.
 - Do not continue blindly.
-- If a question cannot be answered from allowed grounded sources, fail honestly and do not guess.
+- If a grounded local question cannot be answered from allowed local sources, fail honestly and do not guess.
+- If a broader model-backed question path is unavailable, unsafe, or out of policy, fail honestly instead of fabricating authority.
+
+See also:
+- `docs/question_answer_mode.md`
+- `docs/general_qa_policy.md`

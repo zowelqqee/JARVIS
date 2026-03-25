@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING, Any
 
 from input.adapter import normalize_input
 from qa.answer_backend import AnswerBackendKind
-from qa.answer_config import AnswerBackendConfig, load_answer_backend_config
+from qa.answer_config import AnswerBackendConfig, load_answer_backend_config, open_domain_general_enabled
 from qa.debug_trace import set_debug_payload
 from qa.deterministic_backend import DeterministicAnswerBackend
 from qa.grounding import build_grounding_bundle
@@ -39,6 +39,7 @@ _BACKENDS = {
 def classify_question(
     raw_input: str,
     session_context: SessionContext | None = None,
+    backend_config: AnswerBackendConfig | None = None,
     debug_trace: dict[str, Any] | None = None,
 ) -> QuestionRequest:
     """Classify a normalized question into one supported question family."""
@@ -94,6 +95,17 @@ def classify_question(
         _record_question_classification(question, debug_trace=debug_trace)
         return question
 
+    if open_domain_general_enabled(backend_config):
+        question = QuestionRequest(
+            raw_input=normalized,
+            question_type=QuestionType.OPEN_DOMAIN_GENERAL,
+            scope="open_domain",
+            confidence=0.7,
+            requires_grounding=False,
+        )
+        _record_question_classification(question, debug_trace=debug_trace)
+        return question
+
     set_debug_payload(
         debug_trace,
         "question_classification",
@@ -121,8 +133,13 @@ def answer_question(
     debug_trace: dict[str, Any] | None = None,
 ) -> AnswerResult:
     """Route one question through the configured answer backend."""
-    question = classify_question(raw_input, session_context=session_context, debug_trace=debug_trace)
     resolved_config = _resolve_answer_backend_config(backend_kind=backend_kind, backend_config=backend_config)
+    question = classify_question(
+        raw_input,
+        session_context=session_context,
+        backend_config=resolved_config,
+        debug_trace=debug_trace,
+    )
     grounding_bundle = build_grounding_bundle(
         question,
         session_context=session_context,
@@ -357,6 +374,7 @@ def _record_question_classification(question: QuestionRequest, *, debug_trace: d
         "question_type": getattr(getattr(question, "question_type", None), "value", getattr(question, "question_type", None)),
         "scope": getattr(question, "scope", None),
         "confidence": round(float(getattr(question, "confidence", 0.0) or 0.0), 3),
+        "requires_grounding": bool(getattr(question, "requires_grounding", False)),
         "context_ref_keys": context_ref_keys,
     }
     if isinstance(context_refs, dict):

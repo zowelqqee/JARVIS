@@ -18,6 +18,7 @@ class QuestionType(str, Enum):
     DOCS_RULES = "docs_rules"
     REPO_STRUCTURE = "repo_structure"
     SAFETY_EXPLANATIONS = "safety_explanations"
+    OPEN_DOMAIN_GENERAL = "open_domain_general"
 
 
 @dataclass(slots=True)

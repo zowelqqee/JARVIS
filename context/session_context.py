@@ -37,6 +37,8 @@ class SessionContext:
     recent_answer_topic: str | None = None
     recent_answer_scope: str | None = None
     recent_answer_sources: list[str] = field(default_factory=list)
+    pending_interaction_question_input: str | None = None
+    pending_interaction_command_input: str | None = None
 
     def set_active_command(self, command: Command | None) -> None:
         """Store the active command for the current supervised interaction."""
@@ -269,6 +271,35 @@ class SessionContext:
         self.recent_answer_scope = None
         self.recent_answer_sources = []
 
+    def set_pending_interaction_clarification(
+        self,
+        *,
+        question_input: str | None,
+        command_input: str | None,
+    ) -> None:
+        """Store one pending mixed interaction clarification for the current session."""
+        normalized_question = str(question_input or "").strip()
+        normalized_command = str(command_input or "").strip()
+        if not normalized_question and not normalized_command:
+            self.clear_pending_interaction_clarification()
+            return
+        self.pending_interaction_question_input = normalized_question or None
+        self.pending_interaction_command_input = normalized_command or None
+
+    def get_pending_interaction_clarification(self) -> dict[str, str] | None:
+        """Return the latest unresolved mixed interaction clarification, if any."""
+        if not self.pending_interaction_question_input and not self.pending_interaction_command_input:
+            return None
+        return {
+            "question_input": str(self.pending_interaction_question_input or ""),
+            "command_input": str(self.pending_interaction_command_input or ""),
+        }
+
+    def clear_pending_interaction_clarification(self) -> None:
+        """Clear the short-lived mixed interaction clarification state."""
+        self.pending_interaction_question_input = None
+        self.pending_interaction_command_input = None
+
     def clear_expired_or_resettable_context(self, preserve_recent_context: bool = True) -> None:
         """Clear active execution state while optionally preserving recent follow-up context."""
         self.active_command = None
@@ -277,6 +308,7 @@ class SessionContext:
         self.runtime_state = None
         self.recent_clarification_answer = None
         self.recent_confirmation_state = None
+        self.clear_pending_interaction_clarification()
         if not preserve_recent_context:
             self.last_resolved_targets = []
             self.recent_folder_context = None

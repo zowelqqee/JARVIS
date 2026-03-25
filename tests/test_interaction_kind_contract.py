@@ -12,7 +12,7 @@ _TYPES_PATH = Path(__file__).resolve().parents[1] / "types"
 if str(_TYPES_PATH) not in sys.path:
     sys.path.insert(0, str(_TYPES_PATH))
 
-from answer_result import AnswerResult
+from answer_result import AnswerKind, AnswerProvenance, AnswerResult
 from interaction_kind import InteractionKind
 from interaction_result import InteractionMode
 
@@ -32,6 +32,8 @@ class InteractionKindContractTests(unittest.TestCase):
 
         self.assertIsInstance(result.interaction_mode, InteractionKind)
         self.assertEqual(str(result.interaction_mode), "question")
+        self.assertEqual(result.answer_kind, AnswerKind.GROUNDED_LOCAL)
+        self.assertEqual(result.provenance, AnswerProvenance.LOCAL_SOURCES)
 
 
 if __name__ == "__main__":

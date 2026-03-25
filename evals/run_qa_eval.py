@@ -469,10 +469,14 @@ def _run_interaction_case(case: QaEvalCase, *, default_profile: str) -> QaEvalCa
     if case.should_call_answer_engine is not None:
         checks["answer_engine_called"] = bool(answer_calls) is case.should_call_answer_engine
     if case.expected_question_type is not None:
+        classified_input = case.raw_input or ""
+        if answer_calls:
+            classified_input = str(answer_calls[0].get("args", [""])[0] or "")
         try:
-            actual_question_type = _enum_value(classify_question(case.raw_input or "", session_context=session_context).question_type)
+            actual_question_type = _enum_value(classify_question(classified_input, session_context=session_context).question_type)
         except Exception:
             actual_question_type = None
+        details["actual_question_input"] = classified_input or None
         details["actual_question_type"] = actual_question_type
         checks["question_type"] = actual_question_type == case.expected_question_type
     if case.expected_command_intent is not None:
@@ -597,6 +601,13 @@ def _build_session_context(payload: dict[str, Any]) -> SessionContext:
             topic=recent_answer_topic or None,
             scope=recent_answer_scope or None,
             sources=recent_answer_sources,
+        )
+    pending_interaction_question_input = str(payload.get("pending_interaction_question_input", "") or "").strip()
+    pending_interaction_command_input = str(payload.get("pending_interaction_command_input", "") or "").strip()
+    if pending_interaction_question_input or pending_interaction_command_input:
+        session_context.set_pending_interaction_clarification(
+            question_input=pending_interaction_question_input or None,
+            command_input=pending_interaction_command_input or None,
         )
     return session_context
 

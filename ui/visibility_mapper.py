@@ -19,6 +19,12 @@ if str(_TYPES_PATH) not in sys.path:
     sys.path.insert(0, str(_TYPES_PATH))
 
 from interaction_kind import InteractionKind, interaction_kind_value  # type: ignore  # noqa: E402
+from answer_result import (  # type: ignore  # noqa: E402
+    AnswerKind,
+    AnswerProvenance,
+    answer_kind_value,
+    answer_provenance_value,
+)
 
 _REPO_ROOT = Path(__file__).resolve().parents[1]
 
@@ -60,6 +66,8 @@ class InteractionVisibilityPayload(TypedDict, total=False):
     can_cancel: bool
     answer_text: str | None
     answer_summary: str | None
+    answer_kind: str | None
+    answer_provenance: str | None
     answer_sources: list[str]
     answer_source_labels: list[str]
     answer_source_attributions: list[dict[str, str]]
@@ -195,11 +203,23 @@ def map_interaction_visibility(
         source_attributions = _answer_source_attributions(answer_result)
         warning = str(getattr(answer_result, "warning", "") or "").strip() or None
         answer_text = str(getattr(answer_result, "answer_text", "") or "").strip() or None
+        answer_kind = (
+            answer_kind_value(getattr(answer_result, "answer_kind", AnswerKind.GROUNDED_LOCAL))
+            if answer_result is not None
+            else None
+        )
+        answer_provenance = (
+            answer_provenance_value(getattr(answer_result, "provenance", AnswerProvenance.LOCAL_SOURCES))
+            if answer_result is not None
+            else None
+        )
         payload = {
             "interaction_mode": InteractionKind.QUESTION.value,
             "can_cancel": False,
             "answer_text": answer_text,
             "answer_summary": _answer_summary(answer_text),
+            "answer_kind": answer_kind,
+            "answer_provenance": answer_provenance,
             "answer_sources": answer_sources,
             "answer_source_labels": _answer_source_labels(answer_sources),
             "answer_source_attributions": source_attributions,
@@ -946,6 +966,8 @@ def _prune_interaction_optional_none_fields(payload: InteractionVisibilityPayloa
         payload.pop("answer_sources", None)
     if not payload.get("answer_source_labels"):
         payload.pop("answer_source_labels", None)
+    if not payload.get("answer_source_attributions"):
+        payload.pop("answer_source_attributions", None)
     return payload
 
 

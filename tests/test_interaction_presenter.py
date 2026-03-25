@@ -26,6 +26,8 @@ class InteractionPresenterTests(unittest.TestCase):
                 "interaction_mode": "question",
                 "answer_text": "I can open apps and answer grounded questions.",
                 "answer_summary": "I can open apps and answer grounded questions.",
+                "answer_kind": "grounded_local",
+                "answer_provenance": "local_sources",
                 "answer_sources": ["/tmp/docs/product_rules.md", "/tmp/docs/question_answer_mode.md"],
                 "answer_source_labels": ["Product Rules", "Question Answer Mode"],
                 "answer_source_attributions": [
@@ -52,6 +54,37 @@ class InteractionPresenterTests(unittest.TestCase):
         self.assertEqual(
             interaction_speech_message(result),
             "I can open apps and answer grounded questions. Warning: Answer is limited to grounded local sources.",
+        )
+
+    def test_question_output_shows_taxonomy_when_answer_has_no_local_sources(self) -> None:
+        result = SimpleNamespace(
+            interaction_mode=InteractionKind.QUESTION,
+            visibility={
+                "interaction_mode": "question",
+                "answer_text": "Blue light scatters more strongly in the atmosphere than red light.",
+                "answer_summary": "Blue light scatters more strongly in the atmosphere than red light.",
+                "answer_kind": "open_domain_model",
+                "answer_provenance": "model_knowledge",
+                "answer_sources": [],
+                "answer_source_labels": [],
+                "answer_source_attributions": [],
+                "answer_warning": "This answer is based on model knowledge, not local sources.",
+            },
+        )
+
+        self.assertEqual(
+            interaction_output_lines(result),
+            [
+                "mode: question",
+                "summary: Blue light scatters more strongly in the atmosphere than red light.",
+                "answer-kind: open_domain_model",
+                "provenance: model_knowledge",
+                "warning: This answer is based on model knowledge, not local sources.",
+            ],
+        )
+        self.assertEqual(
+            interaction_speech_message(result),
+            "Blue light scatters more strongly in the atmosphere than red light. Warning: This answer is based on model knowledge, not local sources.",
         )
 
     def test_question_failure_falls_back_to_structured_error(self) -> None:
@@ -86,7 +119,7 @@ class InteractionPresenterTests(unittest.TestCase):
             interaction_mode=InteractionKind.CLARIFICATION,
             visibility={
                 "interaction_mode": "clarification",
-                "clarification_question": "Do you want an answer first or should I execute the command?",
+                "clarification_question": "Do you want an answer first or should I open Safari?",
             },
         )
 
@@ -94,12 +127,12 @@ class InteractionPresenterTests(unittest.TestCase):
             interaction_output_lines(result),
             [
                 "mode: clarification",
-                "clarify: Do you want an answer first or should I execute the command?",
+                "clarify: Do you want an answer first or should I open Safari?",
             ],
         )
         self.assertEqual(
             interaction_speech_message(result),
-            "Do you want an answer first or should I execute the command?",
+            "Do you want an answer first or should I open Safari?",
         )
 
     def test_command_output_uses_wrapped_interaction_visibility(self) -> None:

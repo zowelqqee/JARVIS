@@ -6,7 +6,12 @@ import sys
 import unittest
 from pathlib import Path
 
-from interaction.interaction_router import RoutedInteraction, route_interaction
+from interaction.interaction_router import (
+    RoutedInteraction,
+    resolve_interaction_clarification_choice,
+    route_interaction,
+    split_mixed_interaction_input,
+)
 
 _TYPES_PATH = Path(__file__).resolve().parents[1] / "types"
 if str(_TYPES_PATH) not in sys.path:
@@ -40,7 +45,25 @@ class InteractionRouterTests(unittest.TestCase):
         decision = route_interaction("What can you do and open Safari")
 
         self.assertEqual(decision.kind, InteractionKind.CLARIFICATION)
-        self.assertIn("answer", decision.clarification_message or "")
+        self.assertEqual(
+            decision.clarification_message,
+            "Do you want an answer first or should I open Safari?",
+        )
+        self.assertEqual(decision.question_input, "What can you do")
+        self.assertEqual(decision.command_input, "open Safari")
+
+    def test_split_mixed_interaction_input_extracts_question_and_command(self) -> None:
+        question_input, command_input = split_mixed_interaction_input("Why are you blocked and open Safari.")
+
+        self.assertEqual(question_input, "Why are you blocked")
+        self.assertEqual(command_input, "open Safari")
+
+    def test_clarification_choice_resolves_answer_and_execute_replies(self) -> None:
+        self.assertEqual(resolve_interaction_clarification_choice("answer"), "answer")
+        self.assertEqual(resolve_interaction_clarification_choice("Answer first"), "answer")
+        self.assertEqual(resolve_interaction_clarification_choice("execute the command"), "execute")
+        self.assertEqual(resolve_interaction_clarification_choice("please run the command"), "execute")
+        self.assertIsNone(resolve_interaction_clarification_choice("yes"))
 
     def test_blocked_state_question_routes_to_question_path(self) -> None:
         decision = route_interaction("What exactly do you need me to confirm?", runtime_state="awaiting_confirmation")

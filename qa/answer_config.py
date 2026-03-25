@@ -29,6 +29,7 @@ _ENV_LLM_MAX_OUTPUT_TOKENS = "JARVIS_QA_LLM_MAX_OUTPUT_TOKENS"
 _ENV_LLM_STRICT_MODE = "JARVIS_QA_LLM_STRICT_MODE"
 _ENV_LLM_MAX_RETRIES = "JARVIS_QA_LLM_MAX_RETRIES"
 _ENV_LLM_REASONING_EFFORT = "JARVIS_QA_LLM_REASONING_EFFORT"
+_ENV_LLM_OPEN_DOMAIN_ENABLED = "JARVIS_QA_LLM_OPEN_DOMAIN_ENABLED"
 _DEFAULT_OPENAI_MODEL = "gpt-5-nano"
 _DEFAULT_TIMEOUT_SECONDS = 30.0
 _DEFAULT_MAX_OUTPUT_TOKENS = 800
@@ -51,6 +52,7 @@ class LlmBackendConfig:
     strict_mode: bool = True
     max_retries: int = _DEFAULT_MAX_RETRIES
     fallback_enabled: bool = True
+    open_domain_enabled: bool = False
 
 
 @dataclass(slots=True, frozen=True)
@@ -100,6 +102,11 @@ class AnswerBackendConfig:
             env_name=_ENV_LLM_FALLBACK_ENABLED,
             default=True,
         )
+        llm_open_domain_enabled = _parse_bool(
+            env.get(_ENV_LLM_OPEN_DOMAIN_ENABLED),
+            env_name=_ENV_LLM_OPEN_DOMAIN_ENABLED,
+            default=False,
+        )
         return cls(
             backend_kind=backend_kind,
             llm=LlmBackendConfig(
@@ -114,6 +121,7 @@ class AnswerBackendConfig:
                 strict_mode=llm_strict_mode,
                 max_retries=llm_max_retries,
                 fallback_enabled=llm_fallback_enabled,
+                open_domain_enabled=llm_open_domain_enabled,
             ),
         )
 
@@ -128,6 +136,17 @@ class AnswerBackendConfig:
 def load_answer_backend_config(environ: Mapping[str, str] | None = None) -> AnswerBackendConfig:
     """Convenience wrapper used by callers that load config lazily."""
     return AnswerBackendConfig.from_env(environ=environ)
+
+
+def open_domain_general_enabled(config: AnswerBackendConfig | None) -> bool:
+    """Return whether the broader GPT-backed open-domain path is enabled."""
+    if config is None:
+        return False
+    backend_kind = getattr(getattr(config, "backend_kind", None), "value", getattr(config, "backend_kind", None))
+    if str(backend_kind or "").strip() != AnswerBackendKind.LLM.value:
+        return False
+    llm_config = getattr(config, "llm", None)
+    return bool(getattr(llm_config, "enabled", False)) and bool(getattr(llm_config, "open_domain_enabled", False))
 
 
 def _parse_backend_kind(raw_value: str) -> AnswerBackendKind:

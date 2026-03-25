@@ -1,7 +1,20 @@
-# JARVIS Question-Answer Mode (MVP)
+# JARVIS Question-Answer Mode
 
 ## Purpose
-Define the read-only question-answer mode that lets JARVIS answer grounded user questions without executing desktop actions.
+Define the read-only question-answer mode that lets JARVIS answer user questions without executing desktop actions.
+
+Current shipped/default state:
+- grounded local answers only
+- explicit local sources for docs/runtime/session/repo questions
+- no open-domain GPT answering as the default product path yet
+
+Planned expansion direction:
+- broader GPT-backed answers under the same top-level `question` mode
+- still read-only
+- still separate from `command`
+- still subject to explicit provenance and safety boundaries
+
+General-QA product policy lives in `docs/general_qa_policy.md`.
 
 Question-answer mode is an interaction mode parallel to command mode.
 It must not weaken the existing command safety model.
@@ -9,7 +22,9 @@ It must not weaken the existing command safety model.
 ## Mode Definition
 JARVIS operates in two top-level interaction modes:
 - `command`: parse, validate, plan, and execute a supervised desktop action.
-- `question`: answer a grounded question about capabilities, current runtime state, documented behavior, or repository structure.
+- `question`: answer either:
+  - a grounded local question about capabilities, current runtime state, documented behavior, or repository structure
+  - or, in a later staged rollout, a broader GPT-backed question that remains read-only and provenance-labeled
 
 Strict rule:
 - `Command` remains an execution-only contract.
@@ -18,27 +33,35 @@ Strict rule:
 - Answering a question must not trigger desktop execution.
 
 ## Goals
-Question-answer mode exists to answer:
+Current shipped goals:
 - what JARVIS can do
 - what JARVIS is doing now
 - how JARVIS works
 - where key runtime pieces live in the repo
 - why a command is blocked or requires confirmation
 
+Planned expansion goals:
+- answer broader user questions through GPT without crossing into execution
+- keep grounded local answers and model-knowledge answers visibly distinct
+- preserve routing and command safety invariants while broadening question coverage
+
 ## Non-Goals
 Question-answer mode is not:
-- a general-purpose knowledge assistant
-- an internet-backed search system
-- a hidden planning mode
+- a hidden execution or planning mode
 - an approval bypass for blocked commands
 - a way to execute actions indirectly through phrasing
+- an internet-backed search system by default
+- a source of fake local citations for model-knowledge answers
+- a persistent memory system or hidden personalization layer
+
+Current shipped v1 still does not support open-domain general knowledge answers by default.
 
 ## Routing Rules
 Interaction routing must apply this order:
 1. blocked confirmation reply forms for an active blocked command
 2. blocked clarification reply forms for an active blocked command
 3. explicit command requests
-4. explicit grounded question requests
+4. explicit question requests
 5. mixed or unclear command/question requests -> clarification
 
 Routing rules:
@@ -47,6 +70,7 @@ Routing rules:
 - A polite command is still a command if the requested outcome is execution.
 - A question about how to do something is a question if no execution is requested.
 - A mixed request must not answer and execute in one silent pass.
+- A later general-QA expansion may widen what happens inside question mode, but it must not change top-level routing precedence.
 
 Examples:
 - "Open Safari." -> `command`
@@ -81,8 +105,19 @@ Unsupported in v1:
 - arbitrary codebase Q&A outside documented/runtime-grounded scope
 - autonomous answer-then-execute behavior
 
+## Planned General QA Expansion
+A later expansion may let JARVIS answer broader open-domain questions through GPT under the same `question` mode.
+
+That expansion must keep these invariants:
+- command routing precedence stays unchanged
+- mixed question + action stays clarification-first
+- grounded local answers stay grounded and source-backed
+- broader model-backed answers stay explicitly labeled as model-knowledge answers
+- no broader answer path may create hidden execution, hidden browsing, or fake local grounding
+
 ## Grounding Sources
-Question-answer mode may use only explicit grounded sources.
+Grounding rules below apply to the grounded local answer path.
+Broader model-backed answers must not fabricate local `sources` or local support claims.
 
 Allowed sources:
 - repository documentation under `docs/`
@@ -112,6 +147,7 @@ Recommended shape:
 - opt-in model-backed backend: `llm` behind the same answer-engine seam, not the default product path
 - backend config should stay externalized so backend kind, provider, and model can be changed without touching routing code
 - grounding should be assembled into an explicit source bundle before any backend generates answer text
+- a later general-QA expansion may add an open-domain model-answer path behind the same `Answer Engine` seam, but it must remain visibly distinct from grounded local answering
 
 Hard rules:
 - routing into `question` vs `command` must happen before backend selection
@@ -162,6 +198,10 @@ Field intent:
 - `confidence`: routing/classification confidence.
 - `requires_grounding`: whether answer must cite source-backed support before being returned.
 
+Note:
+- the current shape reflects grounded-local question handling
+- a later phase may add explicit question classes for broader open-domain GPT answers without changing the top-level `question` mode
+
 ## Answer Contract
 Suggested internal answer shape:
 
@@ -169,6 +209,8 @@ Suggested internal answer shape:
 AnswerResult {
   interaction_mode: "question",
   answer_text: string,
+  answer_kind: "grounded_local" | "open_domain_model" | "refusal",
+  provenance?: "local_sources" | "model_knowledge",
   sources: string[],
   source_attributions?: { source: string, support: string }[],
   confidence: float (0-1),
@@ -178,7 +220,9 @@ AnswerResult {
 
 Rules:
 - `answer_text` must be concise and direct.
-- `sources` should name the source files or structured runtime source used.
+- `answer_kind` distinguishes grounded local answers from broader model-backed answers and refusal-style answer outputs.
+- `provenance` must truthfully describe whether the answer came from local sources or model knowledge.
+- `sources` should name the source files or structured runtime source used for grounded local answers.
 - `source_attributions` should explain which source supports which part of the answer when that detail is available.
 - model-backed answers must pass shared groundedness verification against the allowed source bundle before they can be returned.
 - model-backed `source_attributions` must be claim-bearing and specific; generic placeholders or bare file paths are not sufficient support text.
@@ -186,11 +230,12 @@ Rules:
 - No answer may imply that an action has already run unless command runtime visibility proves it.
 
 ## Answer Rules
-- Answer only from grounded sources.
-- Prefer the smallest source set that fully supports the answer.
+- Grounded local answers must answer only from grounded sources.
+- Grounded local answers should prefer the smallest source set that fully supports the answer.
 - Cite sources when answering from docs or repo structure.
 - If runtime state is the source, say so directly.
 - If grounding is insufficient, return a bounded failure instead of guessing.
+- A future broader model-backed answer path must stay read-only, must not fabricate local citations, and must be clearly marked as model knowledge rather than local grounding.
 - If the request is really an action, route to command mode instead of answering.
 - If the request mixes action and question, ask one short clarification.
 
@@ -208,13 +253,20 @@ Failure behavior:
 - suggest the narrowest next user action when useful
 - if a safe answer follow-up has no recent grounded answer context, fail with bounded insufficient-context output
 
+Current shipped behavior:
+- questions outside grounded local scope still fail honestly
+- broader GPT answering is not the default shipped path yet
+
 ## Visibility Rules
 Question-answer mode should expose:
 - `interaction_mode = question`
 - `answer_summary` for concise CLI/speech rendering
 - `answer_text`
+- `answer_kind`
+- `answer_provenance`
 - human-readable source labels plus raw `sources` when grounded from docs or structured runtime data
 - `warning` when answer is partial or bounded
+- broader model-backed answers should expose truthful provenance instead of fake local source fields
 
 Question-answer mode must not expose:
 - fake execution progress
@@ -244,3 +296,9 @@ User: "How does clarification work?"
 User: "What can you do and open Safari"
 - Route: clarification
 - Output: one short question asking whether to answer or execute
+
+### Planned Future General Question
+User: "Why is the sky blue?"
+- Route: `question`
+- Source: planned broader GPT-backed question path, not local docs/runtime grounding
+- Output: concise read-only answer with truthful provenance labeling once that expansion ships

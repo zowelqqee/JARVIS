@@ -24,6 +24,7 @@ if str(_TYPES_PATH) not in sys.path:
     sys.path.insert(0, str(_TYPES_PATH))
 
 from jarvis_error import ErrorCategory, ErrorCode, JarvisError  # type: ignore  # noqa: E402
+from question_request import QuestionType  # type: ignore  # noqa: E402
 
 
 _PROVIDERS: dict[LlmProviderKind, LlmProvider] = {
@@ -62,6 +63,7 @@ class LlmAnswerBackend:
             {
                 "provider": resolved_config.llm.provider.value,
                 "model": resolved_config.llm.model,
+                "question_type": getattr(getattr(question, "question_type", None), "value", getattr(question, "question_type", None)),
                 "deterministic_fallback": False,
             },
         )
@@ -135,7 +137,7 @@ class LlmAnswerBackend:
         config: AnswerBackendConfig,
         debug_trace: dict[str, Any] | None = None,
     ) -> AnswerResult:
-        if not config.llm.fallback_enabled:
+        if not config.llm.fallback_enabled or not _supports_deterministic_fallback(question):
             raise error
         update_debug_payload(
             debug_trace,
@@ -168,3 +170,8 @@ class LlmAnswerBackend:
         if code_value:
             return f"LLM backend fallback: {code_value}"
         return "LLM backend fallback: provider answer was unavailable."
+
+
+def _supports_deterministic_fallback(question: QuestionRequest) -> bool:
+    question_type = getattr(question, "question_type", None)
+    return question_type != QuestionType.OPEN_DOMAIN_GENERAL

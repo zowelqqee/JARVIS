@@ -184,7 +184,37 @@
     "expected_interaction_kind": "clarification",
     "should_call_runtime": false,
     "should_call_answer_engine": false,
-    "expected_clarification_contains": "answer first"
+    "expected_clarification_contains": "open Safari"
+  },
+  {
+    "id": "route_mixed_interaction_answer_reply",
+    "case_type": "interaction",
+    "category": "mixed_input_routing",
+    "raw_input": "answer",
+    "session_context": {
+      "pending_interaction_question_input": "What can you do",
+      "pending_interaction_command_input": "open Safari"
+    },
+    "expected_interaction_kind": "question",
+    "expected_question_type": "capabilities",
+    "should_call_runtime": false,
+    "should_call_answer_engine": true,
+    "expected_sources_count_min": 4,
+    "expected_answer_contains": "open_app"
+  },
+  {
+    "id": "route_mixed_interaction_execute_reply",
+    "case_type": "interaction",
+    "category": "mixed_input_routing",
+    "raw_input": "execute the command",
+    "session_context": {
+      "pending_interaction_question_input": "What can you do",
+      "pending_interaction_command_input": "open Safari"
+    },
+    "expected_interaction_kind": "command",
+    "expected_command_intent": "open_app",
+    "should_call_runtime": true,
+    "should_call_answer_engine": false
   },
   {
     "id": "route_blocked_confirmation_priority",

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 import sys
 from dataclasses import dataclass
 from pathlib import Path
@@ -29,6 +30,8 @@ class InteractionDecision:
     confidence: float
     reason: str | None = None
     clarification_message: str | None = None
+    question_input: str | None = None
+    command_input: str | None = None
 
 
 _COMMAND_STARTERS = (
@@ -51,6 +54,23 @@ _COMMAND_STARTERS = (
     "cancel",
     "yes",
     "no",
+)
+_EXECUTION_COMMAND_STARTERS = (
+    "open ",
+    "launch ",
+    "start ",
+    "reopen ",
+    "run ",
+    "close ",
+    "list ",
+    "show ",
+    "find ",
+    "search ",
+    "prepare ",
+    "set up ",
+    "focus ",
+    "switch ",
+    "use ",
 )
 _POLITE_COMMAND_PREFIXES = (
     "can you open ",
@@ -104,6 +124,20 @@ _BLOCKED_STATE_QUESTION_MARKERS = (
     "what exactly do you need me to confirm",
     "what do you need me to confirm",
 )
+_CHOICE_FILLER_PREFIXES = ("please ", "just ", "then ", "okay ", "ok ")
+_ANSWER_CHOICE_PATTERNS = (
+    re.compile(r"^(?:the\s+)?answer(?:\s+first)?$"),
+    re.compile(r"^question(?:\s+first)?$"),
+    re.compile(r"^explain(?:\s+first)?$"),
+)
+_EXECUTE_CHOICE_PATTERNS = (
+    re.compile(r"^(?:the\s+)?command$"),
+    re.compile(r"^(?:execute|run|do)(?:\s+(?:the\s+)?command)?(?:\s+first)?$"),
+)
+_EMBEDDED_COMMAND_PATTERN = re.compile(
+    r"\b(?:and|then)\s+(?P<command>(?:open|launch|start|reopen|run|close|list|show|find|search|prepare|focus|switch|use)\b.*)$",
+    flags=re.IGNORECASE,
+)
 
 
 def route_interaction(
@@ -138,21 +172,27 @@ def route_interaction(
     looks_like_question = _looks_like_question(normalized)
 
     if looks_like_question and _contains_embedded_command_request(normalized):
+        question_input, command_input = split_mixed_interaction_input(normalized)
         return InteractionDecision(
             kind=InteractionKind.CLARIFICATION,
             normalized_input=normalized,
             confidence=0.8,
             reason="mixed_interaction",
-            clarification_message="Do you want an answer first or should I execute the command?",
+            clarification_message=_mixed_interaction_message(command_input),
+            question_input=question_input,
+            command_input=command_input,
         )
 
     if looks_like_command and looks_like_question:
+        question_input, command_input = split_mixed_interaction_input(normalized)
         return InteractionDecision(
             kind=InteractionKind.CLARIFICATION,
             normalized_input=normalized,
             confidence=0.78,
             reason="mixed_interaction",
-            clarification_message="Do you want an answer first or should I execute the command?",
+            clarification_message=_mixed_interaction_message(command_input),
+            question_input=question_input,
+            command_input=command_input,
         )
 
     if looks_like_command:
@@ -170,9 +210,74 @@ def _normalize_for_routing(raw_input: str) -> str:
     return " ".join(raw_input.strip().split())
 
 
+def split_mixed_interaction_input(raw_input: str) -> tuple[str | None, str | None]:
+    """Split one mixed question+command input into explicit question and command parts."""
+    normalized = _normalize_for_routing(raw_input)
+    if not normalized:
+        return None, None
+    match = _EMBEDDED_COMMAND_PATTERN.search(normalized)
+    if match is None:
+        return None, None
+
+    question_input = normalized[: match.start()].strip(" \t\r\n,.!?;:")
+    command_input = str(match.group("command") or "").strip(" \t\r\n,.!?;:")
+    if not question_input or not command_input:
+        return None, None
+    return question_input, command_input
+
+
+def resolve_interaction_clarification_choice(raw_input: str) -> str | None:
+    """Resolve a short answer/execute reply for a pending mixed interaction clarification."""
+    normalized = _normalize_for_routing(raw_input)
+    if not normalized:
+        return None
+
+    lowered = normalized.lower().strip(" \t\r\n,.!?;:")
+    while True:
+        updated = lowered
+        for prefix in _CHOICE_FILLER_PREFIXES:
+            if updated.startswith(prefix):
+                updated = updated[len(prefix) :].strip()
+                break
+        if updated == lowered:
+            break
+        lowered = updated
+
+    if any(pattern.fullmatch(lowered) for pattern in _ANSWER_CHOICE_PATTERNS):
+        return "answer"
+    if any(pattern.fullmatch(lowered) for pattern in _EXECUTE_CHOICE_PATTERNS):
+        return "execute"
+    return None
+
+
+def looks_like_fresh_interaction_input(raw_input: str) -> bool:
+    """Return whether the input is a fresh explicit command/question rather than a short routing reply."""
+    normalized = _normalize_for_routing(raw_input)
+    if not normalized:
+        return False
+    return (
+        _looks_like_question(normalized)
+        or _looks_like_polite_command(normalized)
+        or _looks_like_execution_command(normalized)
+        or (_looks_like_question(normalized) and _contains_embedded_command_request(normalized))
+    )
+
+
+def _mixed_interaction_message(command_input: str | None) -> str:
+    normalized_command = _normalize_for_routing(command_input or "").strip(" \t\r\n,.!?;:")
+    if not normalized_command:
+        return "Do you want an answer first or should I execute the command?"
+    return f"Do you want an answer first or should I {normalized_command}?"
+
+
 def _looks_like_command(text: str) -> bool:
     lowered = text.lower()
     return lowered.startswith(_COMMAND_STARTERS)
+
+
+def _looks_like_execution_command(text: str) -> bool:
+    lowered = text.lower()
+    return lowered.startswith(_EXECUTION_COMMAND_STARTERS)
 
 
 def _looks_like_polite_command(text: str) -> bool:

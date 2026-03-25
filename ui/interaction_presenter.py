@@ -90,6 +90,15 @@ def _question_output_lines(*, result: object, visibility: dict[str, Any]) -> lis
     if not sources:
         answer_result = getattr(result, "answer_result", None)
         sources = list(getattr(answer_result, "sources", []) or [])
+
+    answer_kind = str(visibility.get("answer_kind", "") or "").strip()
+    answer_provenance = str(visibility.get("answer_provenance", "") or "").strip()
+    should_show_taxonomy = bool(answer_kind or answer_provenance) and (answer_kind != "grounded_local" or not sources)
+    if should_show_taxonomy and answer_kind:
+        lines.append(f"answer-kind: {answer_kind}")
+    if should_show_taxonomy and answer_provenance:
+        lines.append(f"provenance: {answer_provenance}")
+
     source_labels = list(visibility.get("answer_source_labels", []) or [])
     if not source_labels and sources:
         source_labels = [_source_label(source) for source in sources]

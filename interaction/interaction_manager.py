@@ -8,7 +8,12 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from input.adapter import InputNormalizationError
-from interaction.interaction_router import route_interaction
+from interaction.interaction_router import (
+    InteractionDecision,
+    looks_like_fresh_interaction_input,
+    resolve_interaction_clarification_choice,
+    route_interaction,
+)
 from qa.answer_backend import AnswerBackendKind
 from qa.answer_config import AnswerBackendConfig, load_answer_backend_config
 from qa.debug_trace import qa_debug_enabled, set_debug_payload
@@ -41,11 +46,31 @@ class InteractionManager:
     def handle_input(self, raw_input: str, session_context: SessionContext | None = None) -> InteractionResult:
         """Handle one user input through the dual-mode routing layer."""
         debug_trace: dict[str, Any] | None = {} if qa_debug_enabled() else None
-        decision = route_interaction(
+        decision, cleared_pending = _resolve_pending_interaction_decision(
             raw_input,
             session_context=session_context,
-            runtime_state=self.runtime_manager.current_state,
         )
+        if cleared_pending and session_context is not None:
+            session_context.clear_pending_interaction_clarification()
+        if decision is not None or cleared_pending:
+            set_debug_payload(
+                debug_trace,
+                "pending_interaction_resolution",
+                {
+                    "had_pending": True,
+                    "cleared_pending": cleared_pending,
+                    "interaction_kind": getattr(getattr(decision, "kind", None), "value", getattr(decision, "kind", None)),
+                    "reason": getattr(decision, "reason", None),
+                },
+            )
+
+        if decision is None:
+            decision = route_interaction(
+                raw_input,
+                session_context=session_context,
+                runtime_state=self.runtime_manager.current_state,
+            )
+
         set_debug_payload(
             debug_trace,
             "routing_decision",
@@ -58,83 +83,22 @@ class InteractionManager:
         )
 
         if decision.kind == InteractionKind.CLARIFICATION:
-            clarification_request = ClarificationRequest(
-                message=decision.clarification_message or "Do you want an answer or command execution?",
-                code=ErrorCode.CLARIFICATION_REQUIRED.value,
-                options=["answer", "execute"],
-            )
-            return InteractionResult(
-                interaction_mode=InteractionKind.CLARIFICATION,
-                normalized_input=decision.normalized_input,
-                clarification_request=clarification_request,
-                visibility=map_interaction_visibility(
-                    interaction_mode=InteractionKind.CLARIFICATION,
-                    clarification_request=clarification_request,
-                ),
-                metadata=_metadata_with_debug({"reason": decision.reason}, debug_trace),
-            )
+            _remember_pending_interaction_clarification(session_context, decision)
+            return _build_clarification_result(decision, debug_trace)
 
         if decision.kind == InteractionKind.COMMAND:
-            runtime_result = self.runtime_manager.handle_input(decision.normalized_input or raw_input, session_context=session_context)
-            return InteractionResult(
-                interaction_mode=InteractionKind.COMMAND,
-                normalized_input=decision.normalized_input,
-                runtime_result=runtime_result,
-                visibility=map_interaction_visibility(
-                    interaction_mode=InteractionKind.COMMAND,
-                    runtime_result=runtime_result,
-                ),
-                metadata=_metadata_with_debug({"reason": decision.reason}, debug_trace),
-            )
-
-        try:
-            answer_backend_config = self._effective_answer_backend_config()
-            answer_result = answer_question(
-                decision.normalized_input,
-                session_context=session_context,
-                runtime_snapshot=self._runtime_snapshot(),
-                backend_config=answer_backend_config,
+            return self._command_result(
+                decision.normalized_input or raw_input,
+                reason=decision.reason,
                 debug_trace=debug_trace,
-            )
-        except InputNormalizationError as exc:
-            input_error = self._input_error(exc)
-            return InteractionResult(
-                interaction_mode=InteractionKind.QUESTION,
-                normalized_input=decision.normalized_input,
-                error=input_error,
-                visibility=map_interaction_visibility(
-                    interaction_mode=InteractionKind.QUESTION,
-                    error=input_error,
-                ),
-                metadata=_metadata_with_debug(None, debug_trace),
-            )
-        except JarvisError as error:
-            return InteractionResult(
-                interaction_mode=InteractionKind.QUESTION,
-                normalized_input=decision.normalized_input,
-                error=error,
-                visibility=map_interaction_visibility(
-                    interaction_mode=InteractionKind.QUESTION,
-                    error=error,
-                ),
-                metadata=_metadata_with_debug(None, debug_trace),
+                session_context=session_context,
             )
 
-        _remember_answer_context(
-            session_context,
-            raw_input=decision.normalized_input or raw_input,
-            answer_result=answer_result,
-        )
-
-        return InteractionResult(
-            interaction_mode=InteractionKind.QUESTION,
-            normalized_input=decision.normalized_input,
-            answer_result=answer_result,
-            visibility=map_interaction_visibility(
-                interaction_mode=InteractionKind.QUESTION,
-                answer_result=answer_result,
-            ),
-            metadata=_metadata_with_debug({"answer_backend": answer_backend_config.backend_kind.value}, debug_trace),
+        return self._question_result(
+            decision.normalized_input or raw_input,
+            reason=decision.reason,
+            debug_trace=debug_trace,
+            session_context=session_context,
         )
 
     def _runtime_snapshot(self) -> dict[str, Any]:
@@ -180,6 +144,179 @@ class InteractionManager:
 
     def _effective_answer_backend_config(self) -> AnswerBackendConfig:
         return self.answer_backend_config.with_backend_kind(self.answer_backend_kind)
+
+    def _command_result(
+        self,
+        raw_input: str,
+        *,
+        reason: str | None,
+        debug_trace: dict[str, Any] | None,
+        session_context: SessionContext | None,
+    ) -> InteractionResult:
+        runtime_result = self.runtime_manager.handle_input(raw_input, session_context=session_context)
+        return InteractionResult(
+            interaction_mode=InteractionKind.COMMAND,
+            normalized_input=raw_input,
+            runtime_result=runtime_result,
+            visibility=map_interaction_visibility(
+                interaction_mode=InteractionKind.COMMAND,
+                runtime_result=runtime_result,
+            ),
+            metadata=_metadata_with_debug({"reason": reason}, debug_trace),
+        )
+
+    def _question_result(
+        self,
+        raw_input: str,
+        *,
+        reason: str | None,
+        debug_trace: dict[str, Any] | None,
+        session_context: SessionContext | None,
+    ) -> InteractionResult:
+        try:
+            answer_backend_config = self._effective_answer_backend_config()
+            answer_result = answer_question(
+                raw_input,
+                session_context=session_context,
+                runtime_snapshot=self._runtime_snapshot(),
+                backend_config=answer_backend_config,
+                debug_trace=debug_trace,
+            )
+        except InputNormalizationError as exc:
+            input_error = self._input_error(exc)
+            return InteractionResult(
+                interaction_mode=InteractionKind.QUESTION,
+                normalized_input=raw_input,
+                error=input_error,
+                visibility=map_interaction_visibility(
+                    interaction_mode=InteractionKind.QUESTION,
+                    error=input_error,
+                ),
+                metadata=_metadata_with_debug({"reason": reason}, debug_trace),
+            )
+        except JarvisError as error:
+            return InteractionResult(
+                interaction_mode=InteractionKind.QUESTION,
+                normalized_input=raw_input,
+                error=error,
+                visibility=map_interaction_visibility(
+                    interaction_mode=InteractionKind.QUESTION,
+                    error=error,
+                ),
+                metadata=_metadata_with_debug({"reason": reason}, debug_trace),
+            )
+
+        _remember_answer_context(
+            session_context,
+            raw_input=raw_input,
+            answer_result=answer_result,
+        )
+
+        return InteractionResult(
+            interaction_mode=InteractionKind.QUESTION,
+            normalized_input=raw_input,
+            answer_result=answer_result,
+            visibility=map_interaction_visibility(
+                interaction_mode=InteractionKind.QUESTION,
+                answer_result=answer_result,
+            ),
+            metadata=_metadata_with_debug(
+                {
+                    "reason": reason,
+                    "answer_backend": answer_backend_config.backend_kind.value,
+                },
+                debug_trace,
+            ),
+        )
+
+
+def _build_clarification_result(
+    decision: InteractionDecision,
+    debug_trace: dict[str, Any] | None,
+) -> InteractionResult:
+    clarification_request = ClarificationRequest(
+        message=decision.clarification_message or "Do you want an answer or command execution?",
+        code=ErrorCode.CLARIFICATION_REQUIRED.value,
+        options=["answer", "execute"],
+    )
+    return InteractionResult(
+        interaction_mode=InteractionKind.CLARIFICATION,
+        normalized_input=decision.normalized_input,
+        clarification_request=clarification_request,
+        visibility=map_interaction_visibility(
+            interaction_mode=InteractionKind.CLARIFICATION,
+            clarification_request=clarification_request,
+        ),
+        metadata=_metadata_with_debug({"reason": decision.reason}, debug_trace),
+    )
+
+
+def _remember_pending_interaction_clarification(
+    session_context: SessionContext | None,
+    decision: InteractionDecision,
+) -> None:
+    if session_context is None:
+        return
+    session_context.set_pending_interaction_clarification(
+        question_input=decision.question_input,
+        command_input=decision.command_input,
+    )
+
+
+def _resolve_pending_interaction_decision(
+    raw_input: str,
+    *,
+    session_context: SessionContext | None,
+) -> tuple[InteractionDecision | None, bool]:
+    if session_context is None:
+        return None, False
+
+    pending = session_context.get_pending_interaction_clarification()
+    if not isinstance(pending, dict):
+        return None, False
+
+    question_input = str(pending.get("question_input", "") or "").strip()
+    command_input = str(pending.get("command_input", "") or "").strip()
+    if not question_input and not command_input:
+        return None, True
+
+    normalized_reply = str(raw_input or "").strip()
+    choice = resolve_interaction_clarification_choice(normalized_reply)
+    if choice == "answer" and question_input:
+        return (
+            InteractionDecision(
+                kind=InteractionKind.QUESTION,
+                normalized_input=question_input,
+                confidence=1.0,
+                reason="mixed_interaction_answer_selected",
+            ),
+            True,
+        )
+    if choice == "execute" and command_input:
+        return (
+            InteractionDecision(
+                kind=InteractionKind.COMMAND,
+                normalized_input=command_input,
+                confidence=1.0,
+                reason="mixed_interaction_execute_selected",
+            ),
+            True,
+        )
+    if looks_like_fresh_interaction_input(normalized_reply):
+        return None, True
+
+    return (
+        InteractionDecision(
+            kind=InteractionKind.CLARIFICATION,
+            normalized_input=normalized_reply,
+            confidence=1.0,
+            reason="mixed_interaction_pending",
+            clarification_message="Please reply with answer or execute.",
+            question_input=question_input or None,
+            command_input=command_input or None,
+        ),
+        False,
+    )
 
 
 def _remember_answer_context(
