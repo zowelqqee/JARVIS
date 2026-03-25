@@ -80,17 +80,22 @@ Live OpenAI path:
 Comparative default-decision gate:
 - `scripts/run_qa_rollout_gate.sh llm_env`
 - `scripts/run_qa_rollout_gate.sh llm_env_strict`
+- Repeatability sweep after a fresh smoke + gate:
+  - `scripts/run_qa_rollout_stability.sh llm_env 3`
+  - `scripts/run_qa_rollout_stability.sh llm_env_strict 3`
 - Raw form remains available:
   - `python3 -m evals.run_qa_eval --compare-profile deterministic --compare-profile llm_env --gate-candidate-profile llm_env`
 - The gate now blocks env-backed candidates when the live smoke artifact is missing, unreadable, failed, or does not verify open-domain answering.
 - The gate also blocks stale artifacts and artifacts captured under a different provider/model/strict/fallback/open-domain config.
 - The comparative report now includes failing-case samples for non-green profiles, including source counts and short answer previews when relevant, so grounded regressions can be triaged without a second manual pass over the whole corpus.
+- The stability sweep repeats the same comparative gate multiple times and aggregates blocker/failing-case frequency, so release decisions are not based on a single lucky green run.
 - The `default-switch blockers` section is the source of truth for rollout decisions. A profile can still show non-blocking case mismatches in the sample list while the gate remains green if those mismatches are outside the tracked rollout thresholds.
 
 Current env-backed status (`2026-03-25`):
-- `llm_env_strict` has a real green live-smoke + comparative-gate run with `JARVIS_QA_LLM_OPEN_DOMAIN_ENABLED=true`.
-- `llm_env` also has real green live smoke with open-domain enabled, but comparative-gate reruns still fluctuate on non-strict answer quality; do not treat it as release-ready yet.
-- This does not change the product stage by itself: keep the project at `alpha_opt_in` and keep deterministic as the product default until a deliberate default-switch decision is made.
+- `llm_env_strict` has a real green live-smoke + comparative-gate run with `JARVIS_QA_LLM_OPEN_DOMAIN_ENABLED=true`, and the latest repeated strict stability sweep on `2026-03-25` now shows `2/2` gate passes on current HEAD.
+- `llm_env` also has real green live smoke with open-domain enabled, but the latest repeated non-strict stability sweep on `2026-03-25` still shows only `1/2` gate passes.
+- The blocking non-strict rerun still failed on `grounding pass rate`, `open-domain answer pass rate`, and `candidate grounding quality regressed versus deterministic baseline`, so `llm_env` should still be treated as alpha-only.
+- This makes `llm_env_strict` the stronger env-backed candidate today, but it still does not change the product stage by itself: keep the project at `alpha_opt_in` and keep deterministic as the product default until a deliberate default-switch decision is made.
 
 Open-domain mock harness:
 - `python3 -m evals.run_qa_eval --default-profile llm_open_domain_mock`

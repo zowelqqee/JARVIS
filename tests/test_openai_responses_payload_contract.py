@@ -287,6 +287,27 @@ class OpenAIResponsesPayloadContractTests(unittest.TestCase):
         self.assertIn("Preserve the concrete blocked-state boundary", input_text)
         self.assertIn("Repeat that concrete blocked-state boundary verbatim", input_text)
 
+    def test_runtime_status_workspace_payload_requires_multi_source_grounding(self) -> None:
+        runtime_status_question = QuestionRequest(
+            raw_input="What folder are you using?",
+            question_type=QuestionType.RUNTIME_STATUS,
+            scope="runtime",
+            confidence=0.94,
+        )
+        session_context = SessionContext()
+        session_context.set_recent_project_context("/tmp/demo")
+        runtime_status_bundle = build_grounding_bundle(runtime_status_question, session_context=session_context)
+
+        payload = self.provider.build_request_payload(
+            runtime_status_question,
+            grounding_bundle=runtime_status_bundle,
+            config=self._config(),
+        )
+
+        input_text = str((((payload.get("input") or [])[0].get("content") or [])[0].get("text")) or "")
+        self.assertIn("Use the exact recent workspace or folder path", input_text)
+        self.assertIn("keep at least two source_attributions", input_text)
+
     def _config(
         self,
         *,

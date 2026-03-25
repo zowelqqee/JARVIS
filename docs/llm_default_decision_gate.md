@@ -20,6 +20,9 @@ Recommended commands:
 - Comparative gate with strict no-fallback env-backed LLM profile:
   - `scripts/run_openai_live_smoke.sh llm_env_strict`
   - `scripts/run_qa_rollout_gate.sh llm_env_strict`
+- Repeatability sweep after a fresh smoke + gate:
+  - `scripts/run_qa_rollout_stability.sh llm_env 3`
+  - `scripts/run_qa_rollout_stability.sh llm_env_strict 3`
 
 Notes:
 - `llm_env` uses current QA env settings and leaves deterministic fallback enabled.
@@ -62,6 +65,7 @@ Interpretation:
 - the live smoke artifact must be fresh enough for rollout review
 - the live smoke artifact must match the current candidate provider/model/strict/fallback/open-domain config
 - if open-domain answering is enabled, the live smoke artifact must explicitly verify the open-domain path rather than only grounded QA
+- once live-provider variance is visible, repeated stability sweeps matter more than any single green gate rerun
 
 ## Thresholds
 Current default-switch thresholds:
@@ -98,7 +102,11 @@ If the candidate is better in quality but still fails these default-switch thres
 - it may remain opt-in alpha
 - it must not become the product default
 
+If repeated stability sweeps oscillate between green and blocked:
+- keep deterministic as the product default
+- treat the candidate as unstable even if one isolated env-backed gate run is green
+
 ## Current Recommendation
 - default product path: deterministic
 - model-backed path: opt-in only
-- default switch: blocked until the comparative gate passes cleanly in the target environment
+- default switch: blocked until the comparative gate passes cleanly and repeatably in the target environment

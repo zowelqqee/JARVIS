@@ -9,6 +9,7 @@ from qa.rollout_profiles import (
     resolve_rollout_candidate_settings,
     rollout_compare_command,
     rollout_smoke_command,
+    rollout_stability_command,
 )
 
 
@@ -29,6 +30,11 @@ class RolloutProfilesTests(unittest.TestCase):
         self.assertEqual(rollout_smoke_command("llm_env_strict"), "scripts/run_openai_live_smoke.sh llm_env_strict")
         self.assertEqual(rollout_compare_command("llm_env"), "scripts/run_qa_rollout_gate.sh llm_env")
         self.assertEqual(rollout_compare_command("llm_env_strict"), "scripts/run_qa_rollout_gate.sh llm_env_strict")
+        self.assertEqual(rollout_stability_command("llm_env"), "scripts/run_qa_rollout_stability.sh llm_env 3")
+        self.assertEqual(
+            rollout_stability_command("llm_env_strict", runs=5),
+            "scripts/run_qa_rollout_stability.sh llm_env_strict 5",
+        )
 
     def test_resolve_rollout_candidate_settings_use_current_env_and_force_profile_fallback(self) -> None:
         settings = resolve_rollout_candidate_settings(

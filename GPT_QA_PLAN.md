@@ -115,7 +115,11 @@
   - `2026-03-25`: повторный live smoke с `JARVIS_QA_LLM_OPEN_DOMAIN_ENABLED=true` реально прогнан и остаётся green для обоих profiles: `llm_env` и `llm_env_strict`
   - `2026-03-25`: `llm_env_strict` дал полностью green env-backed comparative gate with `default switch allowed: yes`, `grounding pass rate: 12/12`, `open-domain answer pass rate: 5/5`, `refusal pass rate: 2/2`, `fallback frequency: 0/19`, `open-domain live verification: yes`
   - `2026-03-25`: `llm_env` остаётся non-green и нестабильным по reruns; после реального open-domain verification он всё ещё oscillates между semantic/open-domain mismatches и occasional grounded regressions, поэтому `recommended default profile` остаётся deterministic
-  - remaining work внутри stage 8 теперь не про rollout plumbing correctness, а про non-strict candidate stability / release decisioning; env-backed proof для strict path уже существует
+  - added repeated rollout stability sweep (`scripts/run_qa_rollout_stability.sh`) so release readiness can measure blocker frequency across multiple env-backed gate runs instead of trusting one isolated green rerun
+  - `2026-03-25`: targeted strict env-backed reruns для `route_runtime_status_with_folder_context`, `route_answer_follow_up_explain_more` и `route_answer_follow_up_sources` после prompt/eval hardening снова прошли green на live provider path
+  - `2026-03-25`: повторный strict stability sweep в правильном env-backed режиме на current HEAD дал `2/2` gate passes; strict candidate сейчас выглядит repeatable green, а не one-off success
+  - `2026-03-25`: повторный non-strict stability sweep на current HEAD всё ещё дал только `1/2` gate passes; блокирующий rerun снова упал по `grounding pass rate`, `open-domain answer pass rate` и `candidate grounding quality regressed versus deterministic baseline`
+  - remaining work внутри stage 8 теперь не про rollout plumbing correctness, а про non-strict candidate stability / release decisioning under repeated env-backed runs
   - default switch по-прежнему заблокирован; rollout stage остаётся `alpha_opt_in`, deterministic path остаётся product default
 
 **1. Product Contract for General QA**

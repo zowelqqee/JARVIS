@@ -108,4 +108,8 @@
 - Gate command after smoke:
   - `scripts/run_qa_rollout_gate.sh llm_env`
   - `scripts/run_qa_rollout_gate.sh llm_env_strict`
+- Repeatability sweep after a fresh smoke + gate:
+  - `scripts/run_qa_rollout_stability.sh llm_env 3`
+  - `scripts/run_qa_rollout_stability.sh llm_env_strict 3`
 - Expected: live smoke stays in question mode, reports open-domain answer-kind/provenance diagnostics, writes a green artifact, and does not fall back silently.
+- Expected: repeated stability sweeps run in the same env as the target candidate profile; otherwise open-domain/artifact mismatch blockers are expected and honest.

@@ -20,6 +20,8 @@ If validating model-backed alpha readiness:
 - `scripts/run_openai_live_smoke.sh llm_env_strict`
 - `scripts/run_qa_rollout_gate.sh llm_env`
 - `scripts/run_qa_rollout_gate.sh llm_env_strict`
+- `scripts/run_qa_rollout_stability.sh llm_env 3`
+- `scripts/run_qa_rollout_stability.sh llm_env_strict 3`
 
 ## Manual Verification Checklist (Scripted Local Pass)
 - Open apps flow (`open Telegram and Safari`) completes predictably.

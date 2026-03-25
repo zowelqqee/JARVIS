@@ -52,6 +52,17 @@ def rollout_compare_command(candidate_profile: str) -> str:
     return f"scripts/run_qa_rollout_gate.sh {candidate}"
 
 
+def rollout_stability_command(candidate_profile: str, runs: int = 3) -> str:
+    """Return the recommended repeated-gate stability command for one rollout candidate."""
+    candidate = str(candidate_profile or "").strip()
+    if not candidate:
+        raise ValueError("candidate_profile must be non-empty.")
+    normalized_runs = int(runs)
+    if normalized_runs <= 0:
+        raise ValueError("runs must be positive.")
+    return f"scripts/run_qa_rollout_stability.sh {candidate} {normalized_runs}"
+
+
 def resolve_rollout_candidate_settings(
     candidate_profile: str,
     *,

@@ -102,6 +102,9 @@ def _question_guidance_section(question: QuestionRequest, *, grounding_bundle: G
         workspace_path = str(session_facts.get("recent_project_context", "") or "").strip()
         if workspace_path:
             guidance_lines.append(f"Use the exact recent workspace or folder path when answering: {workspace_path}")
+        guidance_lines.append(
+            "When runtime-status and workspace-context sources are both available, keep at least two source_attributions in the grounded answer."
+        )
     if question_type == "repo_structure":
         guidance_lines.extend(
             [
