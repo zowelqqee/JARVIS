@@ -39,8 +39,10 @@ def build_instructions(*, config: AnswerBackendConfig) -> str:
     return (
         "You are the JARVIS answer backend. Answer only from the provided local grounding bundle, do not invent sources, "
         "and do not imply that any command was executed. If grounding is insufficient, set grounded to false and explain that in warning. "
+        "If the supplied Runtime facts or Session facts directly answer the question, use those concrete values explicitly instead of replacing them with a generic summary. "
         f"Return schema_version exactly {ANSWER_SCHEMA_VERSION}. "
-        "Keep answer_text concise and under 80 words. Use at most 2 source_attributions unless a third source is strictly necessary. "
+        "Keep answer_text concise but complete, usually 1 to 4 short sentences. "
+        "Use enough source_attributions to support each distinct claim in answer_text; do not artificially cap citations when multiple grounded sources are materially relevant. "
         "In each source_attributions.source field, return only the raw source path, not the annotated kind/section text. "
         f"Keep each support field to one short factual sentence, and {strict_text}."
     )
@@ -52,6 +54,7 @@ def build_user_text(question: QuestionRequest, *, grounding_bundle: GroundingBun
     return "\n\n".join(
         section for section in (
             _question_section(question),
+            _question_guidance_section(question, grounding_bundle=grounding_bundle),
             _sources_section(prompt_source_lines),
             _notes_section(grounding_bundle.source_notes),
             _json_section("Runtime facts", grounding_bundle.runtime_facts),
@@ -78,6 +81,68 @@ def _notes_section(source_notes: list[str]) -> str:
         return ""
     note_lines = "\n".join(f"- {note}" for note in source_notes)
     return f"Grounding rules:\n{note_lines}"
+
+
+def _question_guidance_section(question: QuestionRequest, *, grounding_bundle: GroundingBundle) -> str:
+    question_type = getattr(getattr(question, "question_type", None), "value", getattr(question, "question_type", None))
+    lowered = str(getattr(question, "raw_input", "") or "").lower()
+    runtime_facts = dict(getattr(grounding_bundle, "runtime_facts", {}) or {})
+    session_facts = dict(getattr(grounding_bundle, "session_facts", {}) or {})
+    guidance_lines: list[str] = []
+
+    if question_type == "capabilities":
+        guidance_lines.extend(
+            [
+                "Answer broad capability questions with enough grounded coverage to mention supported command families, question scope, and major limits.",
+                "When multiple allowed sources each support a different capability claim, cite each materially relevant source instead of collapsing to one or two citations.",
+                "If the allowed bundle spans capability metadata, product rules, question-mode docs, and command-model docs, broad capability answers should usually cite each of those source families.",
+            ]
+        )
+    if question_type == "runtime_status" and any(token in lowered for token in ("folder", "workspace", "project")):
+        workspace_path = str(session_facts.get("recent_project_context", "") or "").strip()
+        if workspace_path:
+            guidance_lines.append(f"Use the exact recent workspace or folder path when answering: {workspace_path}")
+    if question_type == "repo_structure":
+        guidance_lines.extend(
+            [
+                "If an allowed source path directly answers where a module lives, name that exact file path in answer_text.",
+                "Prefer using both the repo code path and the supporting repo-structure doc when both are present.",
+            ]
+        )
+    if question_type == "blocked_state":
+        confirmation_message = str(runtime_facts.get("confirmation_message", "") or "").strip()
+        clarification_question = str(runtime_facts.get("clarification_question", "") or "").strip()
+        blocked_reason = str(runtime_facts.get("blocked_reason", "") or "").strip()
+        concrete_boundary = confirmation_message or clarification_question or blocked_reason
+        if concrete_boundary:
+            guidance_lines.append(f"Preserve the concrete blocked-state boundary when answering: {concrete_boundary}")
+            guidance_lines.append("Repeat that concrete blocked-state boundary verbatim in answer_text when it is present.")
+        guidance_lines.append("Use enough grounded sources to cover the read-only QA boundary, the blocked state, and the runtime pause semantics.")
+    if question_type == "answer_follow_up":
+        recent_answer_context = dict(session_facts.get("recent_answer_context", {}) or {})
+        recent_topic = str(recent_answer_context.get("topic", "") or "").strip()
+        recent_sources = [str(source or "").strip() for source in list(recent_answer_context.get("sources", []) or []) if str(source or "").strip()]
+        if recent_topic:
+            guidance_lines.append(f"Keep the follow-up grounded in the recent answer topic: {recent_topic}")
+        guidance_lines.append("Reuse the provided recent-answer sources when expanding or explaining the previous grounded answer.")
+        if len(recent_sources) >= 2:
+            guidance_lines.append("When two or more recent-answer sources are provided, keep at least two source_attributions in the grounded answer.")
+        if any(token in lowered for token in ("explain more", "more detail", "more details", "expand")):
+            guidance_lines.append("For explain-more follow-ups, expand the prior grounded answer using those recent-answer sources instead of falling back to a generic summary.")
+        if any(token in lowered for token in ("which source", "where written", "where is that written")):
+            guidance_lines.append("If the user asks which source was used, answer with the exact raw source path(s) verbatim in answer_text.")
+            guidance_lines.append("For source-identification follow-ups, cite those same exact source paths in source_attributions instead of paraphrasing the document names.")
+    if question_type == "docs_rules" and "clarification" in lowered:
+        guidance_lines.append("Clarification answers should mention ambiguity, missing data, low confidence, or routing ambiguity when those rules are supported by the bundle.")
+        guidance_lines.append("Make it explicit that clarification is a hard boundary before planning or execution continues.")
+    if question_type == "safety_explanations":
+        guidance_lines.append("Safety explanations should preserve that confirmation or clarification prevents unintended or hidden execution before proceeding.")
+        guidance_lines.append("Use wording that makes explicit approval or agreement visible when that is part of the grounded safety boundary.")
+
+    if not guidance_lines:
+        return ""
+    rendered = "\n".join(f"- {line}" for line in guidance_lines)
+    return f"Question-specific guidance:\n{rendered}"
 
 
 def _json_section(title: str, data: dict[str, Any]) -> str:

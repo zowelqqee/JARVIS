@@ -190,6 +190,7 @@ class OpenAIResponsesProvider:
     ):
         return self._select_parser(question).parse_response(
             response_payload,
+            question=question,
             grounding_bundle=grounding_bundle,
             debug_trace=debug_trace,
         )

@@ -24,7 +24,15 @@ from jarvis_error import ErrorCategory, ErrorCode, JarvisError  # type: ignore  
 class OpenAIResponsesParser(LlmResponseParser):
     """Parse the OpenAI Responses structured answer contract."""
 
-    def parse_response(self, response_payload: dict[str, Any], *, grounding_bundle, debug_trace: dict[str, Any] | None = None) -> AnswerResult:
+    def parse_response(
+        self,
+        response_payload: dict[str, Any],
+        *,
+        question=None,
+        grounding_bundle,
+        debug_trace: dict[str, Any] | None = None,
+    ) -> AnswerResult:
+        del question
         status = str(response_payload.get("status", "") or "").strip().lower()
         debug_details = response_debug_details(response_payload)
         set_debug_payload(

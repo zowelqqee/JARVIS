@@ -10,6 +10,7 @@ _TYPES_PATH = Path(__file__).resolve().parents[1] / "types"
 if str(_TYPES_PATH) not in sys.path:
     sys.path.insert(0, str(_TYPES_PATH))
 
+from context.session_context import SessionContext
 from qa.answer_backend import AnswerBackendKind
 from qa.answer_config import AnswerBackendConfig, LlmBackendConfig
 from qa.grounding import build_grounding_bundle
@@ -123,6 +124,8 @@ class OpenAIResponsesPayloadContractTests(unittest.TestCase):
         self.assertIn("Answer only from the provided local grounding bundle", instructions)
         self.assertIn("do not invent sources", instructions)
         self.assertIn("do not imply that any command was executed", instructions)
+        self.assertIn("use those concrete values explicitly", instructions)
+        self.assertIn("do not artificially cap citations", instructions)
         self.assertIn(ANSWER_SCHEMA_VERSION, instructions)
 
     def test_payload_user_input_contains_question_and_allowed_sources(self) -> None:
@@ -141,10 +144,31 @@ class OpenAIResponsesPayloadContractTests(unittest.TestCase):
         input_text = str(content_items[0].get("text", "") or "")
         self.assertIn("Question type: capabilities", input_text)
         self.assertIn("Question: What can you do?", input_text)
+        self.assertIn("Question-specific guidance:", input_text)
+        self.assertIn("supported command families", input_text)
         self.assertIn("Allowed local sources:", input_text)
         self.assertIn(self.grounding_bundle.source_paths[0], input_text)
         self.assertIn("kind=capability_metadata", input_text)
         self.assertNotIn("support=", input_text)
+
+    def test_clarification_docs_payload_includes_question_specific_guidance(self) -> None:
+        clarification_question = QuestionRequest(
+            raw_input="How does clarification work?",
+            question_type=QuestionType.DOCS_RULES,
+            scope="docs",
+            confidence=0.9,
+        )
+        clarification_bundle = build_grounding_bundle(clarification_question)
+
+        payload = self.provider.build_request_payload(
+            clarification_question,
+            grounding_bundle=clarification_bundle,
+            config=self._config(),
+        )
+
+        input_text = str((((payload.get("input") or [])[0].get("content") or [])[0].get("text")) or "")
+        self.assertIn("Question-specific guidance:", input_text)
+        self.assertIn("ambiguity, missing data, low confidence, or routing ambiguity", input_text)
 
     def test_open_domain_payload_uses_general_schema_and_metadata(self) -> None:
         payload = self.provider.build_request_payload(
@@ -172,6 +196,7 @@ class OpenAIResponsesPayloadContractTests(unittest.TestCase):
         instructions = str(payload.get("instructions", "") or "")
         self.assertIn("model knowledge", instructions)
         self.assertIn("current or changing real-world facts", instructions)
+        self.assertIn("copy that warning into the warning field verbatim", instructions)
         input_items = payload.get("input") or []
         content_items = input_items[0].get("content") or []
         input_text = str(content_items[0].get("text", "") or "")
@@ -209,6 +234,58 @@ class OpenAIResponsesPayloadContractTests(unittest.TestCase):
         input_text = str((((payload.get("input") or [])[0].get("content") or [])[0].get("text")) or "")
         self.assertIn("Policy guidance:", input_text)
         self.assertIn("avoid diagnosis, prescriptions, dosing, or certainty", input_text)
+
+    def test_follow_up_source_payload_includes_exact_source_path_guidance(self) -> None:
+        follow_up_question = QuestionRequest(
+            raw_input="Which source?",
+            question_type=QuestionType.ANSWER_FOLLOW_UP,
+            scope="answer_follow_up",
+            context_refs={
+                "topic": "clarification",
+                "answer_sources": ["docs/clarification_rules.md", "docs/runtime_flow.md"],
+            },
+            confidence=0.9,
+        )
+        session_context = SessionContext()
+        session_context.set_recent_answer_context(
+            topic="clarification",
+            scope="docs",
+            sources=["docs/clarification_rules.md", "docs/runtime_flow.md"],
+        )
+        follow_up_bundle = build_grounding_bundle(follow_up_question, session_context=session_context)
+
+        payload = self.provider.build_request_payload(
+            follow_up_question,
+            grounding_bundle=follow_up_bundle,
+            config=self._config(),
+        )
+
+        input_text = str((((payload.get("input") or [])[0].get("content") or [])[0].get("text")) or "")
+        self.assertIn("exact raw source path(s) verbatim", input_text)
+        self.assertIn("keep at least two source_attributions", input_text)
+        self.assertIn("source_attributions", input_text)
+
+    def test_blocked_state_payload_repeats_concrete_boundary_guidance(self) -> None:
+        blocked_question = QuestionRequest(
+            raw_input="What exactly do you need me to confirm?",
+            question_type=QuestionType.BLOCKED_STATE,
+            scope="blocked_state",
+            confidence=0.96,
+        )
+        blocked_bundle = build_grounding_bundle(
+            blocked_question,
+            runtime_snapshot={"confirmation_message": "explicit confirmation before execution can continue"},
+        )
+
+        payload = self.provider.build_request_payload(
+            blocked_question,
+            grounding_bundle=blocked_bundle,
+            config=self._config(),
+        )
+
+        input_text = str((((payload.get("input") or [])[0].get("content") or [])[0].get("text")) or "")
+        self.assertIn("Preserve the concrete blocked-state boundary", input_text)
+        self.assertIn("Repeat that concrete blocked-state boundary verbatim", input_text)
 
     def _config(
         self,

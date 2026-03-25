@@ -36,7 +36,15 @@ class OpenAIResponsesParsingContractTests(unittest.TestCase):
             confidence=0.7,
             requires_grounding=False,
         )
+        self.medical_question = QuestionRequest(
+            raw_input="Should I stop taking my medication if I have chest pain?",
+            question_type=QuestionType.OPEN_DOMAIN_GENERAL,
+            scope="open_domain",
+            confidence=0.7,
+            requires_grounding=False,
+        )
         self.open_domain_grounding_bundle = build_grounding_bundle(self.open_domain_question)
+        self.medical_grounding_bundle = build_grounding_bundle(self.medical_question)
         self.provider = OpenAIResponsesProvider()
 
     def test_parse_answer_response_accepts_direct_output_text(self) -> None:
@@ -268,6 +276,26 @@ class OpenAIResponsesParsingContractTests(unittest.TestCase):
         self.assertEqual(getattr(result.answer_kind, "value", ""), "open_domain_model")
         self.assertEqual(getattr(result.provenance, "value", ""), "model_knowledge")
         self.assertEqual(result.warning, "May be out of date for changing facts.")
+
+    def test_parse_answer_response_backfills_policy_warning_hint_for_bounded_open_domain_answer(self) -> None:
+        result = self.provider._parse_answer_response(  # noqa: SLF001
+            {
+                "status": "completed",
+                "output_text": json.dumps(
+                    {
+                        "schema_version": GENERAL_ANSWER_SCHEMA_VERSION,
+                        "answer_text": "Chest pain can be serious, so seek urgent medical help.",
+                        "answer_kind": "open_domain_model",
+                        "warning": "",
+                    }
+                ),
+            },
+            question=self.medical_question,
+            grounding_bundle=self.medical_grounding_bundle,
+        )
+
+        self.assertEqual(getattr(result.answer_kind, "value", ""), "open_domain_model")
+        self.assertEqual(result.warning, "This is general information, not medical advice.")
 
     def test_parse_answer_response_accepts_open_domain_refusal_output(self) -> None:
         result = self.provider._parse_answer_response(  # noqa: SLF001

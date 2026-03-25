@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from qa.debug_trace import set_debug_payload, update_debug_payload
+from qa.general_qa_safety import inspect_general_qa_safety
 from qa.grounding_verifier import implies_execution
 from qa.llm_response_parser import LlmResponseParser
 from qa.openai_responses_general_schema import GENERAL_ANSWER_SCHEMA_VERSION
@@ -24,7 +25,14 @@ from jarvis_error import ErrorCategory, ErrorCode, JarvisError  # type: ignore  
 class OpenAIResponsesGeneralParser(LlmResponseParser):
     """Parse the OpenAI Responses structured contract for open-domain answers."""
 
-    def parse_response(self, response_payload: dict[str, Any], *, grounding_bundle, debug_trace: dict[str, Any] | None = None) -> AnswerResult:
+    def parse_response(
+        self,
+        response_payload: dict[str, Any],
+        *,
+        question=None,
+        grounding_bundle,
+        debug_trace: dict[str, Any] | None = None,
+    ) -> AnswerResult:
         del grounding_bundle
         status = str(response_payload.get("status", "") or "").strip().lower()
         debug_details = response_debug_details(response_payload)
@@ -248,6 +256,11 @@ class OpenAIResponsesGeneralParser(LlmResponseParser):
             )
 
         warning = str(structured_output.get("warning", "") or "").strip() or None
+        policy_warning_hint = inspect_general_qa_safety(getattr(question, "raw_input", "")).warning_hint if question is not None else None
+        warning_filled_from_policy = False
+        if answer_kind == AnswerKind.OPEN_DOMAIN_MODEL and not warning and policy_warning_hint:
+            warning = str(policy_warning_hint).strip() or None
+            warning_filled_from_policy = bool(warning)
         update_debug_payload(
             debug_trace,
             "provider_response_parse",
@@ -256,6 +269,7 @@ class OpenAIResponsesGeneralParser(LlmResponseParser):
                 "stage": "completed",
                 "answer_kind": answer_kind.value,
                 "parsed_source_count": 0,
+                "warning_filled_from_policy": warning_filled_from_policy,
             },
         )
         return AnswerResult(

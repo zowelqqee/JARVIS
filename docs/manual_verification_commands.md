@@ -86,6 +86,7 @@
   - `scripts/run_openai_live_smoke.sh llm_env`
   - `scripts/run_openai_live_smoke.sh llm_env_strict`
 - Expected: only run when `OPENAI_API_KEY` is present and the environment is intended for live provider verification.
+- Expected defaults for candidate commands: current QA env model/strict/open-domain/api-key-env are reused unless explicit live-smoke overrides are set.
 - Expected output: live smoke prints provider, model, strict mode, fallback-enabled flag, answer kind, provenance, source count, whether deterministic fallback happened, and the artifact path.
 - Expected artifact: `tmp/qa/openai_live_smoke.json` unless `JARVIS_QA_OPENAI_LIVE_ARTIFACT` overrides it.
 - Expected gate semantics: rerun this smoke before comparative gating so the artifact is fresh and matches the current provider/model/strict/fallback/open-domain config.

@@ -11,7 +11,14 @@ from unittest.mock import patch
 
 from evals.run_qa_eval import (
     DEFAULT_CORPUS_PATH,
+    QaEvalCase,
+    QaEvalProfileSummary,
+    QaEvalReport,
+    _case_applies_to_profile,
     _build_backend_config,
+    _default_switch_blockers,
+    _run_interaction_case,
+    _text_contains_fragment,
     compare_eval_profiles,
     format_comparison_report,
     format_report,
@@ -74,6 +81,37 @@ class QaEvalRunnerTests(unittest.TestCase):
         self.assertEqual(summary.fallback_total, summary.answer_total)
         self.assertGreater(summary.source_attribution_passed, 0)
 
+    def test_interaction_results_keep_answer_text_preview_for_operator_diagnostics(self) -> None:
+        cases = load_qa_eval_cases(DEFAULT_CORPUS_PATH)
+        selected = select_eval_cases(cases, ["route_docs_clarification_question"])
+
+        report = run_eval_cases(selected, default_profile="deterministic")
+
+        result = report.results[0]
+        self.assertIn("actual_answer_text_preview", result.details)
+        self.assertTrue(str(result.details.get("actual_answer_text_preview") or "").strip())
+
+    def test_expected_answer_contains_any_matches_case_insensitively(self) -> None:
+        case = QaEvalCase(
+            id="synthetic_docs_rules_answer_text_any",
+            case_type="interaction",
+            category="test",
+            raw_input="How does clarification work?",
+            expected_interaction_kind="question",
+            expected_question_type="docs_rules",
+            should_call_runtime=False,
+            should_call_answer_engine=True,
+            expected_sources_count_min=2,
+            expected_answer_contains_any=["missing phrase", "clarification is a hard boundary"],
+        )
+
+        result = _run_interaction_case(case, default_profile="deterministic")
+
+        self.assertTrue(result.checks["answer_text"])
+
+    def test_text_fragment_matching_normalizes_typographic_punctuation(self) -> None:
+        self.assertTrue(_text_contains_fragment("I can’t help with that request.", "can't help"))
+
     def test_open_domain_mock_profile_tracks_answer_kind_provenance_and_refusal_metrics(self) -> None:
         cases = load_qa_eval_cases(DEFAULT_CORPUS_PATH)
         selected = select_eval_cases(
@@ -113,6 +151,42 @@ class QaEvalRunnerTests(unittest.TestCase):
 
         self.assertEqual(report.failed_cases, 0)
         self.assertEqual(report.total_cases, 4)
+
+    def test_open_domain_cases_apply_to_env_profiles_only_when_open_domain_is_enabled(self) -> None:
+        cases = load_qa_eval_cases(DEFAULT_CORPUS_PATH)
+        case = select_eval_cases(cases, ["open_domain_explanation_answer"])[0]
+
+        with patch.dict("os.environ", {"JARVIS_QA_LLM_OPEN_DOMAIN_ENABLED": "false"}, clear=False):
+            self.assertFalse(_case_applies_to_profile(case, "llm_env"))
+
+        with patch.dict(
+            "os.environ",
+            {
+                "JARVIS_QA_BACKEND": "llm",
+                "JARVIS_QA_LLM_ENABLED": "true",
+                "JARVIS_QA_LLM_OPEN_DOMAIN_ENABLED": "true",
+            },
+            clear=False,
+        ):
+            self.assertTrue(_case_applies_to_profile(case, "llm_env"))
+
+    def test_unsupported_world_question_does_not_apply_when_open_domain_is_enabled(self) -> None:
+        cases = load_qa_eval_cases(DEFAULT_CORPUS_PATH)
+        case = select_eval_cases(cases, ["route_unsupported_world_question"])[0]
+
+        with patch.dict("os.environ", {"JARVIS_QA_LLM_OPEN_DOMAIN_ENABLED": "false"}, clear=False):
+            self.assertTrue(_case_applies_to_profile(case, "llm_env"))
+
+        with patch.dict(
+            "os.environ",
+            {
+                "JARVIS_QA_BACKEND": "llm",
+                "JARVIS_QA_LLM_ENABLED": "true",
+                "JARVIS_QA_LLM_OPEN_DOMAIN_ENABLED": "true",
+            },
+            clear=False,
+        ):
+            self.assertFalse(_case_applies_to_profile(case, "llm_env"))
 
     def test_llm_env_profile_uses_current_env_settings_but_forces_fallback_on(self) -> None:
         with patch.dict(
@@ -155,6 +229,128 @@ class QaEvalRunnerTests(unittest.TestCase):
         self.assertEqual(comparison.routing_safety_regressions, 0)
         self.assertTrue(any("fallback frequency" in blocker for blocker in comparison.blockers))
         self.assertIn("default switch allowed: no", format_comparison_report(comparison))
+
+    def test_default_switch_blockers_ignore_unsupported_honesty_when_metric_is_not_applicable(self) -> None:
+        report = QaEvalReport(
+            default_profile="deterministic",
+            total_cases=0,
+            passed_cases=0,
+            failed_cases=0,
+            routing_total=1,
+            routing_passed=1,
+            grounding_total=1,
+            grounding_passed=1,
+            command_regression_total=1,
+            command_regression_passed=1,
+            results=[],
+        )
+        baseline_summary = QaEvalProfileSummary(
+            profile="deterministic",
+            report=report,
+            routing_total=1,
+            routing_passed=1,
+            grounding_total=1,
+            grounding_passed=1,
+            command_regression_total=1,
+            command_regression_passed=1,
+            unsupported_total=1,
+            unsupported_passed=1,
+            source_attribution_total=1,
+            source_attribution_passed=1,
+            open_domain_total=0,
+            open_domain_passed=0,
+            refusal_total=0,
+            refusal_passed=0,
+            provenance_total=0,
+            provenance_passed=0,
+            answer_total=1,
+            fallback_total=0,
+            avg_interaction_latency_ms=1.0,
+            usage_sample_count=1,
+            usage_input_tokens_total=1,
+            usage_output_tokens_total=1,
+            usage_total_tokens_total=2,
+            env_backed_profile=False,
+            llm_provider="openai_responses",
+            llm_model="gpt-5-nano",
+            open_domain_enabled=False,
+            live_smoke_artifact_path=None,
+            live_smoke_artifact_present=False,
+            live_smoke_artifact_success=None,
+            live_smoke_artifact_created_at=None,
+            live_smoke_artifact_age_hours=None,
+            live_smoke_artifact_fresh=None,
+            live_smoke_artifact_fresh_reason=None,
+            live_smoke_artifact_profile_match=None,
+            live_smoke_artifact_match_reason=None,
+            live_smoke_artifact_open_domain_verified=None,
+            live_smoke_artifact_error=None,
+        )
+        candidate_summary = QaEvalProfileSummary(
+            profile="llm_open_domain_mock",
+            report=report,
+            routing_total=1,
+            routing_passed=1,
+            grounding_total=1,
+            grounding_passed=1,
+            command_regression_total=1,
+            command_regression_passed=1,
+            unsupported_total=0,
+            unsupported_passed=0,
+            source_attribution_total=1,
+            source_attribution_passed=1,
+            open_domain_total=1,
+            open_domain_passed=1,
+            refusal_total=1,
+            refusal_passed=1,
+            provenance_total=2,
+            provenance_passed=2,
+            answer_total=2,
+            fallback_total=0,
+            avg_interaction_latency_ms=1.0,
+            usage_sample_count=2,
+            usage_input_tokens_total=1,
+            usage_output_tokens_total=1,
+            usage_total_tokens_total=2,
+            env_backed_profile=False,
+            llm_provider="openai_responses",
+            llm_model="gpt-5-nano",
+            open_domain_enabled=True,
+            live_smoke_artifact_path=None,
+            live_smoke_artifact_present=False,
+            live_smoke_artifact_success=None,
+            live_smoke_artifact_created_at=None,
+            live_smoke_artifact_age_hours=None,
+            live_smoke_artifact_fresh=None,
+            live_smoke_artifact_fresh_reason=None,
+            live_smoke_artifact_profile_match=None,
+            live_smoke_artifact_match_reason=None,
+            live_smoke_artifact_open_domain_verified=None,
+            live_smoke_artifact_error=None,
+        )
+
+        blockers = _default_switch_blockers(
+            baseline_summary=baseline_summary,
+            candidate_summary=candidate_summary,
+            routing_safety_regressions=0,
+        )
+
+        self.assertNotIn("unsupported-question honesty is below threshold", blockers)
+
+    def test_comparison_report_includes_failing_case_samples_for_non_green_profile(self) -> None:
+        cases = load_qa_eval_cases(DEFAULT_CORPUS_PATH)
+        selected = select_eval_cases(cases, ["route_capabilities_question"])
+
+        comparison = compare_eval_profiles(
+            selected,
+            profiles=["deterministic", "llm_open_domain_missing_key"],
+            candidate_profile="llm_open_domain_missing_key",
+        )
+
+        report_text = format_comparison_report(comparison)
+
+        self.assertIn("failing case samples (1/1):", report_text)
+        self.assertIn("route_capabilities_question [deterministic_grounded_answers]", report_text)
 
     def test_compare_profiles_block_env_candidate_without_live_smoke_artifact(self) -> None:
         cases = load_qa_eval_cases(DEFAULT_CORPUS_PATH)
@@ -439,6 +635,63 @@ class QaEvalRunnerTests(unittest.TestCase):
                         )
 
         self.assertFalse(any("live smoke artifact is missing" in blocker for blocker in comparison.blockers))
+
+    def test_non_env_backed_baseline_does_not_report_candidate_artifact_mismatch(self) -> None:
+        cases = load_qa_eval_cases(DEFAULT_CORPUS_PATH)
+        selected = select_eval_cases(cases, ["route_capabilities_question"])
+        with tempfile.TemporaryDirectory() as tmpdir:
+            artifact_path = Path(tmpdir) / "openai_live_smoke_llm_env_strict.json"
+            artifact_path.write_text(
+                json.dumps(
+                    {
+                        "schema_version": 1,
+                        "runner": "tests.smoke_openai_responses_provider_live",
+                        "created_at": "2026-03-25T00:00:00+00:00",
+                        "question": "What can you do?",
+                        "success": True,
+                        "issues": [],
+                        "error": None,
+                        "open_domain_verified": False,
+                        "diagnostics": {
+                            "provider": "openai_responses",
+                            "model": "gpt-5-nano",
+                            "strict_mode": True,
+                            "fallback_enabled": False,
+                            "open_domain_enabled": False,
+                            "answer_kind": "grounded_local",
+                            "provenance": "local_sources",
+                            "source_count": 1,
+                            "deterministic_fallback": False,
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+            with patch("evals.run_qa_eval._artifact_now", return_value=datetime(2026, 3, 25, tzinfo=timezone.utc)):
+                with patch.dict(
+                    "os.environ",
+                    {
+                        "OPENAI_API_KEY": "",
+                        "JARVIS_QA_OPENAI_LIVE_ARTIFACT": str(artifact_path),
+                    },
+                    clear=False,
+                ):
+                    comparison = compare_eval_profiles(
+                        selected,
+                        profiles=["deterministic", "llm_env_strict"],
+                        candidate_profile="llm_env_strict",
+                    )
+
+        baseline_summary = next(summary for summary in comparison.summaries if summary.profile == "deterministic")
+        report_text = format_comparison_report(comparison)
+
+        self.assertFalse(baseline_summary.env_backed_profile)
+        self.assertIsNone(baseline_summary.live_smoke_artifact_path)
+        self.assertFalse(baseline_summary.live_smoke_artifact_present)
+        self.assertIsNone(baseline_summary.live_smoke_artifact_profile_match)
+        self.assertIn("profile: deterministic", report_text)
+        self.assertIn("  live smoke artifact: n/a", report_text)
+        self.assertIn("  live smoke artifact matches profile: n/a", report_text)
 
 
 if __name__ == "__main__":

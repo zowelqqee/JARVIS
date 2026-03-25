@@ -107,7 +107,16 @@
   - добавлены candidate-aware wrapper scripts для live smoke и comparative gate, чтобы `llm_env` / `llm_env_strict` прогонялись через разные artifact paths и готовые команды
   - `llm_env` compare profile теперь реально использует current env model/strict/retry/token settings, а не частичный default-only subset
   - raw compare flow и CLI precheck теперь тоже автоматически резолвят candidate-specific artifact paths, так что wrapper scripts нужны для удобства, а не для корректности
-  - default switch по-прежнему заблокирован до реального green artifact из target environment
+  - candidate-aware live smoke теперь наследует current QA env model/strict/open-domain/api-key-env defaults, так что следующий live step ближе к реальному env-backed profile
+  - comparative gate report теперь показывает failing-case samples для non-green profiles, включая source counts и short answer previews, чтобы rollout triage не упирался только в агрегированные percentages
+  - `2026-03-25`: выполнен реальный env-backed live smoke для `llm_env` и `llm_env_strict`; оба smoke-прогона дали green artifact в текущем окружении
+  - `2026-03-25`: выполнен реальный env-backed comparative gate для `llm_env` и `llm_env_strict`; это уже не purely local readiness, а фактическая проверка candidate profiles против live provider path
+  - после hardening grounded/general prompts, parser fallback for policy warnings, gate logic, и eval contracts open-domain live verification уже подтверждена не только локально, но и на реальном env-backed provider path
+  - `2026-03-25`: повторный live smoke с `JARVIS_QA_LLM_OPEN_DOMAIN_ENABLED=true` реально прогнан и остаётся green для обоих profiles: `llm_env` и `llm_env_strict`
+  - `2026-03-25`: `llm_env_strict` дал полностью green env-backed comparative gate with `default switch allowed: yes`, `grounding pass rate: 12/12`, `open-domain answer pass rate: 5/5`, `refusal pass rate: 2/2`, `fallback frequency: 0/19`, `open-domain live verification: yes`
+  - `2026-03-25`: `llm_env` остаётся non-green и нестабильным по reruns; после реального open-domain verification он всё ещё oscillates между semantic/open-domain mismatches и occasional grounded regressions, поэтому `recommended default profile` остаётся deterministic
+  - remaining work внутри stage 8 теперь не про rollout plumbing correctness, а про non-strict candidate stability / release decisioning; env-backed proof для strict path уже существует
+  - default switch по-прежнему заблокирован; rollout stage остаётся `alpha_opt_in`, deterministic path остаётся product default
 
 **1. Product Contract for General QA**
 Цель: сначала зафиксировать, что именно означает “JARVIS отвечает на любой вопрос”.

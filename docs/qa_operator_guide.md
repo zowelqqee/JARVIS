@@ -65,6 +65,11 @@ Live OpenAI path:
 - For open-domain live verification also set `JARVIS_QA_OPENAI_LIVE_OPEN_DOMAIN_ENABLED=1`
 - For `llm_env` candidate matching also set `JARVIS_QA_OPENAI_LIVE_FALLBACK_ENABLED=1`
 - For `llm_env_strict` keep the default no-fallback live smoke config, or set `JARVIS_QA_OPENAI_LIVE_FALLBACK_ENABLED=0` explicitly
+- Candidate-aware smoke defaults now inherit current QA env settings for:
+  - `JARVIS_QA_LLM_MODEL`
+  - `JARVIS_QA_LLM_STRICT_MODE`
+  - `JARVIS_QA_LLM_OPEN_DOMAIN_ENABLED`
+  - `JARVIS_QA_LLM_API_KEY_ENV` (copied into `OPENAI_API_KEY` when needed)
 - The script writes a rollout artifact to `JARVIS_QA_OPENAI_LIVE_ARTIFACT` or, by default, `tmp/qa/openai_live_smoke.json`
 - Candidate-aware smoke runs now default to:
   - `tmp/qa/openai_live_smoke_llm_env.json`
@@ -79,6 +84,13 @@ Comparative default-decision gate:
   - `python3 -m evals.run_qa_eval --compare-profile deterministic --compare-profile llm_env --gate-candidate-profile llm_env`
 - The gate now blocks env-backed candidates when the live smoke artifact is missing, unreadable, failed, or does not verify open-domain answering.
 - The gate also blocks stale artifacts and artifacts captured under a different provider/model/strict/fallback/open-domain config.
+- The comparative report now includes failing-case samples for non-green profiles, including source counts and short answer previews when relevant, so grounded regressions can be triaged without a second manual pass over the whole corpus.
+- The `default-switch blockers` section is the source of truth for rollout decisions. A profile can still show non-blocking case mismatches in the sample list while the gate remains green if those mismatches are outside the tracked rollout thresholds.
+
+Current env-backed status (`2026-03-25`):
+- `llm_env_strict` has a real green live-smoke + comparative-gate run with `JARVIS_QA_LLM_OPEN_DOMAIN_ENABLED=true`.
+- `llm_env` also has real green live smoke with open-domain enabled, but comparative-gate reruns still fluctuate on non-strict answer quality; do not treat it as release-ready yet.
+- This does not change the product stage by itself: keep the project at `alpha_opt_in` and keep deterministic as the product default until a deliberate default-switch decision is made.
 
 Open-domain mock harness:
 - `python3 -m evals.run_qa_eval --default-profile llm_open_domain_mock`
@@ -112,9 +124,20 @@ High fallback frequency
 - Use the comparative gate report.
 - If `llm_env` falls back too often, keep deterministic as the default and treat LLM as opt-in alpha only.
 
+Restricted network / sandboxed gate runs
+- If `llm_env` shows elevated fallback while `llm_env_strict` fails with transport, DNS, or `ANSWER_GENERATION_FAILED` provider errors, verify that the comparative gate is running with real outbound access to OpenAI rather than inside a restricted sandbox.
+- A green live smoke alone is not enough to diagnose this, because `llm_env` can hide provider reachability failures behind deterministic fallback.
+
 Gate precheck blocked
 - Run `qa gate` or `qa gate strict` first.
 - Fix missing API key, disabled open-domain config, stale/mismatched artifact, or missing open-domain live verification before spending time on the full comparative gate.
+
+Only blocker is open-domain disabled
+- If the comparative gate is otherwise green but still blocks on `candidate profile does not enable open-domain question answering`, the next real rollout step is to enable `JARVIS_QA_LLM_OPEN_DOMAIN_ENABLED=true` in the target environment.
+- After enabling open-domain, re-run the candidate-specific live smoke first so the artifact captures the open-domain flag and verification path:
+  - `scripts/run_openai_live_smoke.sh llm_env`
+  - `scripts/run_openai_live_smoke.sh llm_env_strict`
+- Then re-run the matching comparative gate command for the same candidate profile.
 
 ## Safe Debug Mode
 Enable:

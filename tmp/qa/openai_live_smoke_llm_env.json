@@ -1,0 +1,25 @@
+{
+  "created_at": "2026-03-25T19:10:45.146708+00:00",
+  "diagnostics": {
+    "answer_kind": "open_domain_model",
+    "correlation_id": "2192d7c9-5fc9-4e9f-8f3b-c1302caf92e2",
+    "debug_enabled": false,
+    "deterministic_fallback": false,
+    "fallback_enabled": true,
+    "model": "gpt-5-nano",
+    "open_domain_enabled": true,
+    "provenance": "model_knowledge",
+    "provider": "openai_responses",
+    "request_id": "req_5cf6a775da6b4c31801c153a963ec1a0",
+    "source_count": 0,
+    "strict_mode": true,
+    "warning": null
+  },
+  "error": null,
+  "issues": [],
+  "open_domain_verified": true,
+  "question": "Why is the sky blue?",
+  "runner": "tests.smoke_openai_responses_provider_live",
+  "schema_version": 1,
+  "success": true
+}

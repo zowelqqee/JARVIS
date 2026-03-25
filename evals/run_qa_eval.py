@@ -63,6 +63,7 @@ _DEFAULT_GATE_THRESHOLDS = {
     "usage_measurement_required": True,
     "live_smoke_artifact_max_age_hours": 24,
 }
+_COMPARISON_FAILED_CASES_LIMIT = 5
 
 
 @dataclass(slots=True)
@@ -89,6 +90,7 @@ class QaEvalCase:
     expected_warning_contains: str | None = None
     expected_error_code: str | None = None
     expected_answer_contains: str | None = None
+    expected_answer_contains_any: list[str] = field(default_factory=list)
     expected_clarification_contains: str | None = None
     mock_answer_result: dict[str, Any] = field(default_factory=dict)
     voice_input: str | None = None
@@ -101,6 +103,8 @@ class QaEvalCase:
     expected_api_key_env: str | None = None
     expected_question: str | None = None
     expected_open_domain_enabled: bool | None = None
+    requires_open_domain_enabled: bool = False
+    requires_open_domain_disabled: bool = False
 
 
 @dataclass(slots=True)
@@ -473,7 +477,7 @@ def run_eval_cases(cases: list[QaEvalCase], *, default_profile: str = "determini
 
 def format_report(report: QaEvalReport) -> str:
     """Return a compact human-readable eval report."""
-    failed_results = [result for result in report.results if not result.passed]
+    failed_case_summaries = _failed_case_summaries(report)
     lines = [
         "JARVIS QA Eval Report",
         f"profile: {report.default_profile}",
@@ -488,14 +492,13 @@ def format_report(report: QaEvalReport) -> str:
             f"({_percent(report.command_regression_passed, report.command_regression_total)})"
         ),
     ]
-    if not failed_results:
+    if not failed_case_summaries:
         lines.append("failed cases: none")
         return "\n".join(lines)
 
     lines.append("failed cases:")
-    for result in failed_results:
-        failed_checks = ", ".join(name for name, passed in result.checks.items() if not passed) or "unknown"
-        lines.append(f"- {result.case_id} [{result.category}] -> {failed_checks}")
+    for case_summary in failed_case_summaries:
+        lines.append(f"- {case_summary}")
     return "\n".join(lines)
 
 
@@ -603,6 +606,7 @@ def _run_interaction_case(case: QaEvalCase, *, default_profile: str) -> QaEvalCa
         "actual_error_code": actual_error_code or None,
         "actual_answer_kind": actual_answer_kind or None,
         "actual_answer_provenance": actual_answer_provenance or None,
+        "actual_answer_text_preview": _preview_text(actual_answer_text, limit=160),
         "actual_warning": actual_warning or None,
         "actual_sources_count": len(actual_sources),
         "actual_source_attribution_count": len(actual_source_attributions),
@@ -661,15 +665,19 @@ def _run_interaction_case(case: QaEvalCase, *, default_profile: str) -> QaEvalCa
     if case.expected_sources_count_max is not None:
         checks["sources_count_max"] = getattr(result, "error", None) is None and len(actual_sources) <= case.expected_sources_count_max
     if case.expected_warning_contains is not None:
-        checks["warning"] = case.expected_warning_contains in actual_warning
+        checks["warning"] = _text_contains_fragment(actual_warning, case.expected_warning_contains)
     if case.expected_error_code is not None:
         checks["error_code"] = actual_error_code == case.expected_error_code
     elif getattr(result, "error", None) is not None:
         checks["unexpected_error"] = False
-    if case.expected_answer_contains is not None:
-        checks["answer_text"] = case.expected_answer_contains in actual_answer_text
+    expected_answer_fragments = [str(case.expected_answer_contains or "").strip()] if case.expected_answer_contains is not None else []
+    expected_answer_fragments.extend(
+        str(fragment or "").strip() for fragment in list(case.expected_answer_contains_any or []) if str(fragment or "").strip()
+    )
+    if expected_answer_fragments:
+        checks["answer_text"] = any(_text_contains_fragment(actual_answer_text, fragment) for fragment in expected_answer_fragments)
     if case.expected_clarification_contains is not None:
-        checks["clarification"] = case.expected_clarification_contains in actual_clarification
+        checks["clarification"] = _text_contains_fragment(actual_clarification, case.expected_clarification_contains)
 
     return QaEvalCaseResult(
         case_id=case.id,
@@ -923,6 +931,17 @@ def _validate_case(case: QaEvalCase) -> None:
         raise ValueError(f"QA eval case {case.id} must not use a negative expected_sources_count_min.")
     if case.expected_sources_count_max is not None and case.expected_sources_count_max < 0:
         raise ValueError(f"QA eval case {case.id} must not use a negative expected_sources_count_max.")
+    if not isinstance(case.requires_open_domain_enabled, bool):
+        raise ValueError(f"QA eval case {case.id} must use a boolean requires_open_domain_enabled flag.")
+    if not isinstance(case.requires_open_domain_disabled, bool):
+        raise ValueError(f"QA eval case {case.id} must use a boolean requires_open_domain_disabled flag.")
+    if case.requires_open_domain_enabled and case.requires_open_domain_disabled:
+        raise ValueError(f"QA eval case {case.id} cannot require both open_domain_enabled and open_domain_disabled.")
+    if case.expected_answer_contains_any and (
+        not isinstance(case.expected_answer_contains_any, list)
+        or any(not str(fragment or "").strip() for fragment in case.expected_answer_contains_any)
+    ):
+        raise ValueError(f"QA eval case {case.id} must define expected_answer_contains_any as non-empty strings.")
     effective_profiles = set(case.profiles or [])
     if case.backend_profile is not None:
         effective_profiles.add(case.backend_profile)
@@ -932,9 +951,44 @@ def _validate_case(case: QaEvalCase) -> None:
 
 def _case_applies_to_profile(case: QaEvalCase, default_profile: str) -> bool:
     if not case.profiles:
-        return True
+        profile_allowed = True
+    else:
+        effective_profile = case.backend_profile or default_profile
+        profile_allowed = effective_profile in set(case.profiles)
+    if not profile_allowed:
+        return False
     effective_profile = case.backend_profile or default_profile
-    return effective_profile in set(case.profiles)
+    open_domain_enabled = bool(getattr(_build_backend_config(effective_profile).llm, "open_domain_enabled", False))
+    if case.requires_open_domain_enabled and not open_domain_enabled:
+        return False
+    if case.requires_open_domain_disabled and open_domain_enabled:
+        return False
+    return True
+
+
+_TEXT_MATCH_TRANSLATION = str.maketrans(
+    {
+        "\u2018": "'",
+        "\u2019": "'",
+        "\u201c": '"',
+        "\u201d": '"',
+        "\u2013": "-",
+        "\u2014": "-",
+        "\u00a0": " ",
+    }
+)
+
+
+def _normalize_match_text(text: str | None) -> str:
+    compact = str(text or "").translate(_TEXT_MATCH_TRANSLATION)
+    return " ".join(compact.casefold().split())
+
+
+def _text_contains_fragment(text: str | None, fragment: str | None) -> bool:
+    normalized_fragment = _normalize_match_text(fragment)
+    if not normalized_fragment:
+        return False
+    return normalized_fragment in _normalize_match_text(text)
 
 
 def _env_backed_profile(profile: str) -> bool:
@@ -1094,16 +1148,29 @@ def summarize_eval_report(report: QaEvalReport) -> QaEvalProfileSummary:
     usage_input_values = [value for value in usage_input_values if value is not None]
     usage_output_values = [value for value in usage_output_values if value is not None]
     usage_total_values = [value for value in usage_total_values if value is not None]
-    artifact_path, artifact_payload, artifact_error = _load_live_smoke_artifact(profile=report.default_profile)
-    artifact_diagnostics = dict((artifact_payload or {}).get("diagnostics", {}) or {})
-    artifact_success = (artifact_payload or {}).get("success")
-    artifact_open_domain_verified = (artifact_payload or {}).get("open_domain_verified")
     profile_config = _build_backend_config(report.default_profile)
-    artifact_age_hours, artifact_fresh, artifact_fresh_reason = _live_smoke_artifact_freshness(artifact_payload)
-    artifact_profile_match, artifact_match_reason = _live_smoke_artifact_profile_match(
-        artifact_payload,
-        config=profile_config,
-    )
+    env_backed_profile = _env_backed_profile(report.default_profile)
+    artifact_path: Path | None = None
+    artifact_payload: dict[str, Any] | None = None
+    artifact_error: str | None = None
+    artifact_diagnostics: dict[str, Any] = {}
+    artifact_success: Any = None
+    artifact_open_domain_verified: Any = None
+    artifact_age_hours: float | None = None
+    artifact_fresh: bool | None = None
+    artifact_fresh_reason: str | None = None
+    artifact_profile_match: bool | None = None
+    artifact_match_reason: str | None = None
+    if env_backed_profile:
+        artifact_path, artifact_payload, artifact_error = _load_live_smoke_artifact(profile=report.default_profile)
+        artifact_diagnostics = dict((artifact_payload or {}).get("diagnostics", {}) or {})
+        artifact_success = (artifact_payload or {}).get("success")
+        artifact_open_domain_verified = (artifact_payload or {}).get("open_domain_verified")
+        artifact_age_hours, artifact_fresh, artifact_fresh_reason = _live_smoke_artifact_freshness(artifact_payload)
+        artifact_profile_match, artifact_match_reason = _live_smoke_artifact_profile_match(
+            artifact_payload,
+            config=profile_config,
+        )
     llm_provider = _enum_value(getattr(profile_config.llm, "provider", ""))
     llm_model = str(getattr(profile_config.llm, "model", "") or "").strip() or None
     return QaEvalProfileSummary(
@@ -1134,11 +1201,11 @@ def summarize_eval_report(report: QaEvalReport) -> QaEvalProfileSummary:
         usage_input_tokens_total=sum(usage_input_values) if usage_input_values else None,
         usage_output_tokens_total=sum(usage_output_values) if usage_output_values else None,
         usage_total_tokens_total=sum(usage_total_values) if usage_total_values else None,
-        env_backed_profile=_env_backed_profile(report.default_profile),
+        env_backed_profile=env_backed_profile,
         llm_provider=llm_provider,
         llm_model=llm_model,
         open_domain_enabled=bool(getattr(profile_config.llm, "open_domain_enabled", False)),
-        live_smoke_artifact_path=str(artifact_path),
+        live_smoke_artifact_path=str(artifact_path) if artifact_path is not None else None,
         live_smoke_artifact_present=artifact_payload is not None or artifact_error is not None,
         live_smoke_artifact_success=bool(artifact_success) if artifact_success is not None else None,
         live_smoke_artifact_created_at=str((artifact_payload or {}).get("created_at", "") or "").strip() or None,
@@ -1224,28 +1291,39 @@ def format_comparison_report(comparison: QaEvalComparisonReport) -> str:
         refusal_rate = _percent(summary.refusal_passed, summary.refusal_total)
         provenance_rate = _percent(summary.provenance_passed, summary.provenance_total)
         fallback_rate = _percent(summary.fallback_total, summary.answer_total)
-        if summary.live_smoke_artifact_error is not None:
-            live_smoke_status = f"invalid ({summary.live_smoke_artifact_error})"
-        elif not summary.live_smoke_artifact_present:
-            live_smoke_status = "missing"
-        elif summary.live_smoke_artifact_success is True:
-            live_smoke_status = "green"
-        elif summary.live_smoke_artifact_success is False:
-            live_smoke_status = "failed"
-        else:
-            live_smoke_status = "unknown"
-        if summary.live_smoke_artifact_fresh is True:
-            live_smoke_freshness = f"yes ({summary.live_smoke_artifact_age_hours}h)"
-        elif summary.live_smoke_artifact_fresh is False:
-            live_smoke_freshness = f"no ({summary.live_smoke_artifact_fresh_reason or 'stale'})"
-        else:
+        failed_case_summaries = _failed_case_summaries(
+            summary.report,
+            limit=_COMPARISON_FAILED_CASES_LIMIT,
+        )
+        if not summary.env_backed_profile:
+            live_smoke_status = "n/a"
             live_smoke_freshness = "n/a"
-        if summary.live_smoke_artifact_profile_match is True:
-            live_smoke_match = "yes"
-        elif summary.live_smoke_artifact_profile_match is False:
-            live_smoke_match = f"no ({summary.live_smoke_artifact_match_reason or 'mismatch'})"
-        else:
             live_smoke_match = "n/a"
+            open_domain_live_verification = "n/a"
+        else:
+            if summary.live_smoke_artifact_error is not None:
+                live_smoke_status = f"invalid ({summary.live_smoke_artifact_error})"
+            elif not summary.live_smoke_artifact_present:
+                live_smoke_status = "missing"
+            elif summary.live_smoke_artifact_success is True:
+                live_smoke_status = "green"
+            elif summary.live_smoke_artifact_success is False:
+                live_smoke_status = "failed"
+            else:
+                live_smoke_status = "unknown"
+            if summary.live_smoke_artifact_fresh is True:
+                live_smoke_freshness = f"yes ({summary.live_smoke_artifact_age_hours}h)"
+            elif summary.live_smoke_artifact_fresh is False:
+                live_smoke_freshness = f"no ({summary.live_smoke_artifact_fresh_reason or 'stale'})"
+            else:
+                live_smoke_freshness = "n/a"
+            if summary.live_smoke_artifact_profile_match is True:
+                live_smoke_match = "yes"
+            elif summary.live_smoke_artifact_profile_match is False:
+                live_smoke_match = f"no ({summary.live_smoke_artifact_match_reason or 'mismatch'})"
+            else:
+                live_smoke_match = "n/a"
+            open_domain_live_verification = "yes" if summary.live_smoke_artifact_open_domain_verified else "no"
         lines.extend(
             [
                 f"profile: {summary.profile}",
@@ -1265,9 +1343,13 @@ def format_comparison_report(comparison: QaEvalComparisonReport) -> str:
                 f"  live smoke artifact: {live_smoke_status}",
                 f"  live smoke artifact fresh: {live_smoke_freshness}",
                 f"  live smoke artifact matches profile: {live_smoke_match}",
-                f"  open-domain live verification: {'yes' if summary.live_smoke_artifact_open_domain_verified else 'no'}",
+                f"  open-domain live verification: {open_domain_live_verification}",
             ]
         )
+        if failed_case_summaries:
+            lines.append(f"  failing case samples ({len(failed_case_summaries)}/{summary.report.failed_cases}):")
+            for case_summary in failed_case_summaries:
+                lines.append(f"  - {case_summary}")
     if comparison.blockers:
         lines.append("default-switch blockers:")
         for blocker in comparison.blockers:
@@ -1275,6 +1357,44 @@ def format_comparison_report(comparison: QaEvalComparisonReport) -> str:
     else:
         lines.append("default-switch blockers: none")
     return "\n".join(lines)
+
+
+def _failed_case_summaries(report: QaEvalReport, *, limit: int | None = None) -> list[str]:
+    failed_results = [result for result in report.results if not result.passed]
+    if limit is not None:
+        failed_results = failed_results[:limit]
+    return [_failed_case_summary(result) for result in failed_results]
+
+
+def _failed_case_summary(result: QaEvalCaseResult) -> str:
+    failed_check_names = [name for name, passed in result.checks.items() if not passed]
+    failed_checks = ", ".join(failed_check_names) or "unknown"
+    summary = f"{result.case_id} [{result.category}] -> {failed_checks}"
+    details = dict(result.details or {})
+    extras: list[str] = []
+    actual_error_code = str(details.get("actual_error_code") or "").strip()
+    if "grounding" in failed_check_names:
+        actual_sources_count = details.get("actual_sources_count")
+        if isinstance(actual_sources_count, int):
+            extras.append(f"sources={actual_sources_count}")
+    if actual_error_code:
+        extras.append(f"error={actual_error_code}")
+    elif "answer_text" in failed_check_names:
+        answer_preview = str(details.get("actual_answer_text_preview") or "").strip()
+        if answer_preview:
+            extras.append(f'answer-preview="{answer_preview}"')
+    if extras:
+        return f"{summary} ({'; '.join(extras)})"
+    return summary
+
+
+def _preview_text(text: str, *, limit: int) -> str | None:
+    compact = " ".join(str(text or "").split()).strip()
+    if not compact:
+        return None
+    if len(compact) <= limit:
+        return compact
+    return f"{compact[:limit]}..."
 
 
 def _routing_safety_regressions(baseline_report: QaEvalReport, candidate_report: QaEvalReport) -> int:
@@ -1312,7 +1432,8 @@ def _default_switch_blockers(
         blockers.append("command regression suite is not fully green for candidate profile")
     if _rate(candidate_summary.grounding_passed, candidate_summary.grounding_total) != _DEFAULT_GATE_THRESHOLDS["grounding_pass_rate_min"]:
         blockers.append("grounding pass rate is below threshold")
-    if _rate(candidate_summary.unsupported_passed, candidate_summary.unsupported_total) != _DEFAULT_GATE_THRESHOLDS["unsupported_honesty_rate_min"]:
+    unsupported_rate = _rate(candidate_summary.unsupported_passed, candidate_summary.unsupported_total)
+    if unsupported_rate is not None and unsupported_rate != _DEFAULT_GATE_THRESHOLDS["unsupported_honesty_rate_min"]:
         blockers.append("unsupported-question honesty is below threshold")
     source_quality_rate = _rate(candidate_summary.source_attribution_passed, candidate_summary.source_attribution_total)
     if source_quality_rate is None or source_quality_rate < float(_DEFAULT_GATE_THRESHOLDS["source_attribution_quality_rate_min"]):

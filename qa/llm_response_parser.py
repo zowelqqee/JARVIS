@@ -7,6 +7,7 @@ from typing import Protocol
 if False:  # pragma: no cover
     from qa.grounding import GroundingBundle
     from types.answer_result import AnswerResult
+    from types.question_request import QuestionRequest
 
 
 class LlmResponseParser(Protocol):
@@ -16,6 +17,7 @@ class LlmResponseParser(Protocol):
         self,
         response_payload: dict,
         *,
+        question: QuestionRequest | None = None,
         grounding_bundle: GroundingBundle,
         debug_trace: dict | None = None,
     ) -> AnswerResult:

@@ -48,6 +48,7 @@ def build_general_instructions(*, config: AnswerBackendConfig) -> str:
         "Do not pretend to quote local docs or local sources because this answer mode is model knowledge, not local grounding. "
         "Follow the Expected boundary, Policy tags, Warning hint, and Policy guidance supplied in the user message. "
         "If the question depends on current or changing real-world facts, add a short warning that the answer may be out of date. "
+        "When a Warning hint is provided for an open_domain_model answer, copy that warning into the warning field verbatim instead of burying it only inside answer_text. "
         "If the request is unsafe or disallowed, return answer_kind refusal with a short refusal answer_text. "
         f"Return schema_version exactly {GENERAL_ANSWER_SCHEMA_VERSION}. "
         "Keep answer_text concise and under 120 words, and keep warning empty unless it is needed. "

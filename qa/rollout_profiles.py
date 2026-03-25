@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from pathlib import Path
+from typing import Mapping
+
+from qa.answer_config import load_answer_backend_config
 
 _REPO_ROOT = Path(__file__).resolve().parents[1]
 _DEFAULT_LIVE_SMOKE_ARTIFACT = _REPO_ROOT / "tmp" / "qa" / "openai_live_smoke.json"
@@ -10,6 +14,21 @@ _PROFILE_LIVE_SMOKE_ARTIFACTS = {
     "llm_env": _REPO_ROOT / "tmp" / "qa" / "openai_live_smoke_llm_env.json",
     "llm_env_strict": _REPO_ROOT / "tmp" / "qa" / "openai_live_smoke_llm_env_strict.json",
 }
+
+
+@dataclass(slots=True, frozen=True)
+class RolloutCandidateSettings:
+    """Resolved rollout settings for one candidate profile."""
+
+    candidate_profile: str
+    artifact_path: Path
+    model: str
+    strict_mode: bool
+    fallback_enabled: bool
+    open_domain_enabled: bool
+    api_key_env: str
+    smoke_command: str
+    compare_command: str
 
 
 def live_smoke_artifact_path_for_candidate(candidate_profile: str | None = None) -> Path:
@@ -31,3 +50,27 @@ def rollout_compare_command(candidate_profile: str) -> str:
     if not candidate:
         raise ValueError("candidate_profile must be non-empty.")
     return f"scripts/run_qa_rollout_gate.sh {candidate}"
+
+
+def resolve_rollout_candidate_settings(
+    candidate_profile: str,
+    *,
+    environ: Mapping[str, str] | None = None,
+) -> RolloutCandidateSettings:
+    """Resolve current-env rollout settings for one candidate profile."""
+    candidate = str(candidate_profile or "").strip()
+    if candidate not in _PROFILE_LIVE_SMOKE_ARTIFACTS:
+        raise ValueError(f"Unsupported rollout candidate profile: {candidate_profile!r}.")
+    config = load_answer_backend_config(environ=environ)
+    fallback_enabled = candidate == "llm_env"
+    return RolloutCandidateSettings(
+        candidate_profile=candidate,
+        artifact_path=live_smoke_artifact_path_for_candidate(candidate),
+        model=str(config.llm.model or "").strip(),
+        strict_mode=bool(config.llm.strict_mode),
+        fallback_enabled=fallback_enabled,
+        open_domain_enabled=bool(config.llm.open_domain_enabled),
+        api_key_env=str(config.llm.api_key_env or "").strip() or "OPENAI_API_KEY",
+        smoke_command=rollout_smoke_command(candidate),
+        compare_command=rollout_compare_command(candidate),
+    )

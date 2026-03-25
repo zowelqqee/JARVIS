@@ -203,71 +203,80 @@ class CliSmokeTests(unittest.TestCase):
         runtime_mock.assert_not_called()
 
     def test_qa_helper_commands_are_intercepted_before_runtime(self) -> None:
-        with patch("cli._handle_runtime_input") as runtime_mock, patch(
-            "cli.load_answer_backend_config",
-            return_value=SimpleNamespace(
-                backend_kind="deterministic",
-                llm=SimpleNamespace(
-                    provider="openai_responses",
-                    enabled=False,
-                    fallback_enabled=True,
-                    open_domain_enabled=False,
-                    model="gpt-5-nano",
-                    reasoning_effort="minimal",
-                    strict_mode=True,
-                    max_output_tokens=800,
-                    api_key_env="OPENAI_API_KEY",
+        with tempfile.TemporaryDirectory() as tmpdir:
+            missing_artifact = str(Path(tmpdir) / "missing_live_smoke_artifact.json")
+            with patch("cli._handle_runtime_input") as runtime_mock, patch(
+                "cli.load_answer_backend_config",
+                return_value=SimpleNamespace(
+                    backend_kind="deterministic",
+                    llm=SimpleNamespace(
+                        provider="openai_responses",
+                        enabled=False,
+                        fallback_enabled=True,
+                        open_domain_enabled=False,
+                        model="gpt-5-nano",
+                        reasoning_effort="minimal",
+                        strict_mode=True,
+                        max_output_tokens=800,
+                        api_key_env="OPENAI_API_KEY",
+                    ),
                 ),
-            ),
-        ), patch.dict("os.environ", {"OPENAI_API_KEY": "test-key"}, clear=False):
-            should_exit, speak_enabled, backend_output = self._run_command("qa backend", speak_enabled=False)
-            self.assertFalse(should_exit)
-            self.assertFalse(speak_enabled)
-            self.assertIn("qa backend: deterministic", backend_output)
-            self.assertIn("llm provider: openai_responses", backend_output)
+            ), patch.dict(
+                "os.environ",
+                {
+                    "OPENAI_API_KEY": "test-key",
+                    "JARVIS_QA_OPENAI_LIVE_ARTIFACT": missing_artifact,
+                },
+                clear=False,
+            ):
+                should_exit, speak_enabled, backend_output = self._run_command("qa backend", speak_enabled=False)
+                self.assertFalse(should_exit)
+                self.assertFalse(speak_enabled)
+                self.assertIn("qa backend: deterministic", backend_output)
+                self.assertIn("llm provider: openai_responses", backend_output)
 
-            should_exit, speak_enabled, model_output = self._run_command("qa model", speak_enabled=False)
-            self.assertFalse(should_exit)
-            self.assertFalse(speak_enabled)
-            self.assertIn("qa model: gpt-5-nano", model_output)
-            self.assertIn("reasoning effort: minimal", model_output)
+                should_exit, speak_enabled, model_output = self._run_command("qa model", speak_enabled=False)
+                self.assertFalse(should_exit)
+                self.assertFalse(speak_enabled)
+                self.assertIn("qa model: gpt-5-nano", model_output)
+                self.assertIn("reasoning effort: minimal", model_output)
 
-            should_exit, speak_enabled, smoke_output = self._run_command("qa smoke", speak_enabled=False)
-            self.assertFalse(should_exit)
-            self.assertFalse(speak_enabled)
-            self.assertIn("qa smoke command: scripts/run_openai_live_smoke.sh", smoke_output)
-            self.assertIn("api key env: OPENAI_API_KEY (present)", smoke_output)
-            self.assertIn("debug flag: JARVIS_QA_DEBUG (missing)", smoke_output)
-            self.assertIn("live smoke artifact:", smoke_output)
-            self.assertIn("(missing)", smoke_output)
-            self.assertIn("open-domain live verification: no", smoke_output)
+                should_exit, speak_enabled, smoke_output = self._run_command("qa smoke", speak_enabled=False)
+                self.assertFalse(should_exit)
+                self.assertFalse(speak_enabled)
+                self.assertIn("qa smoke command: scripts/run_openai_live_smoke.sh", smoke_output)
+                self.assertIn("api key env: OPENAI_API_KEY (present)", smoke_output)
+                self.assertIn("debug flag: JARVIS_QA_DEBUG (missing)", smoke_output)
+                self.assertIn("live smoke artifact:", smoke_output)
+                self.assertIn("(missing)", smoke_output)
+                self.assertIn("open-domain live verification: no", smoke_output)
 
-            should_exit, speak_enabled, gate_output = self._run_command("qa gate", speak_enabled=False)
-            self.assertFalse(should_exit)
-            self.assertFalse(speak_enabled)
-            self.assertIn("qa gate candidate: llm_env", gate_output)
-            self.assertIn("fallback: on", gate_output)
-            self.assertIn("precheck: blocked", gate_output)
-            self.assertIn("blocker: open-domain question answering is disabled", gate_output)
-            self.assertIn("blocker: live smoke artifact is missing", gate_output)
-            self.assertIn("smoke command: scripts/run_openai_live_smoke.sh llm_env", gate_output)
-            self.assertIn(
-                "compare command: scripts/run_qa_rollout_gate.sh llm_env",
-                gate_output,
-            )
+                should_exit, speak_enabled, gate_output = self._run_command("qa gate", speak_enabled=False)
+                self.assertFalse(should_exit)
+                self.assertFalse(speak_enabled)
+                self.assertIn("qa gate candidate: llm_env", gate_output)
+                self.assertIn("fallback: on", gate_output)
+                self.assertIn("precheck: blocked", gate_output)
+                self.assertIn("blocker: open-domain question answering is disabled", gate_output)
+                self.assertIn("blocker: live smoke artifact is missing", gate_output)
+                self.assertIn("smoke command: scripts/run_openai_live_smoke.sh llm_env", gate_output)
+                self.assertIn(
+                    "compare command: scripts/run_qa_rollout_gate.sh llm_env",
+                    gate_output,
+                )
 
-            should_exit, speak_enabled, strict_gate_output = self._run_command("qa gate strict", speak_enabled=False)
-            self.assertFalse(should_exit)
-            self.assertFalse(speak_enabled)
-            self.assertIn("qa gate candidate: llm_env_strict", strict_gate_output)
-            self.assertIn("fallback: off", strict_gate_output)
-            self.assertIn("precheck: blocked", strict_gate_output)
-            self.assertIn("blocker: open-domain question answering is disabled", strict_gate_output)
-            self.assertIn("smoke command: scripts/run_openai_live_smoke.sh llm_env_strict", strict_gate_output)
-            self.assertIn(
-                "compare command: scripts/run_qa_rollout_gate.sh llm_env_strict",
-                strict_gate_output,
-            )
+                should_exit, speak_enabled, strict_gate_output = self._run_command("qa gate strict", speak_enabled=False)
+                self.assertFalse(should_exit)
+                self.assertFalse(speak_enabled)
+                self.assertIn("qa gate candidate: llm_env_strict", strict_gate_output)
+                self.assertIn("fallback: off", strict_gate_output)
+                self.assertIn("precheck: blocked", strict_gate_output)
+                self.assertIn("blocker: open-domain question answering is disabled", strict_gate_output)
+                self.assertIn("smoke command: scripts/run_openai_live_smoke.sh llm_env_strict", strict_gate_output)
+                self.assertIn(
+                    "compare command: scripts/run_qa_rollout_gate.sh llm_env_strict",
+                    strict_gate_output,
+                )
 
         runtime_mock.assert_not_called()
 
