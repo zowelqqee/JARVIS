@@ -16,6 +16,11 @@ Useful read-only helper commands:
 - `qa backend`
 - `qa model`
 - `qa smoke`
+- `qa gate`
+- `qa gate strict`
+- `qa smoke` now prints the live-smoke artifact path/status and whether open-domain live verification is already present
+- `qa gate` now prints an offline rollout-gate precheck for the current `llm_env` candidate config
+- `qa gate strict` does the same for `llm_env_strict` and prints the exact comparative gate command to run next
 
 Deterministic sanity checks:
 - `python3 -m evals.run_qa_eval`
@@ -55,17 +60,37 @@ Interaction routing path:
 
 Live OpenAI path:
 - `scripts/run_openai_live_smoke.sh`
+- `scripts/run_openai_live_smoke.sh llm_env`
+- `scripts/run_openai_live_smoke.sh llm_env_strict`
+- For open-domain live verification also set `JARVIS_QA_OPENAI_LIVE_OPEN_DOMAIN_ENABLED=1`
+- For `llm_env` candidate matching also set `JARVIS_QA_OPENAI_LIVE_FALLBACK_ENABLED=1`
+- For `llm_env_strict` keep the default no-fallback live smoke config, or set `JARVIS_QA_OPENAI_LIVE_FALLBACK_ENABLED=0` explicitly
+- The script writes a rollout artifact to `JARVIS_QA_OPENAI_LIVE_ARTIFACT` or, by default, `tmp/qa/openai_live_smoke.json`
+- Candidate-aware smoke runs now default to:
+  - `tmp/qa/openai_live_smoke_llm_env.json`
+  - `tmp/qa/openai_live_smoke_llm_env_strict.json`
+- `qa gate`, `qa gate strict`, and raw comparative gate commands now resolve those candidate-specific artifact paths automatically when `JARVIS_QA_OPENAI_LIVE_ARTIFACT` is not set.
+- Re-run the smoke immediately before the comparative gate so the artifact is fresh and matches the current model/profile config.
 
 Comparative default-decision gate:
-- `python3 -m evals.run_qa_eval --compare-profile deterministic --compare-profile llm_env --gate-candidate-profile llm_env`
+- `scripts/run_qa_rollout_gate.sh llm_env`
+- `scripts/run_qa_rollout_gate.sh llm_env_strict`
+- Raw form remains available:
+  - `python3 -m evals.run_qa_eval --compare-profile deterministic --compare-profile llm_env --gate-candidate-profile llm_env`
+- The gate now blocks env-backed candidates when the live smoke artifact is missing, unreadable, failed, or does not verify open-domain answering.
+- The gate also blocks stale artifacts and artifacts captured under a different provider/model/strict/fallback/open-domain config.
 
 Open-domain mock harness:
 - `python3 -m evals.run_qa_eval --default-profile llm_open_domain_mock`
 
+Relevant policy docs:
+- `docs/general_qa_policy.md`
+- `docs/general_qa_safety_boundaries.md`
+
 ## How To Diagnose Failures
 `MODEL_BACKEND_UNAVAILABLE`
 - Usually means `OPENAI_API_KEY` is missing, the LLM backend is disabled, or provider config is invalid.
-- Check `qa backend`, `qa model`, and `qa smoke`.
+- Check `qa backend`, `qa model`, `qa smoke`, and `qa gate`.
 
 `ANSWER_GENERATION_FAILED`
 - Usually means transport failure, provider status failure, malformed structured output, or schema mismatch.
@@ -86,6 +111,10 @@ TLS / certificate failures
 High fallback frequency
 - Use the comparative gate report.
 - If `llm_env` falls back too often, keep deterministic as the default and treat LLM as opt-in alpha only.
+
+Gate precheck blocked
+- Run `qa gate` or `qa gate strict` first.
+- Fix missing API key, disabled open-domain config, stale/mismatched artifact, or missing open-domain live verification before spending time on the full comparative gate.
 
 ## Safe Debug Mode
 Enable:

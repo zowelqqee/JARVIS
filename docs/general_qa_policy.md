@@ -5,6 +5,7 @@ Define the product boundaries for broader GPT-backed question answering beyond t
 
 This document is policy for the planned expansion described in `GPT_QA_PLAN.md`.
 It does not mean that open-domain GPT answering is already the default shipped path.
+Detailed boundary rules live in `docs/general_qa_safety_boundaries.md`.
 
 Current shipped/default state:
 - grounded local QA is the default product path

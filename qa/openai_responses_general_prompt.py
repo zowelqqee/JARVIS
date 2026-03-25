@@ -6,6 +6,7 @@ import json
 import uuid
 from typing import Any
 
+from qa.general_qa_safety import inspect_general_qa_safety, policy_tags_text
 from qa.openai_responses_general_schema import GENERAL_ANSWER_SCHEMA_VERSION
 
 if False:  # pragma: no cover
@@ -22,12 +23,16 @@ def build_general_request_metadata(
 ) -> dict[str, str]:
     """Build stable string-only metadata for one open-domain provider request."""
     question_type = getattr(getattr(question, "question_type", None), "value", None)
+    policy = inspect_general_qa_safety(getattr(question, "raw_input", ""))
     return _metadata(
         jarvis_mode="question",
         answer_mode="open_domain",
         question_type=question_type,
         grounding_scope=grounding_bundle.scope,
         source_count=len(grounding_bundle.source_paths),
+        policy_tags=policy_tags_text(policy),
+        policy_response_mode=policy.response_mode,
+        policy_warning_hint=policy.warning_hint,
         provider=provider,
         answer_schema_version=GENERAL_ANSWER_SCHEMA_VERSION,
         correlation_id=str(uuid.uuid4()),
@@ -41,6 +46,7 @@ def build_general_instructions(*, config: AnswerBackendConfig) -> str:
         "You are the JARVIS open-domain question backend. Answer the user directly in read-only mode. "
         "Do not claim that you executed commands, clicked UI, opened apps, or changed runtime state. "
         "Do not pretend to quote local docs or local sources because this answer mode is model knowledge, not local grounding. "
+        "Follow the Expected boundary, Policy tags, Warning hint, and Policy guidance supplied in the user message. "
         "If the question depends on current or changing real-world facts, add a short warning that the answer may be out of date. "
         "If the request is unsafe or disallowed, return answer_kind refusal with a short refusal answer_text. "
         f"Return schema_version exactly {GENERAL_ANSWER_SCHEMA_VERSION}. "
@@ -51,10 +57,12 @@ def build_general_instructions(*, config: AnswerBackendConfig) -> str:
 
 def build_general_user_text(question: QuestionRequest, *, grounding_bundle: GroundingBundle) -> str:
     """Build the user-visible prompt content for one open-domain provider request."""
+    policy = inspect_general_qa_safety(getattr(question, "raw_input", ""))
     return "\n\n".join(
         section
         for section in (
             _question_section(question),
+            _policy_section(policy),
             "Local grounded sources: none for this answer mode. Do not invent citations.",
             _json_section("Runtime facts", grounding_bundle.runtime_facts),
             _json_section("Session facts", grounding_bundle.session_facts),
@@ -66,6 +74,18 @@ def build_general_user_text(question: QuestionRequest, *, grounding_bundle: Grou
 def _question_section(question: QuestionRequest) -> str:
     question_type = getattr(getattr(question, "question_type", None), "value", "question")
     return f"Question type: {question_type}\nQuestion: {getattr(question, 'raw_input', '')}"
+
+
+def _policy_section(policy) -> str:
+    lines = [f"Expected boundary: {policy.response_mode}"]
+    if policy.policy_tags:
+        lines.append(f"Policy tags: {', '.join(policy.policy_tags)}")
+    if policy.warning_hint:
+        lines.append(f"Warning hint: {policy.warning_hint}")
+    if policy.guidance_lines:
+        lines.append("Policy guidance:")
+        lines.extend(f"- {line}" for line in policy.guidance_lines)
+    return "\n".join(lines)
 
 
 def _json_section(title: str, data: dict[str, Any]) -> str:

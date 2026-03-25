@@ -16,8 +16,10 @@
 - `python3 -m unittest discover -s tests`
 
 If validating model-backed alpha readiness:
-- `python3 -m evals.run_qa_eval --compare-profile deterministic --compare-profile llm_env --gate-candidate-profile llm_env`
-- `scripts/run_openai_live_smoke.sh`
+- `scripts/run_openai_live_smoke.sh llm_env`
+- `scripts/run_openai_live_smoke.sh llm_env_strict`
+- `scripts/run_qa_rollout_gate.sh llm_env`
+- `scripts/run_qa_rollout_gate.sh llm_env_strict`
 
 ## Manual Verification Checklist (Scripted Local Pass)
 - Open apps flow (`open Telegram and Safari`) completes predictably.
@@ -34,7 +36,7 @@ If validating model-backed alpha readiness:
 - Recent-runtime question answers only from current session/runtime context.
 - Mixed question + action input asks for routing clarification instead of answering and executing together.
 - Unsupported window operations remain explicit failures with no fake success.
-- CLI shell commands (`help`, `voice`, `speak on/off`, `reset`, `quit`, `qa backend`, `qa model`, `qa smoke`) stay intercepted and deterministic.
+- CLI shell commands (`help`, `voice`, `speak on/off`, `reset`, `quit`, `qa backend`, `qa model`, `qa smoke`, `qa gate`, `qa gate strict`) stay intercepted and deterministic.
 - Voice failure diagnostics stay explicit and actionable (no generic `Voice capture failed` path).
 - Use `docs/manual_verification_commands.md` for the dual-mode scripted pass.
 - Use `docs/qa_operator_guide.md` for LLM alpha enablement, live smoke, and failure diagnosis.

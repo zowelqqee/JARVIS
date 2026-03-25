@@ -3,8 +3,11 @@
 from __future__ import annotations
 
 import io
+import json
+import tempfile
 import unittest
 from contextlib import redirect_stdout
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
@@ -208,6 +211,7 @@ class CliSmokeTests(unittest.TestCase):
                     provider="openai_responses",
                     enabled=False,
                     fallback_enabled=True,
+                    open_domain_enabled=False,
                     model="gpt-5-nano",
                     reasoning_effort="minimal",
                     strict_mode=True,
@@ -234,7 +238,237 @@ class CliSmokeTests(unittest.TestCase):
             self.assertIn("qa smoke command: scripts/run_openai_live_smoke.sh", smoke_output)
             self.assertIn("api key env: OPENAI_API_KEY (present)", smoke_output)
             self.assertIn("debug flag: JARVIS_QA_DEBUG (missing)", smoke_output)
+            self.assertIn("live smoke artifact:", smoke_output)
+            self.assertIn("(missing)", smoke_output)
+            self.assertIn("open-domain live verification: no", smoke_output)
 
+            should_exit, speak_enabled, gate_output = self._run_command("qa gate", speak_enabled=False)
+            self.assertFalse(should_exit)
+            self.assertFalse(speak_enabled)
+            self.assertIn("qa gate candidate: llm_env", gate_output)
+            self.assertIn("fallback: on", gate_output)
+            self.assertIn("precheck: blocked", gate_output)
+            self.assertIn("blocker: open-domain question answering is disabled", gate_output)
+            self.assertIn("blocker: live smoke artifact is missing", gate_output)
+            self.assertIn("smoke command: scripts/run_openai_live_smoke.sh llm_env", gate_output)
+            self.assertIn(
+                "compare command: scripts/run_qa_rollout_gate.sh llm_env",
+                gate_output,
+            )
+
+            should_exit, speak_enabled, strict_gate_output = self._run_command("qa gate strict", speak_enabled=False)
+            self.assertFalse(should_exit)
+            self.assertFalse(speak_enabled)
+            self.assertIn("qa gate candidate: llm_env_strict", strict_gate_output)
+            self.assertIn("fallback: off", strict_gate_output)
+            self.assertIn("precheck: blocked", strict_gate_output)
+            self.assertIn("blocker: open-domain question answering is disabled", strict_gate_output)
+            self.assertIn("smoke command: scripts/run_openai_live_smoke.sh llm_env_strict", strict_gate_output)
+            self.assertIn(
+                "compare command: scripts/run_qa_rollout_gate.sh llm_env_strict",
+                strict_gate_output,
+            )
+
+        runtime_mock.assert_not_called()
+
+    def test_qa_smoke_reports_green_artifact_and_open_domain_verification(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            artifact_path = Path(tmpdir) / "openai_live_smoke.json"
+            artifact_path.write_text(
+                json.dumps(
+                    {
+                        "schema_version": 1,
+                        "runner": "tests.smoke_openai_responses_provider_live",
+                        "created_at": "2026-03-25T00:00:00+00:00",
+                        "question": "Who is the president of France?",
+                        "success": True,
+                        "issues": [],
+                        "error": None,
+                        "open_domain_verified": True,
+                        "diagnostics": {
+                            "provider": "openai_responses",
+                            "model": "gpt-5-nano",
+                            "strict_mode": True,
+                            "fallback_enabled": True,
+                            "open_domain_enabled": True,
+                            "answer_kind": "open_domain_model",
+                            "provenance": "model_knowledge",
+                            "source_count": 0,
+                            "deterministic_fallback": False,
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+            with patch("cli._handle_runtime_input") as runtime_mock, patch(
+                "cli.load_answer_backend_config",
+                return_value=SimpleNamespace(
+                    backend_kind="llm",
+                    llm=SimpleNamespace(
+                        provider="openai_responses",
+                        enabled=True,
+                        fallback_enabled=False,
+                        model="gpt-5-nano",
+                        reasoning_effort="minimal",
+                        strict_mode=True,
+                        max_output_tokens=800,
+                        api_key_env="OPENAI_API_KEY",
+                    ),
+                ),
+            ), patch.dict(
+                "os.environ",
+                {
+                    "OPENAI_API_KEY": "test-key",
+                    "JARVIS_QA_OPENAI_LIVE_ARTIFACT": str(artifact_path),
+                },
+                clear=False,
+            ):
+                should_exit, speak_enabled, smoke_output = self._run_command("qa smoke", speak_enabled=False)
+
+        self.assertFalse(should_exit)
+        self.assertFalse(speak_enabled)
+        self.assertIn(f"live smoke artifact: {artifact_path} (green)", smoke_output)
+        self.assertIn("open-domain live verification: yes", smoke_output)
+        runtime_mock.assert_not_called()
+
+    def test_qa_gate_reports_green_matching_precheck(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            artifact_path = Path(tmpdir) / "openai_live_smoke.json"
+            artifact_path.write_text(
+                json.dumps(
+                    {
+                        "schema_version": 1,
+                        "runner": "tests.smoke_openai_responses_provider_live",
+                        "created_at": "2026-03-25T00:00:00+00:00",
+                        "question": "Who is the president of France?",
+                        "success": True,
+                        "issues": [],
+                        "error": None,
+                        "open_domain_verified": True,
+                        "diagnostics": {
+                            "provider": "openai_responses",
+                            "model": "gpt-5-nano",
+                            "strict_mode": True,
+                            "fallback_enabled": True,
+                            "open_domain_enabled": True,
+                            "answer_kind": "open_domain_model",
+                            "provenance": "model_knowledge",
+                            "source_count": 0,
+                            "deterministic_fallback": False,
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+            with patch("cli._handle_runtime_input") as runtime_mock, patch(
+                "cli._artifact_now",
+                return_value=cli.datetime(2026, 3, 25, tzinfo=cli.timezone.utc),
+            ), patch(
+                "cli.load_answer_backend_config",
+                return_value=SimpleNamespace(
+                    backend_kind="llm",
+                    llm=SimpleNamespace(
+                        provider="openai_responses",
+                        enabled=True,
+                        fallback_enabled=False,
+                        open_domain_enabled=True,
+                        model="gpt-5-nano",
+                        reasoning_effort="minimal",
+                        strict_mode=True,
+                        max_output_tokens=800,
+                        api_key_env="OPENAI_API_KEY",
+                    ),
+                ),
+            ), patch.dict(
+                "os.environ",
+                {
+                    "OPENAI_API_KEY": "test-key",
+                    "JARVIS_QA_OPENAI_LIVE_ARTIFACT": str(artifact_path),
+                },
+                clear=False,
+            ):
+                should_exit, speak_enabled, gate_output = self._run_command("qa gate", speak_enabled=False)
+
+        self.assertFalse(should_exit)
+        self.assertFalse(speak_enabled)
+        self.assertIn("qa gate candidate: llm_env", gate_output)
+        self.assertIn(f"live smoke artifact: {artifact_path} (green)", gate_output)
+        self.assertIn("live smoke artifact fresh: yes (0.0h)", gate_output)
+        self.assertIn("live smoke artifact matches profile: yes", gate_output)
+        self.assertIn("open-domain live verification: yes", gate_output)
+        self.assertIn("precheck: ready", gate_output)
+        self.assertIn("smoke command: scripts/run_openai_live_smoke.sh llm_env", gate_output)
+        self.assertIn(
+            "compare command: scripts/run_qa_rollout_gate.sh llm_env",
+            gate_output,
+        )
+        self.assertNotIn("blocker:", gate_output)
+        runtime_mock.assert_not_called()
+
+    def test_qa_gate_uses_candidate_default_artifact_path_without_env_override(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            artifact_path = Path(tmpdir) / "openai_live_smoke_llm_env.json"
+            artifact_path.write_text(
+                json.dumps(
+                    {
+                        "schema_version": 1,
+                        "runner": "tests.smoke_openai_responses_provider_live",
+                        "created_at": "2026-03-25T00:00:00+00:00",
+                        "question": "Who is the president of France?",
+                        "success": True,
+                        "issues": [],
+                        "error": None,
+                        "open_domain_verified": True,
+                        "diagnostics": {
+                            "provider": "openai_responses",
+                            "model": "gpt-5-nano",
+                            "strict_mode": True,
+                            "fallback_enabled": True,
+                            "open_domain_enabled": True,
+                            "answer_kind": "open_domain_model",
+                            "provenance": "model_knowledge",
+                            "source_count": 0,
+                            "deterministic_fallback": False,
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+            with patch("cli._handle_runtime_input") as runtime_mock, patch(
+                "cli._artifact_now",
+                return_value=cli.datetime(2026, 3, 25, tzinfo=cli.timezone.utc),
+            ), patch(
+                "cli.live_smoke_artifact_path_for_candidate",
+                return_value=artifact_path,
+            ), patch(
+                "cli.load_answer_backend_config",
+                return_value=SimpleNamespace(
+                    backend_kind="llm",
+                    llm=SimpleNamespace(
+                        provider="openai_responses",
+                        enabled=True,
+                        fallback_enabled=False,
+                        open_domain_enabled=True,
+                        model="gpt-5-nano",
+                        reasoning_effort="minimal",
+                        strict_mode=True,
+                        max_output_tokens=800,
+                        api_key_env="OPENAI_API_KEY",
+                    ),
+                ),
+            ), patch.dict(
+                "os.environ",
+                {
+                    "OPENAI_API_KEY": "test-key",
+                },
+                clear=False,
+            ):
+                should_exit, speak_enabled, gate_output = self._run_command("qa gate", speak_enabled=False)
+
+        self.assertFalse(should_exit)
+        self.assertFalse(speak_enabled)
+        self.assertIn(f"live smoke artifact: {artifact_path} (green)", gate_output)
+        self.assertIn("precheck: ready", gate_output)
         runtime_mock.assert_not_called()
 
     def test_question_answer_output_includes_mode_answer_sources_and_warning(self) -> None:

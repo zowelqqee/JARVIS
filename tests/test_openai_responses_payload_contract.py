@@ -37,7 +37,23 @@ class OpenAIResponsesPayloadContractTests(unittest.TestCase):
             confidence=0.7,
             requires_grounding=False,
         )
+        self.temporal_question = QuestionRequest(
+            raw_input="Who is the current president of France?",
+            question_type=QuestionType.OPEN_DOMAIN_GENERAL,
+            scope="open_domain",
+            confidence=0.7,
+            requires_grounding=False,
+        )
+        self.medical_question = QuestionRequest(
+            raw_input="Should I stop taking my medication if I have chest pain?",
+            question_type=QuestionType.OPEN_DOMAIN_GENERAL,
+            scope="open_domain",
+            confidence=0.7,
+            requires_grounding=False,
+        )
         self.open_domain_grounding_bundle = build_grounding_bundle(self.open_domain_question)
+        self.temporal_grounding_bundle = build_grounding_bundle(self.temporal_question)
+        self.medical_grounding_bundle = build_grounding_bundle(self.medical_question)
         self.provider = OpenAIResponsesProvider()
 
     def test_payload_uses_string_only_metadata(self) -> None:
@@ -162,6 +178,37 @@ class OpenAIResponsesPayloadContractTests(unittest.TestCase):
         self.assertIn("Question type: open_domain_general", input_text)
         self.assertIn("Local grounded sources: none for this answer mode.", input_text)
         self.assertNotIn("Allowed local sources:", input_text)
+
+    def test_open_domain_payload_includes_temporal_boundary_metadata_and_warning_hint(self) -> None:
+        payload = self.provider.build_request_payload(
+            self.temporal_question,
+            grounding_bundle=self.temporal_grounding_bundle,
+            config=self._config(),
+        )
+
+        metadata = payload.get("metadata") or {}
+        self.assertEqual(metadata.get("policy_tags"), "temporally_unstable")
+        self.assertEqual(metadata.get("policy_response_mode"), "bounded_answer")
+        self.assertIn("out of date", str(metadata.get("policy_warning_hint")))
+        input_text = str((((payload.get("input") or [])[0].get("content") or [])[0].get("text")) or "")
+        self.assertIn("Expected boundary: bounded_answer", input_text)
+        self.assertIn("Policy tags: temporally_unstable", input_text)
+        self.assertIn("Warning hint: This answer may be out of date", input_text)
+
+    def test_open_domain_payload_includes_sensitive_domain_guidance(self) -> None:
+        payload = self.provider.build_request_payload(
+            self.medical_question,
+            grounding_bundle=self.medical_grounding_bundle,
+            config=self._config(),
+        )
+
+        metadata = payload.get("metadata") or {}
+        self.assertEqual(metadata.get("policy_tags"), "medical_sensitive")
+        self.assertEqual(metadata.get("policy_response_mode"), "bounded_answer")
+        self.assertIn("medical advice", str(metadata.get("policy_warning_hint")))
+        input_text = str((((payload.get("input") or [])[0].get("content") or [])[0].get("text")) or "")
+        self.assertIn("Policy guidance:", input_text)
+        self.assertIn("avoid diagnosis, prescriptions, dosing, or certainty", input_text)
 
     def _config(
         self,

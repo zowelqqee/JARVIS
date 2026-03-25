@@ -13,6 +13,8 @@ if str(_TYPES_PATH) not in sys.path:
 from answer_result import AnswerResult, AnswerSourceAttribution
 from qa.answer_backend import AnswerBackendKind
 from tests.smoke_openai_responses_provider_live import (
+    live_smoke_artifact_path,
+    live_smoke_artifact_payload,
     live_smoke_config,
     live_smoke_diagnostics,
     live_smoke_enabled,
@@ -53,6 +55,92 @@ class OpenAILiveSmokeContractTests(unittest.TestCase):
         self.assertTrue(config.llm.strict_mode)
         self.assertEqual(live_smoke_question({"JARVIS_QA_OPENAI_LIVE_QUESTION": "How does clarification work?"}), "How does clarification work?")
 
+    def test_live_smoke_config_can_enable_open_domain_explicitly(self) -> None:
+        config = live_smoke_config(
+            {
+                "JARVIS_QA_OPENAI_LIVE_SMOKE": "1",
+                "OPENAI_API_KEY": "test-key",
+                "JARVIS_QA_OPENAI_LIVE_OPEN_DOMAIN_ENABLED": "1",
+                "JARVIS_QA_OPENAI_LIVE_QUESTION": "Who is the president of France?",
+            }
+        )
+
+        self.assertTrue(config.llm.open_domain_enabled)
+
+    def test_live_smoke_config_can_enable_fallback_explicitly(self) -> None:
+        config = live_smoke_config(
+            {
+                "JARVIS_QA_OPENAI_LIVE_SMOKE": "1",
+                "OPENAI_API_KEY": "test-key",
+                "JARVIS_QA_OPENAI_LIVE_FALLBACK_ENABLED": "1",
+            }
+        )
+
+        self.assertTrue(config.llm.fallback_enabled)
+
+    def test_live_smoke_artifact_path_defaults_under_repo_tmp(self) -> None:
+        path = live_smoke_artifact_path({})
+
+        self.assertTrue(str(path).endswith("tmp/qa/openai_live_smoke.json"))
+
+    def test_live_smoke_artifact_payload_marks_green_open_domain_verification(self) -> None:
+        config = live_smoke_config(
+            {
+                "JARVIS_QA_OPENAI_LIVE_SMOKE": "1",
+                "OPENAI_API_KEY": "test-key",
+                "JARVIS_QA_OPENAI_LIVE_OPEN_DOMAIN_ENABLED": "1",
+            }
+        )
+
+        payload = live_smoke_artifact_payload(
+            config=config,
+            question="Who is the president of France?",
+            result=AnswerResult(
+                answer_text="France's president is Emmanuel Macron, but this may be out of date.",
+                warning="This answer may be out of date for changing public facts.",
+                answer_kind="open_domain_model",
+                provenance="model_knowledge",
+            ),
+            debug_trace={"fallback": {"deterministic_fallback": False}},
+            issues=[],
+        )
+
+        self.assertTrue(bool(payload.get("success")))
+        self.assertTrue(bool(payload.get("open_domain_verified")))
+        self.assertEqual(str(payload.get("question")), "Who is the president of France?")
+        diagnostics = dict(payload.get("diagnostics") or {})
+        self.assertTrue(bool(diagnostics.get("strict_mode")))
+        self.assertFalse(bool(diagnostics.get("fallback_enabled")))
+
+    def test_live_smoke_artifact_payload_rejects_failed_or_grounded_open_domain_claim(self) -> None:
+        config = live_smoke_config(
+            {
+                "JARVIS_QA_OPENAI_LIVE_SMOKE": "1",
+                "OPENAI_API_KEY": "test-key",
+                "JARVIS_QA_OPENAI_LIVE_OPEN_DOMAIN_ENABLED": "1",
+            }
+        )
+
+        payload = live_smoke_artifact_payload(
+            config=config,
+            question="Who is the president of France?",
+            result=AnswerResult(
+                answer_text="I can answer grounded capability questions.",
+                sources=["/Users/arseniyabramidze/JARVIS/docs/question_answer_mode.md"],
+                source_attributions=[
+                    AnswerSourceAttribution(
+                        source="/Users/arseniyabramidze/JARVIS/docs/question_answer_mode.md",
+                        support="QA mode is grounded and read-only.",
+                    )
+                ],
+            ),
+            debug_trace={"fallback": {"deterministic_fallback": False}},
+            issues=["grounded answer for open-domain smoke"],
+        )
+
+        self.assertFalse(bool(payload.get("success")))
+        self.assertFalse(bool(payload.get("open_domain_verified")))
+
     def test_live_smoke_result_contract_accepts_grounded_llm_answer(self) -> None:
         issues = live_smoke_result_issues(
             AnswerResult(
@@ -69,6 +157,29 @@ class OpenAILiveSmokeContractTests(unittest.TestCase):
 
         self.assertEqual(issues, [])
 
+    def test_live_smoke_result_contract_accepts_open_domain_llm_answer(self) -> None:
+        issues = live_smoke_result_issues(
+            AnswerResult(
+                answer_text="France's president is Emmanuel Macron, but this may be out of date.",
+                warning="This answer may be out of date for changing public facts.",
+                answer_kind="open_domain_model",
+                provenance="model_knowledge",
+            )
+        )
+
+        self.assertEqual(issues, [])
+
+    def test_live_smoke_result_contract_accepts_refusal_without_sources(self) -> None:
+        issues = live_smoke_result_issues(
+            AnswerResult(
+                answer_text="I can't help with instructions for stealing a car.",
+                answer_kind="refusal",
+                provenance="model_knowledge",
+            )
+        )
+
+        self.assertEqual(issues, [])
+
     def test_live_smoke_result_contract_rejects_missing_source_attributions(self) -> None:
         issues = live_smoke_result_issues(
             AnswerResult(
@@ -77,7 +188,7 @@ class OpenAILiveSmokeContractTests(unittest.TestCase):
             )
         )
 
-        self.assertIn("source_attributions must be non-empty", issues)
+        self.assertIn("grounded live smoke answers must keep non-empty source_attributions", issues)
 
     def test_live_smoke_result_contract_rejects_fallback_warning(self) -> None:
         issues = live_smoke_result_issues(
@@ -128,11 +239,24 @@ class OpenAILiveSmokeContractTests(unittest.TestCase):
 
         self.assertIn("each source_attribution support must be specific and claim-bearing", issues)
 
-    def test_live_smoke_diagnostics_include_provider_model_source_count_and_fallback(self) -> None:
+    def test_live_smoke_result_contract_rejects_open_domain_answer_with_fake_sources(self) -> None:
+        issues = live_smoke_result_issues(
+            AnswerResult(
+                answer_text="France's president is Emmanuel Macron.",
+                sources=["/Users/arseniyabramidze/JARVIS/docs/question_answer_mode.md"],
+                answer_kind="open_domain_model",
+                provenance="model_knowledge",
+            )
+        )
+
+        self.assertIn("open-domain live smoke answers must not claim local sources", issues)
+
+    def test_live_smoke_diagnostics_include_provider_model_source_count_and_config_flags(self) -> None:
         config = live_smoke_config(
             {
                 "JARVIS_QA_OPENAI_LIVE_SMOKE": "1",
                 "OPENAI_API_KEY": "test-key",
+                "JARVIS_QA_OPENAI_LIVE_FALLBACK_ENABLED": "1",
             }
         )
 
@@ -156,8 +280,35 @@ class OpenAILiveSmokeContractTests(unittest.TestCase):
 
         self.assertEqual(diagnostics.get("provider"), "openai_responses")
         self.assertEqual(diagnostics.get("model"), "gpt-5-nano")
+        self.assertTrue(bool(diagnostics.get("strict_mode")))
+        self.assertTrue(bool(diagnostics.get("fallback_enabled")))
+        self.assertFalse(bool(diagnostics.get("open_domain_enabled")))
         self.assertEqual(diagnostics.get("source_count"), 2)
         self.assertFalse(bool(diagnostics.get("deterministic_fallback")))
+
+    def test_live_smoke_diagnostics_include_answer_kind_and_provenance(self) -> None:
+        config = live_smoke_config(
+            {
+                "JARVIS_QA_OPENAI_LIVE_SMOKE": "1",
+                "OPENAI_API_KEY": "test-key",
+                "JARVIS_QA_OPENAI_LIVE_OPEN_DOMAIN_ENABLED": "1",
+            }
+        )
+
+        diagnostics = live_smoke_diagnostics(
+            config=config,
+            result=AnswerResult(
+                answer_text="France's president is Emmanuel Macron, but this may be out of date.",
+                warning="This answer may be out of date for changing public facts.",
+                answer_kind="open_domain_model",
+                provenance="model_knowledge",
+            ),
+            debug_trace={"fallback": {"deterministic_fallback": False}},
+        )
+
+        self.assertTrue(bool(diagnostics.get("open_domain_enabled")))
+        self.assertEqual(diagnostics.get("answer_kind"), "open_domain_model")
+        self.assertEqual(diagnostics.get("provenance"), "model_knowledge")
 
 
 if __name__ == "__main__":

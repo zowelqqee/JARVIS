@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import time
 from contextlib import ExitStack, nullcontext
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -22,6 +24,7 @@ from qa.answer_engine import ErrorCategory, ErrorCode, JarvisError, classify_que
 from qa.deterministic_backend import DeterministicAnswerBackend
 from qa.grounding_verifier import support_is_meaningful
 from qa.llm_provider import LlmProviderKind
+from qa.rollout_profiles import live_smoke_artifact_path_for_candidate
 from target import Target, TargetType
 
 _REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -30,6 +33,10 @@ _LIVE_SMOKE_ENABLE_ENV = "JARVIS_QA_OPENAI_LIVE_SMOKE"
 _LIVE_SMOKE_API_KEY_ENV = "OPENAI_API_KEY"
 _LIVE_SMOKE_MODEL_ENV = "JARVIS_QA_OPENAI_LIVE_MODEL"
 _LIVE_SMOKE_QUESTION_ENV = "JARVIS_QA_OPENAI_LIVE_QUESTION"
+_LIVE_SMOKE_OPEN_DOMAIN_ENV = "JARVIS_QA_OPENAI_LIVE_OPEN_DOMAIN_ENABLED"
+_LIVE_SMOKE_FALLBACK_ENV = "JARVIS_QA_OPENAI_LIVE_FALLBACK_ENABLED"
+_LIVE_SMOKE_STRICT_MODE_ENV = "JARVIS_QA_OPENAI_LIVE_STRICT_MODE"
+_LIVE_SMOKE_ARTIFACT_ENV = "JARVIS_QA_OPENAI_LIVE_ARTIFACT"
 _LIVE_SMOKE_DEFAULT_MODEL = "gpt-5-nano"
 _LIVE_SMOKE_DEFAULT_QUESTION = "What can you do?"
 _EVAL_MISSING_KEY_ENV = "JARVIS_QA_EVAL_MISSING_API_KEY_DO_NOT_SET"
@@ -54,6 +61,7 @@ _DEFAULT_GATE_THRESHOLDS = {
     "provenance_pass_rate_min": 1.0,
     "fallback_frequency_max": 0.05,
     "usage_measurement_required": True,
+    "live_smoke_artifact_max_age_hours": 24,
 }
 
 
@@ -92,6 +100,7 @@ class QaEvalCase:
     expected_model: str | None = None
     expected_api_key_env: str | None = None
     expected_question: str | None = None
+    expected_open_domain_enabled: bool | None = None
 
 
 @dataclass(slots=True)
@@ -181,6 +190,21 @@ class QaEvalProfileSummary:
     usage_input_tokens_total: int | None
     usage_output_tokens_total: int | None
     usage_total_tokens_total: int | None
+    env_backed_profile: bool
+    llm_provider: str | None
+    llm_model: str | None
+    open_domain_enabled: bool
+    live_smoke_artifact_path: str | None
+    live_smoke_artifact_present: bool
+    live_smoke_artifact_success: bool | None
+    live_smoke_artifact_created_at: str | None
+    live_smoke_artifact_age_hours: float | None
+    live_smoke_artifact_fresh: bool | None
+    live_smoke_artifact_fresh_reason: str | None
+    live_smoke_artifact_profile_match: bool | None
+    live_smoke_artifact_match_reason: str | None
+    live_smoke_artifact_open_domain_verified: bool | None
+    live_smoke_artifact_error: str | None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -218,6 +242,21 @@ class QaEvalProfileSummary:
             "usage_input_tokens_total": self.usage_input_tokens_total,
             "usage_output_tokens_total": self.usage_output_tokens_total,
             "usage_total_tokens_total": self.usage_total_tokens_total,
+            "env_backed_profile": self.env_backed_profile,
+            "llm_provider": self.llm_provider,
+            "llm_model": self.llm_model,
+            "open_domain_enabled": self.open_domain_enabled,
+            "live_smoke_artifact_path": self.live_smoke_artifact_path,
+            "live_smoke_artifact_present": self.live_smoke_artifact_present,
+            "live_smoke_artifact_success": self.live_smoke_artifact_success,
+            "live_smoke_artifact_created_at": self.live_smoke_artifact_created_at,
+            "live_smoke_artifact_age_hours": self.live_smoke_artifact_age_hours,
+            "live_smoke_artifact_fresh": self.live_smoke_artifact_fresh,
+            "live_smoke_artifact_fresh_reason": self.live_smoke_artifact_fresh_reason,
+            "live_smoke_artifact_profile_match": self.live_smoke_artifact_profile_match,
+            "live_smoke_artifact_match_reason": self.live_smoke_artifact_match_reason,
+            "live_smoke_artifact_open_domain_verified": self.live_smoke_artifact_open_domain_verified,
+            "live_smoke_artifact_error": self.live_smoke_artifact_error,
         }
 
 
@@ -680,6 +719,7 @@ def _run_live_smoke_case(case: QaEvalCase) -> QaEvalCaseResult:
         details["model"] = str(getattr(config.llm, "model", "") or "")
         details["api_key_env"] = str(getattr(config.llm, "api_key_env", "") or "")
         details["question"] = question
+        details["open_domain_enabled"] = bool(getattr(config.llm, "open_domain_enabled", False))
         if case.expected_backend_kind is not None:
             checks["backend_kind"] = details["backend_kind"] == case.expected_backend_kind
         if case.expected_model is not None:
@@ -688,6 +728,10 @@ def _run_live_smoke_case(case: QaEvalCase) -> QaEvalCaseResult:
             checks["api_key_env"] = details["api_key_env"] == case.expected_api_key_env
         if case.expected_question is not None:
             checks["question"] = details["question"] == case.expected_question
+    if case.expected_open_domain_enabled is not None:
+        config = _live_smoke_config(env)
+        details["open_domain_enabled"] = bool(getattr(config.llm, "open_domain_enabled", False))
+        checks["open_domain_enabled"] = details["open_domain_enabled"] is case.expected_open_domain_enabled
 
     return QaEvalCaseResult(
         case_id=case.id,
@@ -790,6 +834,11 @@ def _build_backend_config(profile: str) -> AnswerBackendConfig:
                 model=env_config.llm.model,
                 api_key_env=env_config.llm.api_key_env,
                 api_base=env_config.llm.api_base,
+                timeout_seconds=env_config.llm.timeout_seconds,
+                max_output_tokens=env_config.llm.max_output_tokens,
+                reasoning_effort=env_config.llm.reasoning_effort,
+                strict_mode=env_config.llm.strict_mode,
+                max_retries=env_config.llm.max_retries,
                 fallback_enabled=True,
                 open_domain_enabled=env_config.llm.open_domain_enabled,
             ),
@@ -833,6 +882,9 @@ def _live_smoke_skip_reason(environ: dict[str, str] | None = None) -> str | None
 def _live_smoke_config(environ: dict[str, str] | None = None) -> AnswerBackendConfig:
     env = dict(environ or {})
     model = str(env.get(_LIVE_SMOKE_MODEL_ENV, _LIVE_SMOKE_DEFAULT_MODEL) or _LIVE_SMOKE_DEFAULT_MODEL).strip() or _LIVE_SMOKE_DEFAULT_MODEL
+    open_domain_enabled = str(env.get(_LIVE_SMOKE_OPEN_DOMAIN_ENV, "") or "").strip().lower() in {"1", "true", "yes", "on"}
+    fallback_enabled = str(env.get(_LIVE_SMOKE_FALLBACK_ENV, "") or "").strip().lower() in {"1", "true", "yes", "on"}
+    strict_mode = str(env.get(_LIVE_SMOKE_STRICT_MODE_ENV, "1") or "1").strip().lower() in {"1", "true", "yes", "on"}
     return AnswerBackendConfig(
         backend_kind=AnswerBackendKind.LLM,
         llm=LlmBackendConfig(
@@ -840,7 +892,9 @@ def _live_smoke_config(environ: dict[str, str] | None = None) -> AnswerBackendCo
             provider=LlmProviderKind.OPENAI_RESPONSES,
             model=model,
             api_key_env=_LIVE_SMOKE_API_KEY_ENV,
-            fallback_enabled=False,
+            strict_mode=strict_mode,
+            fallback_enabled=fallback_enabled,
+            open_domain_enabled=open_domain_enabled,
         ),
     )
 
@@ -881,6 +935,90 @@ def _case_applies_to_profile(case: QaEvalCase, default_profile: str) -> bool:
         return True
     effective_profile = case.backend_profile or default_profile
     return effective_profile in set(case.profiles)
+
+
+def _env_backed_profile(profile: str) -> bool:
+    return profile in {"llm_env", "llm_env_strict"}
+
+
+def _live_smoke_artifact_path(environ: dict[str, str] | None = None, *, profile: str | None = None) -> Path:
+    env = dict(os.environ if environ is None else environ)
+    configured = str(env.get(_LIVE_SMOKE_ARTIFACT_ENV, "") or "").strip()
+    return Path(configured) if configured else live_smoke_artifact_path_for_candidate(profile)
+
+
+def _load_live_smoke_artifact(
+    environ: dict[str, str] | None = None,
+    *,
+    profile: str | None = None,
+) -> tuple[Path, dict[str, Any] | None, str | None]:
+    artifact_path = _live_smoke_artifact_path(environ, profile=profile)
+    if not artifact_path.exists():
+        return artifact_path, None, None
+    try:
+        payload = json.loads(artifact_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        return artifact_path, None, f"{type(exc).__name__}: {exc}"
+    if not isinstance(payload, dict):
+        return artifact_path, None, "ValueError: live smoke artifact must be a JSON object."
+    return artifact_path, payload, None
+
+
+def _artifact_now() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+def _live_smoke_artifact_freshness(payload: dict[str, Any] | None) -> tuple[float | None, bool | None, str | None]:
+    if payload is None:
+        return None, None, None
+    created_at = str(payload.get("created_at", "") or "").strip()
+    if not created_at:
+        return None, False, "live smoke artifact is missing created_at"
+    try:
+        parsed = datetime.fromisoformat(created_at.replace("Z", "+00:00"))
+    except ValueError as exc:
+        return None, False, f"live smoke artifact created_at is invalid: {exc}"
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    age_hours = round((_artifact_now() - parsed.astimezone(timezone.utc)).total_seconds() / 3600.0, 3)
+    max_age_hours = float(_DEFAULT_GATE_THRESHOLDS["live_smoke_artifact_max_age_hours"])
+    return age_hours, age_hours <= max_age_hours, None
+
+
+def _live_smoke_artifact_profile_match(
+    payload: dict[str, Any] | None,
+    *,
+    config: AnswerBackendConfig,
+) -> tuple[bool | None, str | None]:
+    if payload is None:
+        return None, None
+    diagnostics = dict(payload.get("diagnostics", {}) or {})
+    expected_provider = _enum_value(getattr(config.llm, "provider", ""))
+    expected_model = str(getattr(config.llm, "model", "") or "").strip()
+    expected_strict_mode = bool(getattr(config.llm, "strict_mode", False))
+    expected_fallback_enabled = bool(getattr(config.llm, "fallback_enabled", False))
+    expected_open_domain = bool(getattr(config.llm, "open_domain_enabled", False))
+    actual_provider = str(diagnostics.get("provider", "") or "").strip()
+    actual_model = str(diagnostics.get("model", "") or "").strip()
+    actual_strict_mode = bool(diagnostics.get("strict_mode", False))
+    actual_fallback_enabled = bool(diagnostics.get("fallback_enabled", False))
+    actual_open_domain = bool(diagnostics.get("open_domain_enabled", False))
+    mismatches: list[str] = []
+    if actual_provider != expected_provider:
+        mismatches.append(
+            f"artifact provider {actual_provider or '<missing>'} != candidate provider {expected_provider or '<missing>'}"
+        )
+    if actual_model != expected_model:
+        mismatches.append(f"artifact model {actual_model or '<missing>'} != candidate model {expected_model or '<missing>'}")
+    if actual_strict_mode is not expected_strict_mode:
+        mismatches.append("artifact strict-mode flag does not match candidate profile")
+    if actual_fallback_enabled is not expected_fallback_enabled:
+        mismatches.append("artifact fallback flag does not match candidate profile")
+    if actual_open_domain is not expected_open_domain:
+        mismatches.append(
+            "artifact open-domain flag does not match candidate profile"
+        )
+    return (not mismatches), "; ".join(mismatches) or None
 
 
 def _enum_value(value: Any) -> str:
@@ -956,6 +1094,18 @@ def summarize_eval_report(report: QaEvalReport) -> QaEvalProfileSummary:
     usage_input_values = [value for value in usage_input_values if value is not None]
     usage_output_values = [value for value in usage_output_values if value is not None]
     usage_total_values = [value for value in usage_total_values if value is not None]
+    artifact_path, artifact_payload, artifact_error = _load_live_smoke_artifact(profile=report.default_profile)
+    artifact_diagnostics = dict((artifact_payload or {}).get("diagnostics", {}) or {})
+    artifact_success = (artifact_payload or {}).get("success")
+    artifact_open_domain_verified = (artifact_payload or {}).get("open_domain_verified")
+    profile_config = _build_backend_config(report.default_profile)
+    artifact_age_hours, artifact_fresh, artifact_fresh_reason = _live_smoke_artifact_freshness(artifact_payload)
+    artifact_profile_match, artifact_match_reason = _live_smoke_artifact_profile_match(
+        artifact_payload,
+        config=profile_config,
+    )
+    llm_provider = _enum_value(getattr(profile_config.llm, "provider", ""))
+    llm_model = str(getattr(profile_config.llm, "model", "") or "").strip() or None
     return QaEvalProfileSummary(
         profile=report.default_profile,
         report=report,
@@ -984,6 +1134,31 @@ def summarize_eval_report(report: QaEvalReport) -> QaEvalProfileSummary:
         usage_input_tokens_total=sum(usage_input_values) if usage_input_values else None,
         usage_output_tokens_total=sum(usage_output_values) if usage_output_values else None,
         usage_total_tokens_total=sum(usage_total_values) if usage_total_values else None,
+        env_backed_profile=_env_backed_profile(report.default_profile),
+        llm_provider=llm_provider,
+        llm_model=llm_model,
+        open_domain_enabled=bool(getattr(profile_config.llm, "open_domain_enabled", False)),
+        live_smoke_artifact_path=str(artifact_path),
+        live_smoke_artifact_present=artifact_payload is not None or artifact_error is not None,
+        live_smoke_artifact_success=bool(artifact_success) if artifact_success is not None else None,
+        live_smoke_artifact_created_at=str((artifact_payload or {}).get("created_at", "") or "").strip() or None,
+        live_smoke_artifact_age_hours=artifact_age_hours,
+        live_smoke_artifact_fresh=artifact_fresh,
+        live_smoke_artifact_fresh_reason=artifact_fresh_reason,
+        live_smoke_artifact_profile_match=artifact_profile_match,
+        live_smoke_artifact_match_reason=artifact_match_reason,
+        live_smoke_artifact_open_domain_verified=(
+            bool(artifact_open_domain_verified)
+            if artifact_open_domain_verified is not None
+            else (
+                bool(artifact_diagnostics.get("open_domain_enabled"))
+                and str(artifact_diagnostics.get("answer_kind") or "").strip() in {"open_domain_model", "refusal"}
+                and bool(artifact_success)
+            )
+            if artifact_payload is not None
+            else None
+        ),
+        live_smoke_artifact_error=artifact_error,
     )
 
 
@@ -1049,6 +1224,28 @@ def format_comparison_report(comparison: QaEvalComparisonReport) -> str:
         refusal_rate = _percent(summary.refusal_passed, summary.refusal_total)
         provenance_rate = _percent(summary.provenance_passed, summary.provenance_total)
         fallback_rate = _percent(summary.fallback_total, summary.answer_total)
+        if summary.live_smoke_artifact_error is not None:
+            live_smoke_status = f"invalid ({summary.live_smoke_artifact_error})"
+        elif not summary.live_smoke_artifact_present:
+            live_smoke_status = "missing"
+        elif summary.live_smoke_artifact_success is True:
+            live_smoke_status = "green"
+        elif summary.live_smoke_artifact_success is False:
+            live_smoke_status = "failed"
+        else:
+            live_smoke_status = "unknown"
+        if summary.live_smoke_artifact_fresh is True:
+            live_smoke_freshness = f"yes ({summary.live_smoke_artifact_age_hours}h)"
+        elif summary.live_smoke_artifact_fresh is False:
+            live_smoke_freshness = f"no ({summary.live_smoke_artifact_fresh_reason or 'stale'})"
+        else:
+            live_smoke_freshness = "n/a"
+        if summary.live_smoke_artifact_profile_match is True:
+            live_smoke_match = "yes"
+        elif summary.live_smoke_artifact_profile_match is False:
+            live_smoke_match = f"no ({summary.live_smoke_artifact_match_reason or 'mismatch'})"
+        else:
+            live_smoke_match = "n/a"
         lines.extend(
             [
                 f"profile: {summary.profile}",
@@ -1063,6 +1260,12 @@ def format_comparison_report(comparison: QaEvalComparisonReport) -> str:
                 f"  fallback frequency: {summary.fallback_total}/{summary.answer_total} ({fallback_rate})",
                 f"  avg interaction latency ms: {summary.avg_interaction_latency_ms if summary.avg_interaction_latency_ms is not None else 'n/a'}",
                 f"  usage samples: {summary.usage_sample_count}",
+                f"  llm provider/model: {(summary.llm_provider or 'n/a')} / {(summary.llm_model or 'n/a')}",
+                f"  open-domain enabled: {'yes' if summary.open_domain_enabled else 'no'}",
+                f"  live smoke artifact: {live_smoke_status}",
+                f"  live smoke artifact fresh: {live_smoke_freshness}",
+                f"  live smoke artifact matches profile: {live_smoke_match}",
+                f"  open-domain live verification: {'yes' if summary.live_smoke_artifact_open_domain_verified else 'no'}",
             ]
         )
     if comparison.blockers:
@@ -1101,6 +1304,8 @@ def _default_switch_blockers(
     routing_safety_regressions: int,
 ) -> list[str]:
     blockers: list[str] = []
+    if candidate_summary.env_backed_profile and not candidate_summary.open_domain_enabled:
+        blockers.append("candidate profile does not enable open-domain question answering")
     if routing_safety_regressions > int(_DEFAULT_GATE_THRESHOLDS["routing_safety_regressions_max"]):
         blockers.append(f"routing safety regressions > {_DEFAULT_GATE_THRESHOLDS['routing_safety_regressions_max']}")
     if _rate(candidate_summary.command_regression_passed, candidate_summary.command_regression_total) != _DEFAULT_GATE_THRESHOLDS["command_regression_pass_rate_min"]:
@@ -1128,6 +1333,27 @@ def _default_switch_blockers(
         blockers.append("latency was not measured for candidate profile")
     if bool(_DEFAULT_GATE_THRESHOLDS["usage_measurement_required"]) and candidate_summary.usage_sample_count == 0:
         blockers.append("usage/cost proxy is unavailable for candidate profile")
+    if candidate_summary.env_backed_profile:
+        if candidate_summary.live_smoke_artifact_error is not None:
+            blockers.append("live smoke artifact is unreadable for candidate profile")
+        elif not candidate_summary.live_smoke_artifact_present:
+            blockers.append("live smoke artifact is missing for candidate profile")
+        elif candidate_summary.live_smoke_artifact_success is not True:
+            blockers.append("live smoke artifact is not green for candidate profile")
+        if (
+            candidate_summary.live_smoke_artifact_error is None
+            and candidate_summary.live_smoke_artifact_present
+            and candidate_summary.live_smoke_artifact_fresh is not True
+        ):
+            blockers.append("live smoke artifact is stale for candidate profile")
+        if (
+            candidate_summary.live_smoke_artifact_error is None
+            and candidate_summary.live_smoke_artifact_present
+            and candidate_summary.live_smoke_artifact_profile_match is False
+        ):
+            blockers.append("live smoke artifact does not match candidate provider/model/strict/fallback/open-domain config")
+        if candidate_summary.open_domain_enabled and candidate_summary.live_smoke_artifact_open_domain_verified is not True:
+            blockers.append("open-domain live smoke verification is missing for candidate profile")
     if _rate(candidate_summary.grounding_passed, candidate_summary.grounding_total) < _rate(
         baseline_summary.grounding_passed,
         baseline_summary.grounding_total,

@@ -235,7 +235,17 @@ class OpenAIResponsesProvider:
 def _safe_request_debug(request_payload: dict[str, Any]) -> dict[str, Any]:
     metadata = dict(request_payload.get("metadata", {}) or {})
     text_format = dict((request_payload.get("text") or {}).get("format", {}) or {})
-    safe_keys = ("correlation_id", "question_type", "grounding_scope", "source_count", "answer_mode", "answer_schema_version")
+    safe_keys = (
+        "correlation_id",
+        "question_type",
+        "grounding_scope",
+        "source_count",
+        "answer_mode",
+        "policy_tags",
+        "policy_response_mode",
+        "policy_warning_hint",
+        "answer_schema_version",
+    )
     return {
         **{key: metadata[key] for key in safe_keys if metadata.get(key) not in (None, "")},
         "strict_mode": bool(text_format.get("strict")),

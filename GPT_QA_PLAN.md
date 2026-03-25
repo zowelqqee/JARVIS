@@ -72,6 +72,43 @@
 7. Safety and Abuse Boundaries
 8. Rollout Gate and Release Readiness
 
+## Статус на 2026-03-25
+
+Текущий уровень проекта:
+- rollout stage: `alpha_opt_in`
+- implementation stage: внутри `8. Rollout Gate and Release Readiness`
+- default switch status: `beta_question_default` ещё не готов; deterministic path остаётся product default
+
+Статус по шагам плана:
+- `1. Product Contract for General QA` — `done`
+  - product/docs слой уже зафиксирован в `docs/product_rules.md`, `docs/question_answer_mode.md`, `docs/general_qa_policy.md`
+- `2. Answer Taxonomy and Final Contracts` — `done`
+  - `answer_kind` / `provenance` уже есть в `types/answer_result.py`; visibility/presenter поддерживают grounded vs model-backed answers
+- `3. Open-Domain GPT Backend` — `done (flag-gated)`
+  - `open_domain_general` classification, отдельные prompt/schema/parser модули и provider seam уже есть
+- `4. Routing and Fallback Policy` — `mostly_done`
+  - blocked-state precedence, mixed question+action clarification и honest failure для unavailable open-domain backend уже реализованы
+  - дополнительная hardening-логика может ещё приехать в рамках safety stage
+- `5. UX / Visibility / Provenance` — `mostly_done`
+  - CLI/presenter уже показывают `answer-kind`, `provenance`, `warning`
+  - speech/history polish остаётся как доработка, а не как blocker для alpha
+- `6. Eval Harness Expansion` — `mostly_done`
+  - eval corpus и summary/gate metrics уже покрывают grounded path, open-domain answers, refusals, provenance correctness и fallback
+  - остаётся расширение env-backed/live coverage, чтобы mock harness не был единственным general-QA signal
+- `7. Safety and Abuse Boundaries` — `mostly_done`
+  - policy doc, safety-tagging, prompt-level boundary hints и eval/test coverage для refusal, bounded sensitive answers и temporally unstable warnings уже есть
+  - остаётся env-backed/live verification, чтобы safety readiness не опиралась только на mock harness
+- `8. Rollout Gate and Release Readiness` — `in_progress`
+  - rollout stages, thresholds, comparative gate, operator guide, manual verification checklist и live-smoke contracts уже оформлены
+  - comparative gate теперь читает live-smoke artifact для env-backed/open-domain readiness, проверяет freshness и match с текущим provider/model/strict/fallback/open-domain config, а не опирается только на mock/manual contract coverage
+  - `qa smoke` helper теперь показывает artifact path/status и наличие open-domain live verification для operator workflows
+  - добавлены `qa gate` и `qa gate strict` helper-команды для offline precheck обоих candidate profiles до полного comparative gate
+  - live-smoke artifact теперь различает `llm_env` vs `llm_env_strict` через config flags, а не только по model/open-domain
+  - добавлены candidate-aware wrapper scripts для live smoke и comparative gate, чтобы `llm_env` / `llm_env_strict` прогонялись через разные artifact paths и готовые команды
+  - `llm_env` compare profile теперь реально использует current env model/strict/retry/token settings, а не частичный default-only subset
+  - raw compare flow и CLI precheck теперь тоже автоматически резолвят candidate-specific artifact paths, так что wrapper scripts нужны для удобства, а не для корректности
+  - default switch по-прежнему заблокирован до реального green artifact из target environment
+
 **1. Product Contract for General QA**
 Цель: сначала зафиксировать, что именно означает “JARVIS отвечает на любой вопрос”.
 
@@ -346,14 +383,15 @@ Definition of done:
 6. `PR16 UX/presenter/CLI polish for mixed provenance`
 
 **Что делать прямо сейчас**
-Я бы начал так:
-1. зафиксировать новый product contract и provenance model
-2. расширить `AnswerResult` под `grounded_local` vs `open_domain_model`
-3. только потом врезать open-domain GPT path в `answer_engine`
+Сейчас разумный следующий шаг такой:
+1. прогнать реальный `scripts/run_openai_live_smoke.sh` в target environment и получить green artifact
+2. после этого прогнать comparative gate для `llm_env` / `llm_env_strict` уже на живом env-backed signal
+3. только потом обсуждать `beta_question_default`
 
 Причина:
-- иначе GPT path появится раньше, чем у него будет честный contract
-- и UI начнёт показывать general answers как будто они grounded
+- product contract, taxonomy, backend split, safety layer и базовый eval/gate слой уже собраны
+- следующий реальный риск теперь не в architecture, а в target-environment verification
+- default switch без green live artifact останется формальным, а не доказанным
 
 **Что не рекомендую делать сейчас**
 - не включать GPT сразу default для всех questions
