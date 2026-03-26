@@ -287,6 +287,29 @@ class OpenAIResponsesPayloadContractTests(unittest.TestCase):
         self.assertIn("Preserve the concrete blocked-state boundary", input_text)
         self.assertIn("Repeat that concrete blocked-state boundary verbatim", input_text)
 
+    def test_blocked_state_payload_requires_read_only_confirmation_boundary_when_message_missing(self) -> None:
+        blocked_question = QuestionRequest(
+            raw_input="What exactly do you need me to confirm?",
+            question_type=QuestionType.BLOCKED_STATE,
+            scope="blocked_state",
+            confidence=0.96,
+        )
+        blocked_bundle = build_grounding_bundle(
+            blocked_question,
+            runtime_snapshot={"runtime_state": "awaiting_confirmation"},
+        )
+
+        payload = self.provider.build_request_payload(
+            blocked_question,
+            grounding_bundle=blocked_bundle,
+            config=self._config(),
+        )
+
+        input_text = str((((payload.get("input") or [])[0].get("content") or [])[0].get("text")) or "")
+        self.assertIn("explicit confirmation before execution can continue", input_text)
+        self.assertIn("do not invent a different item or option", input_text)
+        self.assertIn("keep at least three source_attributions", input_text)
+
     def test_runtime_status_workspace_payload_requires_multi_source_grounding(self) -> None:
         runtime_status_question = QuestionRequest(
             raw_input="What folder are you using?",

@@ -6,14 +6,29 @@ import json
 import os
 import re
 import subprocess
+import hashlib
 from datetime import datetime, timezone
 from pathlib import Path
 
 from context.session_context import SessionContext
 from input.voice_input import VoiceInputError, capture_voice_input
 from interaction.interaction_manager import InteractionManager
+from qa.beta_release_review import (
+    beta_release_review_artifact_consistency,
+    beta_release_review_status,
+    load_beta_release_review_artifact,
+)
+from qa.manual_beta_checklist import load_manual_beta_checklist_artifact, manual_beta_checklist_status
 from qa.answer_config import load_answer_backend_config
-from qa.rollout_profiles import live_smoke_artifact_path_for_candidate, rollout_compare_command, rollout_smoke_command
+from qa.rollout_profiles import (
+    beta_release_review_artifact_path,
+    beta_readiness_artifact_path,
+    live_smoke_artifact_path_for_candidate,
+    manual_beta_checklist_artifact_path,
+    rollout_compare_command,
+    rollout_smoke_command,
+    rollout_stability_artifact_path_for_candidate,
+)
 from runtime.runtime_manager import RuntimeManager
 from ui.interaction_presenter import interaction_output_lines, interaction_speech_message
 
@@ -134,6 +149,10 @@ def _handle_cli_command(
             _print_qa_gate(strict_candidate=True)
             return False, speak_enabled
 
+        if lowered in {"qa beta", "/qa beta"}:
+            _print_qa_beta()
+            return False, speak_enabled
+
         if lowered in {"voice", "/voice"}:
             print("voice: listening... speak now.")
             recognized_text = capture_voice_input(timeout_seconds=_VOICE_CAPTURE_TIMEOUT_SECONDS)
@@ -212,6 +231,8 @@ def _print_help() -> None:
     print("  /qa gate         Show offline rollout-gate precheck.")
     print("  qa gate strict   Show offline precheck for llm_env_strict.")
     print("  /qa gate strict  Show offline precheck for llm_env_strict.")
+    print("  qa beta          Show offline beta-decision readiness summary.")
+    print("  /qa beta         Show offline beta-decision readiness summary.")
     print("  reset            Clear runtime and session context.")
     print("  quit             Exit the CLI.")
     print("  exit             Exit the CLI.")
@@ -291,7 +312,287 @@ def _print_qa_gate(*, strict_candidate: bool = False) -> None:
     """Print an offline rollout-gate precheck without running networked evals."""
     config = load_answer_backend_config()
     candidate_profile = "llm_env_strict" if strict_candidate else "llm_env"
-    fallback_enabled = False if strict_candidate else True
+    precheck = _candidate_gate_precheck(candidate_profile, config=config)
+    print(f"qa gate candidate: {candidate_profile}")
+    print(f"provider/model: {getattr(config.llm.provider, 'value', config.llm.provider)} / {config.llm.model}")
+    print(f"api key env: {config.llm.api_key_env} ({'present' if precheck['api_key_present'] else 'missing'})")
+    print(f"strict mode: {'on' if getattr(config.llm, 'strict_mode', False) else 'off'}")
+    print(f"open-domain: {'on' if precheck['open_domain_enabled'] else 'off'}")
+    print(f"fallback: {'on' if precheck['fallback_enabled'] else 'off'}")
+    print(f"live smoke artifact: {precheck['artifact_path']} ({precheck['artifact_status']})")
+    if precheck["artifact_fresh"] is None:
+        print("live smoke artifact fresh: n/a")
+    elif precheck["artifact_fresh"]:
+        print(f"live smoke artifact fresh: yes ({precheck['artifact_age_hours']}h)")
+    else:
+        print(f"live smoke artifact fresh: no ({precheck['artifact_fresh_reason'] or 'stale'})")
+    if precheck["artifact_match"] is None:
+        print("live smoke artifact matches profile: n/a")
+    elif precheck["artifact_match"]:
+        print("live smoke artifact matches profile: yes")
+    else:
+        print(f"live smoke artifact matches profile: no ({precheck['artifact_match_reason'] or 'mismatch'})")
+    print(f"open-domain live verification: {'yes' if precheck['open_domain_verified'] else 'no'}")
+    print(f"precheck: {'ready' if not precheck['blockers'] else 'blocked'}")
+    for blocker in precheck["blockers"]:
+        print(f"blocker: {blocker}")
+    print(f"smoke command: {precheck['smoke_command']}")
+    print(f"compare command: {precheck['compare_command']}")
+    print("note: full comparative gate is still required for routing, fallback, latency, and usage signals.")
+
+
+def _print_qa_beta() -> None:
+    """Print an offline beta-decision summary without triggering networked evals."""
+    config = load_answer_backend_config()
+    candidate_profiles = ("llm_env", "llm_env_strict")
+    candidate_prechecks = [_candidate_gate_precheck(candidate, config=config) for candidate in candidate_profiles]
+    ready_candidates = [str(precheck["candidate_profile"]) for precheck in candidate_prechecks if not precheck["blockers"]]
+    stability_ready_candidates: list[str] = []
+    technically_ready_candidates: list[str] = []
+    latest_candidate_evidence: dict[str, dict[str, object]] = {}
+    beta_artifact_path, beta_artifact_payload, beta_artifact_error = _load_beta_readiness_artifact()
+    beta_artifact_status = _beta_readiness_artifact_status(
+        artifact_payload=beta_artifact_payload,
+        artifact_error=beta_artifact_error,
+    )
+    beta_artifact_candidate = _beta_readiness_artifact_candidate(beta_artifact_payload)
+    manual_checklist_artifact_path, manual_checklist_artifact_payload, manual_checklist_artifact_error = (
+        load_manual_beta_checklist_artifact(manual_beta_checklist_artifact_path())
+    )
+    (
+        manual_checklist_artifact_status,
+        manual_checklist_items_passed,
+        manual_checklist_items_total,
+        manual_checklist_complete,
+    ) = manual_beta_checklist_status(manual_checklist_artifact_payload, manual_checklist_artifact_error)
+    (
+        manual_checklist_artifact_age_hours,
+        manual_checklist_artifact_fresh,
+        manual_checklist_artifact_fresh_reason,
+    ) = _beta_readiness_artifact_freshness(manual_checklist_artifact_payload)
+    release_review_artifact_path, release_review_artifact_payload, release_review_artifact_error = (
+        load_beta_release_review_artifact(beta_release_review_artifact_path())
+    )
+    (
+        release_review_artifact_status,
+        release_review_checks_completed,
+        release_review_checks_total,
+        release_review_complete,
+        release_review_candidate,
+    ) = beta_release_review_status(release_review_artifact_payload, release_review_artifact_error)
+    (
+        release_review_artifact_age_hours,
+        release_review_artifact_fresh,
+        release_review_artifact_fresh_reason,
+    ) = _beta_readiness_artifact_freshness(release_review_artifact_payload)
+    beta_artifact_age_hours, beta_artifact_fresh, beta_artifact_fresh_reason = _beta_readiness_artifact_freshness(
+        beta_artifact_payload
+    )
+    recommended_candidate: str | None = None
+    print("qa beta stage: alpha_opt_in")
+    print("qa beta default path: deterministic")
+    if len(ready_candidates) == len(candidate_prechecks):
+        print(f"qa beta technical precheck: ready ({', '.join(ready_candidates)})")
+    else:
+        print("qa beta technical precheck: blocked")
+    for precheck in candidate_prechecks:
+        live_artifact_path, live_artifact_payload, live_artifact_error = _load_live_smoke_artifact(
+            str(precheck["candidate_profile"])
+        )
+        stability_path, stability_payload, stability_error = _load_rollout_stability_artifact(
+            str(precheck["candidate_profile"])
+        )
+        stability_status, stability_passes, stability_runs_requested = _rollout_stability_artifact_status(
+            artifact_payload=stability_payload,
+            artifact_error=stability_error,
+        )
+        stability_age_hours, stability_fresh, stability_fresh_reason = _rollout_stability_artifact_freshness(
+            stability_payload
+        )
+        blockers = list(precheck["blockers"])
+        if stability_status == "green" and stability_fresh:
+            stability_ready_candidates.append(str(precheck["candidate_profile"]))
+        if not blockers and stability_status == "green" and stability_fresh:
+            technically_ready_candidates.append(str(precheck["candidate_profile"]))
+        status = "ready" if not blockers else "blocked"
+        summary_parts = [
+            f"artifact={precheck['artifact_status']}",
+            f"fresh={'yes' if precheck['artifact_fresh'] else 'no' if precheck['artifact_fresh'] is False else 'n/a'}",
+            f"match={'yes' if precheck['artifact_match'] else 'no' if precheck['artifact_match'] is False else 'n/a'}",
+            f"open-domain={'yes' if precheck['open_domain_verified'] else 'no'}",
+            f"stability={stability_status}{_format_stability_ratio(stability_passes, stability_runs_requested)}",
+            f"fallback={'on' if precheck['fallback_enabled'] else 'off'}",
+        ]
+        if stability_status != "missing":
+            summary_parts.append(
+                f"stability-fresh={'yes' if stability_fresh else 'no' if stability_fresh is False else 'n/a'}"
+            )
+        stability_blockers = _rollout_stability_blocker_summary(stability_payload)
+        if stability_blockers:
+            summary_parts.append(f"stability-blockers={stability_blockers}")
+        stability_fallback_cases = _rollout_stability_fallback_summary(stability_payload)
+        if stability_fallback_cases:
+            summary_parts.append(f"stability-fallback-cases={stability_fallback_cases}")
+        if stability_path is not None:
+            summary_parts.append(f"stability-artifact={stability_path}")
+        if stability_error is not None:
+            summary_parts.append(f"stability-error={stability_error}")
+        elif stability_fresh is False and stability_fresh_reason:
+            summary_parts.append(f"stability-reason={stability_fresh_reason}")
+        if blockers:
+            summary_parts.append(f"blockers={'; '.join(blockers)}")
+        latest_candidate_evidence[str(precheck["candidate_profile"])] = {
+            "technical_ready": not blockers and stability_status == "green" and stability_fresh,
+            "smoke_artifact_created_at": _artifact_created_at(live_artifact_payload),
+            "smoke_artifact_sha256": _artifact_sha256(live_artifact_path, artifact_error=live_artifact_error),
+            "stability_artifact_created_at": _artifact_created_at(stability_payload),
+            "stability_artifact_sha256": _artifact_sha256(stability_path, artifact_error=stability_error),
+            "smoke_artifact_status": str(precheck["artifact_status"]),
+            "stability_artifact_status": str(stability_status),
+            "stability_gate_passes": stability_passes,
+            "stability_runs_requested": stability_runs_requested,
+        }
+        if live_artifact_error is not None:
+            latest_candidate_evidence[str(precheck["candidate_profile"])]["smoke_artifact_error"] = live_artifact_error
+        if live_artifact_path is not None:
+            latest_candidate_evidence[str(precheck["candidate_profile"])]["smoke_artifact_path"] = str(live_artifact_path)
+        print(f"candidate {precheck['candidate_profile']}: {status} ({', '.join(summary_parts)})")
+    if "llm_env_strict" in technically_ready_candidates:
+        recommended_candidate = "llm_env_strict"
+    elif "llm_env" in technically_ready_candidates:
+        recommended_candidate = "llm_env"
+    release_review_artifact_consistent, release_review_artifact_consistency_reason = (
+        beta_release_review_artifact_consistency(
+            artifact_payload=release_review_artifact_payload,
+            manual_checklist_artifact_payload=manual_checklist_artifact_payload,
+            manual_checklist_artifact_path=manual_checklist_artifact_path,
+            manual_checklist_artifact_error=manual_checklist_artifact_error,
+            expected_candidate=recommended_candidate,
+        )
+    )
+    beta_artifact_consistent, beta_artifact_consistency_reason = _beta_readiness_artifact_consistency(
+        artifact_payload=beta_artifact_payload,
+        recommended_candidate=recommended_candidate,
+        technically_ready_candidates=technically_ready_candidates,
+        latest_candidate_evidence=latest_candidate_evidence,
+        manual_checklist_artifact_payload=manual_checklist_artifact_payload,
+        manual_checklist_artifact_path=manual_checklist_artifact_path,
+        manual_checklist_artifact_error=manual_checklist_artifact_error,
+        release_review_artifact_payload=release_review_artifact_payload,
+        release_review_artifact_path=release_review_artifact_path,
+        release_review_artifact_error=release_review_artifact_error,
+    )
+    beta_artifact_recommendation_drift = _beta_readiness_artifact_recommendation_drift(
+        artifact_payload=beta_artifact_payload,
+        recommended_candidate=recommended_candidate,
+    )
+    print(f"qa beta recommended candidate: {recommended_candidate or 'none'}")
+    print(
+        "qa beta manual checklist artifact: "
+        f"{manual_checklist_artifact_path} "
+        f"({manual_checklist_artifact_status}{_format_stability_ratio(manual_checklist_items_passed, manual_checklist_items_total)})"
+    )
+    print(
+        "qa beta manual checklist artifact fresh: "
+        f"{'yes' if manual_checklist_artifact_fresh else 'no' if manual_checklist_artifact_fresh is False else 'n/a'}"
+        f"{_format_optional_age(manual_checklist_artifact_age_hours, manual_checklist_artifact_fresh)}"
+    )
+    print(
+        "qa beta release review artifact: "
+        f"{release_review_artifact_path} "
+        f"({release_review_artifact_status}{_format_stability_ratio(release_review_checks_completed, release_review_checks_total)})"
+    )
+    print(
+        "qa beta release review artifact fresh: "
+        f"{'yes' if release_review_artifact_fresh else 'no' if release_review_artifact_fresh is False else 'n/a'}"
+        f"{_format_optional_age(release_review_artifact_age_hours, release_review_artifact_fresh)}"
+    )
+    print(
+        "qa beta release review artifact consistent with latest evidence: "
+        f"{'yes' if release_review_artifact_consistent else 'no' if release_review_artifact_consistent is False else 'n/a'}"
+    )
+    print(f"qa beta release review candidate: {release_review_candidate or 'none'}")
+    print(f"qa beta recorded candidate: {beta_artifact_candidate or 'none'}")
+    print(f"qa beta decision artifact: {beta_artifact_path} ({beta_artifact_status})")
+    print(
+        "qa beta decision artifact fresh: "
+        f"{'yes' if beta_artifact_fresh else 'no' if beta_artifact_fresh is False else 'n/a'}"
+    )
+    print(
+        "qa beta decision artifact consistent with latest evidence: "
+        f"{'yes' if beta_artifact_consistent else 'no' if beta_artifact_consistent is False else 'n/a'}"
+    )
+    beta_artifact_manual_summary = _beta_readiness_artifact_manual_summary(beta_artifact_payload)
+    if beta_artifact_manual_summary:
+        print(f"qa beta recorded checks: {beta_artifact_manual_summary}")
+    if beta_artifact_error is not None:
+        print(f"qa beta decision artifact error: {beta_artifact_error}")
+    elif beta_artifact_fresh is False and beta_artifact_fresh_reason:
+        print(f"qa beta decision artifact freshness reason: {beta_artifact_fresh_reason}")
+    if manual_checklist_artifact_error is not None:
+        print(f"qa beta manual checklist artifact error: {manual_checklist_artifact_error}")
+    elif manual_checklist_artifact_fresh is False and manual_checklist_artifact_fresh_reason:
+        print(f"qa beta manual checklist artifact freshness reason: {manual_checklist_artifact_fresh_reason}")
+    if release_review_artifact_error is not None:
+        print(f"qa beta release review artifact error: {release_review_artifact_error}")
+    elif release_review_artifact_fresh is False and release_review_artifact_fresh_reason:
+        print(f"qa beta release review artifact freshness reason: {release_review_artifact_fresh_reason}")
+    if release_review_artifact_consistency_reason:
+        print(f"qa beta release review artifact consistency reason: {release_review_artifact_consistency_reason}")
+    if beta_artifact_consistency_reason:
+        print(f"qa beta decision artifact consistency reason: {beta_artifact_consistency_reason}")
+    if beta_artifact_recommendation_drift:
+        print(f"qa beta decision artifact drift: {beta_artifact_recommendation_drift}")
+    if beta_artifact_status == "ready" and beta_artifact_consistent is not False and beta_artifact_fresh is not False:
+        print("qa beta decision: recorded as ready for explicit beta_question_default review; default remains unchanged")
+    elif beta_artifact_status == "ready":
+        print("qa beta decision: recorded beta readiness is stale against latest evidence; review must be repeated")
+    else:
+        print("qa beta decision: blocked until beta_question_default is explicitly approved")
+    if len(stability_ready_candidates) == len(candidate_prechecks):
+        print(f"qa beta latest stability evidence: clean ({', '.join(stability_ready_candidates)})")
+    else:
+        print("qa beta latest stability evidence: incomplete")
+    if not manual_checklist_complete or manual_checklist_artifact_fresh is False:
+        print("next beta step: complete the manual beta checklist artifact before release sign-off.")
+        print("manual checklist command: python3 -m qa.manual_beta_checklist --all-passed --write-artifact")
+    elif recommended_candidate is None:
+        print("next beta step: get one candidate back to fresh green smoke + stability before manual beta sign-off.")
+    elif (
+        not release_review_complete
+        or release_review_candidate != recommended_candidate
+        or release_review_artifact_fresh is False
+        or release_review_artifact_consistent is False
+    ):
+        print(
+            "next beta step: "
+            f"record the beta release review artifact for {recommended_candidate} after latency/cost review and sign-off."
+        )
+        print(
+            "release review command: "
+            "python3 -m qa.beta_release_review "
+            f"--candidate-profile {recommended_candidate} "
+            "--latency-reviewed --cost-reviewed --operator-signoff "
+            "--product-approval --write-artifact"
+        )
+    elif recommended_candidate is not None:
+        print(
+            "next beta step: "
+            f"record beta readiness for {recommended_candidate} against the latest technical and manual evidence."
+        )
+        print(
+            "beta readiness command: "
+            "python3 -m qa.beta_readiness "
+            f"--candidate-profile {recommended_candidate} --write-artifact"
+        )
+    print("manual checklist doc: docs/manual_verification_commands.md")
+    print("decision gate doc: docs/llm_default_decision_gate.md")
+    print("note: this helper is offline; it does not run smoke, gate, or stability and does not switch the default.")
+
+
+def _candidate_gate_precheck(candidate_profile: str, *, config: object) -> dict[str, object]:
+    """Collect one candidate's offline gate precheck state."""
+    fallback_enabled = candidate_profile != "llm_env_strict"
     api_key_present = bool(os.environ.get(config.llm.api_key_env, "").strip())
     artifact_path, artifact_payload, artifact_error = _load_live_smoke_artifact(candidate_profile)
     artifact_status = _live_smoke_artifact_status(
@@ -326,35 +627,23 @@ def _print_qa_gate(*, strict_candidate: bool = False) -> None:
         blockers.append("live smoke artifact does not match candidate provider/model/strict/fallback/open-domain config")
     if open_domain_enabled and not open_domain_verified:
         blockers.append("open-domain live verification is missing")
-
-    smoke_command = rollout_smoke_command(candidate_profile)
-    compare_command = rollout_compare_command(candidate_profile)
-    print(f"qa gate candidate: {candidate_profile}")
-    print(f"provider/model: {getattr(config.llm.provider, 'value', config.llm.provider)} / {config.llm.model}")
-    print(f"api key env: {config.llm.api_key_env} ({'present' if api_key_present else 'missing'})")
-    print(f"strict mode: {'on' if getattr(config.llm, 'strict_mode', False) else 'off'}")
-    print(f"open-domain: {'on' if open_domain_enabled else 'off'}")
-    print(f"fallback: {'on' if fallback_enabled else 'off'}")
-    print(f"live smoke artifact: {artifact_path} ({artifact_status})")
-    if artifact_fresh is None:
-        print("live smoke artifact fresh: n/a")
-    elif artifact_fresh:
-        print(f"live smoke artifact fresh: yes ({artifact_age_hours}h)")
-    else:
-        print(f"live smoke artifact fresh: no ({artifact_fresh_reason or 'stale'})")
-    if artifact_match is None:
-        print("live smoke artifact matches profile: n/a")
-    elif artifact_match:
-        print("live smoke artifact matches profile: yes")
-    else:
-        print(f"live smoke artifact matches profile: no ({artifact_match_reason or 'mismatch'})")
-    print(f"open-domain live verification: {'yes' if open_domain_verified else 'no'}")
-    print(f"precheck: {'ready' if not blockers else 'blocked'}")
-    for blocker in blockers:
-        print(f"blocker: {blocker}")
-    print(f"smoke command: {smoke_command}")
-    print(f"compare command: {compare_command}")
-    print("note: full comparative gate is still required for routing, fallback, latency, and usage signals.")
+    return {
+        "candidate_profile": candidate_profile,
+        "fallback_enabled": fallback_enabled,
+        "api_key_present": api_key_present,
+        "artifact_path": artifact_path,
+        "artifact_status": artifact_status,
+        "artifact_age_hours": artifact_age_hours,
+        "artifact_fresh": artifact_fresh,
+        "artifact_fresh_reason": artifact_fresh_reason,
+        "artifact_match": artifact_match,
+        "artifact_match_reason": artifact_match_reason,
+        "open_domain_enabled": open_domain_enabled,
+        "open_domain_verified": open_domain_verified,
+        "blockers": blockers,
+        "smoke_command": rollout_smoke_command(candidate_profile),
+        "compare_command": rollout_compare_command(candidate_profile),
+    }
 
 
 def _load_live_smoke_artifact(candidate_profile: str | None = None) -> tuple[Path, dict[str, object] | None, str | None]:
@@ -372,6 +661,34 @@ def _load_live_smoke_artifact(candidate_profile: str | None = None) -> tuple[Pat
     return artifact_path, payload, None
 
 
+def _load_rollout_stability_artifact(candidate_profile: str) -> tuple[Path, dict[str, object] | None, str | None]:
+    """Return the current rollout-stability artifact plus any parse error."""
+    artifact_path = rollout_stability_artifact_path_for_candidate(candidate_profile)
+    if not artifact_path.exists():
+        return artifact_path, None, None
+    try:
+        payload = json.loads(artifact_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        return artifact_path, None, f"{type(exc).__name__}: {exc}"
+    if not isinstance(payload, dict):
+        return artifact_path, None, "ValueError: rollout stability artifact must be a JSON object."
+    return artifact_path, payload, None
+
+
+def _load_beta_readiness_artifact() -> tuple[Path, dict[str, object] | None, str | None]:
+    """Return the current beta-readiness artifact plus any parse error."""
+    artifact_path = beta_readiness_artifact_path()
+    if not artifact_path.exists():
+        return artifact_path, None, None
+    try:
+        payload = json.loads(artifact_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        return artifact_path, None, f"{type(exc).__name__}: {exc}"
+    if not isinstance(payload, dict):
+        return artifact_path, None, "ValueError: beta readiness artifact must be a JSON object."
+    return artifact_path, payload, None
+
+
 def _artifact_now() -> datetime:
     """Return the current UTC time for artifact freshness checks."""
     return datetime.now(timezone.utc)
@@ -381,6 +698,25 @@ def _live_smoke_artifact_freshness(
     artifact_payload: dict[str, object] | None,
 ) -> tuple[float | None, bool | None, str | None]:
     """Return artifact age plus a freshness decision."""
+    if artifact_payload is None:
+        return None, None, None
+    created_at = str(artifact_payload.get("created_at", "") or "").strip()
+    if not created_at:
+        return None, False, "artifact is missing created_at"
+    try:
+        parsed = datetime.fromisoformat(created_at.replace("Z", "+00:00"))
+    except ValueError as exc:
+        return None, False, f"artifact created_at is invalid: {exc}"
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    age_hours = round((_artifact_now() - parsed.astimezone(timezone.utc)).total_seconds() / 3600.0, 3)
+    return age_hours, age_hours <= _LIVE_SMOKE_ARTIFACT_MAX_AGE_HOURS, None
+
+
+def _rollout_stability_artifact_freshness(
+    artifact_payload: dict[str, object] | None,
+) -> tuple[float | None, bool | None, str | None]:
+    """Return rollout-stability artifact age plus a freshness decision."""
     if artifact_payload is None:
         return None, None, None
     created_at = str(artifact_payload.get("created_at", "") or "").strip()
@@ -441,6 +777,254 @@ def _live_smoke_artifact_status(
     if bool(artifact_payload.get("success")):
         return "green"
     return "failed"
+
+
+def _rollout_stability_artifact_status(
+    *,
+    artifact_payload: dict[str, object] | None,
+    artifact_error: str | None,
+) -> tuple[str, int | None, int | None]:
+    """Return one short operator-friendly rollout-stability artifact status."""
+    if artifact_error is not None:
+        return "invalid", None, None
+    if artifact_payload is None:
+        return "missing", None, None
+    report = artifact_payload.get("report")
+    if not isinstance(report, dict):
+        return "invalid", None, None
+    gate_passes = report.get("gate_passes")
+    runs_requested = report.get("runs_requested")
+    if not isinstance(gate_passes, int) or not isinstance(runs_requested, int):
+        return "invalid", None, None
+    if runs_requested <= 0:
+        return "invalid", gate_passes, runs_requested
+    if gate_passes == runs_requested:
+        return "green", gate_passes, runs_requested
+    return "failed", gate_passes, runs_requested
+
+
+def _format_stability_ratio(gate_passes: int | None, runs_requested: int | None) -> str:
+    if gate_passes is None or runs_requested is None:
+        return ""
+    return f"({gate_passes}/{runs_requested})"
+
+
+def _format_optional_age(age_hours: float | None, fresh: bool | None) -> str:
+    if age_hours is None or fresh is None:
+        return ""
+    return f" ({age_hours}h)"
+
+
+def _rollout_stability_blocker_summary(artifact_payload: dict[str, object] | None) -> str:
+    report = dict((artifact_payload or {}).get("report", {}) or {})
+    blocker_counts = report.get("blocker_counts")
+    if not isinstance(blocker_counts, dict):
+        return ""
+    summaries: list[str] = []
+    for blocker, count in blocker_counts.items():
+        if not isinstance(blocker, str) or not isinstance(count, int):
+            continue
+        summaries.append(f"{blocker} x{count}")
+    return "; ".join(summaries)
+
+
+def _rollout_stability_fallback_summary(artifact_payload: dict[str, object] | None) -> str:
+    report = dict((artifact_payload or {}).get("report", {}) or {})
+    fallback_case_counts = report.get("fallback_case_counts")
+    if not isinstance(fallback_case_counts, dict):
+        return ""
+    summaries: list[str] = []
+    for case_id, count in fallback_case_counts.items():
+        if not isinstance(case_id, str) or not isinstance(count, int):
+            continue
+        summaries.append(f"{case_id} x{count}")
+    return "; ".join(summaries)
+
+
+def _beta_readiness_artifact_status(
+    *,
+    artifact_payload: dict[str, object] | None,
+    artifact_error: str | None,
+) -> str:
+    if artifact_error is not None:
+        return "invalid"
+    if artifact_payload is None:
+        return "missing"
+    report = artifact_payload.get("report")
+    if not isinstance(report, dict):
+        return "invalid"
+    if bool(report.get("beta_ready")):
+        return "ready"
+    return "blocked"
+
+
+def _beta_readiness_artifact_freshness(
+    artifact_payload: dict[str, object] | None,
+) -> tuple[float | None, bool | None, str | None]:
+    """Return beta-readiness artifact age plus a freshness decision."""
+    if artifact_payload is None:
+        return None, None, None
+    created_at = str(artifact_payload.get("created_at", "") or "").strip()
+    if not created_at:
+        return None, False, "artifact is missing created_at"
+    try:
+        parsed = datetime.fromisoformat(created_at.replace("Z", "+00:00"))
+    except ValueError as exc:
+        return None, False, f"artifact created_at is invalid: {exc}"
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    age_hours = round((_artifact_now() - parsed.astimezone(timezone.utc)).total_seconds() / 3600.0, 3)
+    return age_hours, age_hours <= _LIVE_SMOKE_ARTIFACT_MAX_AGE_HOURS, None
+
+
+def _beta_readiness_artifact_consistency(
+    *,
+    artifact_payload: dict[str, object] | None,
+    recommended_candidate: str | None,
+    technically_ready_candidates: list[str],
+    latest_candidate_evidence: dict[str, dict[str, object]],
+    manual_checklist_artifact_payload: dict[str, object] | None,
+    manual_checklist_artifact_path: Path | None,
+    manual_checklist_artifact_error: str | None,
+    release_review_artifact_payload: dict[str, object] | None,
+    release_review_artifact_path: Path | None,
+    release_review_artifact_error: str | None,
+) -> tuple[bool | None, str | None]:
+    if artifact_payload is None:
+        return None, None
+    report = dict(artifact_payload.get("report", {}) or {})
+    recorded_manual_checklist_sha256 = str(report.get("manual_checklist_artifact_sha256", "") or "").strip()
+    latest_manual_checklist_sha256 = _artifact_sha256(
+        manual_checklist_artifact_path, artifact_error=manual_checklist_artifact_error
+    )
+    if not recorded_manual_checklist_sha256:
+        return False, "recorded manual checklist snapshot is missing"
+    if not latest_manual_checklist_sha256:
+        return False, "latest manual checklist artifact is missing or unreadable"
+    if recorded_manual_checklist_sha256 != latest_manual_checklist_sha256:
+        return False, "recorded manual checklist artifact fingerprint no longer matches the latest artifact"
+    recorded_manual_checklist_created_at = str(report.get("manual_checklist_artifact_created_at", "") or "").strip()
+    latest_manual_checklist_created_at = str(_artifact_created_at(manual_checklist_artifact_payload) or "").strip()
+    if (
+        recorded_manual_checklist_created_at
+        and latest_manual_checklist_created_at
+        and recorded_manual_checklist_created_at != latest_manual_checklist_created_at
+    ):
+        return False, "recorded manual checklist artifact snapshot no longer matches the latest artifact"
+    recorded_release_review_sha256 = str(report.get("release_review_artifact_sha256", "") or "").strip()
+    latest_release_review_sha256 = _artifact_sha256(
+        release_review_artifact_path, artifact_error=release_review_artifact_error
+    )
+    if not recorded_release_review_sha256:
+        return False, "recorded beta release review snapshot is missing"
+    if not latest_release_review_sha256:
+        return False, "latest beta release review artifact is missing or unreadable"
+    if recorded_release_review_sha256 != latest_release_review_sha256:
+        return False, "recorded beta release review artifact fingerprint no longer matches the latest artifact"
+    recorded_release_review_created_at = str(report.get("release_review_artifact_created_at", "") or "").strip()
+    latest_release_review_created_at = str(_artifact_created_at(release_review_artifact_payload) or "").strip()
+    if (
+        recorded_release_review_created_at
+        and latest_release_review_created_at
+        and recorded_release_review_created_at != latest_release_review_created_at
+    ):
+        return False, "recorded beta release review artifact snapshot no longer matches the latest artifact"
+    recorded_release_review_candidate = str(report.get("release_review_artifact_candidate", "") or "").strip()
+    latest_release_review_candidate = str(
+        dict((release_review_artifact_payload or {}).get("report", {}) or {}).get("candidate_profile", "") or ""
+    ).strip()
+    if recorded_release_review_candidate and latest_release_review_candidate:
+        if recorded_release_review_candidate != latest_release_review_candidate:
+            return False, "recorded beta release review candidate no longer matches the latest artifact"
+    chosen_candidate = str(report.get("chosen_candidate", "") or "").strip()
+    if not chosen_candidate:
+        return False, "recorded candidate is missing"
+    if chosen_candidate not in technically_ready_candidates:
+        return False, f"recorded candidate {chosen_candidate} is not technically ready on latest artifacts"
+    recorded_candidate_states = dict(report.get("candidate_states", {}) or {})
+    recorded_candidate_state = dict(recorded_candidate_states.get(chosen_candidate, {}) or {})
+    latest_candidate_state = dict(latest_candidate_evidence.get(chosen_candidate, {}) or {})
+    if not recorded_candidate_state:
+        return False, f"recorded evidence snapshot for candidate {chosen_candidate} is missing"
+    recorded_smoke_sha256 = str(recorded_candidate_state.get("smoke_artifact_sha256", "") or "").strip()
+    latest_smoke_sha256 = str(latest_candidate_state.get("smoke_artifact_sha256", "") or "").strip()
+    if recorded_smoke_sha256 and latest_smoke_sha256 and recorded_smoke_sha256 != latest_smoke_sha256:
+        return False, f"recorded smoke artifact fingerprint for {chosen_candidate} no longer matches the latest artifact"
+    recorded_smoke_created_at = str(recorded_candidate_state.get("smoke_artifact_created_at", "") or "").strip()
+    latest_smoke_created_at = str(latest_candidate_state.get("smoke_artifact_created_at", "") or "").strip()
+    if recorded_smoke_created_at and latest_smoke_created_at and recorded_smoke_created_at != latest_smoke_created_at:
+        return False, f"recorded smoke artifact snapshot for {chosen_candidate} no longer matches the latest artifact"
+    recorded_stability_sha256 = str(recorded_candidate_state.get("stability_artifact_sha256", "") or "").strip()
+    latest_stability_sha256 = str(latest_candidate_state.get("stability_artifact_sha256", "") or "").strip()
+    if recorded_stability_sha256 and latest_stability_sha256 and recorded_stability_sha256 != latest_stability_sha256:
+        return False, f"recorded stability artifact fingerprint for {chosen_candidate} no longer matches the latest artifact"
+    recorded_stability_created_at = str(recorded_candidate_state.get("stability_artifact_created_at", "") or "").strip()
+    latest_stability_created_at = str(latest_candidate_state.get("stability_artifact_created_at", "") or "").strip()
+    if (
+        recorded_stability_created_at
+        and latest_stability_created_at
+        and recorded_stability_created_at != latest_stability_created_at
+    ):
+        return False, f"recorded stability artifact snapshot for {chosen_candidate} no longer matches the latest artifact"
+    if bool(report.get("beta_ready")) and not technically_ready_candidates:
+        return False, "latest technical evidence is not green for any candidate"
+    if recommended_candidate is None:
+        return True, None
+    recorded_recommended_candidate = str(report.get("recommended_candidate", "") or "").strip()
+    if recorded_recommended_candidate and recorded_recommended_candidate != recommended_candidate:
+        return True, (
+            f"latest recommended candidate is {recommended_candidate}, "
+            f"but the recorded artifact was created when {recorded_recommended_candidate} was preferred"
+        )
+    return True, None
+
+
+def _beta_readiness_artifact_recommendation_drift(
+    artifact_payload: dict[str, object] | None,
+    recommended_candidate: str | None,
+) -> str | None:
+    report = dict((artifact_payload or {}).get("report", {}) or {})
+    if not report:
+        return None
+    chosen_candidate = str(report.get("chosen_candidate", "") or "").strip()
+    if not chosen_candidate or not recommended_candidate or chosen_candidate == recommended_candidate:
+        return None
+    return f"recorded candidate {chosen_candidate} differs from the latest recommended candidate {recommended_candidate}"
+
+
+def _beta_readiness_artifact_candidate(artifact_payload: dict[str, object] | None) -> str | None:
+    report = dict((artifact_payload or {}).get("report", {}) or {})
+    candidate = str(report.get("chosen_candidate", "") or "").strip()
+    return candidate or None
+
+
+def _beta_readiness_artifact_manual_summary(artifact_payload: dict[str, object] | None) -> str:
+    report = dict((artifact_payload or {}).get("report", {}) or {})
+    if not report:
+        return ""
+    checks = [
+        ("manual", bool(report.get("manual_checklist_completed", False))),
+        ("review", bool(report.get("release_review_artifact_completed", False))),
+        ("latency", bool(report.get("latency_review_completed", False))),
+        ("cost", bool(report.get("cost_review_completed", False))),
+        ("signoff", bool(report.get("operator_signoff_completed", False))),
+        ("approval", bool(report.get("product_approval_completed", False))),
+    ]
+    return ", ".join(f"{name}={'yes' if passed else 'no'}" for name, passed in checks)
+
+
+def _artifact_created_at(artifact_payload: dict[str, object] | None) -> str | None:
+    created_at = str((artifact_payload or {}).get("created_at", "") or "").strip()
+    return created_at or None
+
+
+def _artifact_sha256(artifact_path: Path | None, *, artifact_error: str | None) -> str | None:
+    if artifact_path is None or artifact_error is not None or not artifact_path.exists():
+        return None
+    try:
+        return hashlib.sha256(artifact_path.read_bytes()).hexdigest()
+    except OSError:
+        return None
 
 
 def _normalize_voice_command(recognized_text: str) -> str:

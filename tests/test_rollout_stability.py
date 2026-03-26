@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import json
+import tempfile
 import unittest
+from pathlib import Path
 
 from evals.run_qa_eval import QaEvalCaseResult, QaEvalComparisonReport, QaEvalProfileSummary, QaEvalReport
-from qa.rollout_stability import format_rollout_stability_report, run_rollout_stability
+from qa.rollout_stability import _write_rollout_stability_artifact, format_rollout_stability_report, run_rollout_stability
 
 
 class RolloutStabilityTests(unittest.TestCase):
@@ -19,6 +22,7 @@ class RolloutStabilityTests(unittest.TestCase):
                     default_switch_allowed=False,
                     blockers=["grounding pass rate is below threshold"],
                     failed_case_ids=["route_docs_clarification_question"],
+                    fallback_case_ids=[],
                     grounding=(10, 12),
                     open_domain=(5, 5),
                 ),
@@ -27,6 +31,7 @@ class RolloutStabilityTests(unittest.TestCase):
                     default_switch_allowed=True,
                     blockers=[],
                     failed_case_ids=[],
+                    fallback_case_ids=["route_answer_follow_up_explain_more"],
                     grounding=(12, 12),
                     open_domain=(5, 5),
                 ),
@@ -35,6 +40,7 @@ class RolloutStabilityTests(unittest.TestCase):
                     default_switch_allowed=False,
                     blockers=["open-domain answer pass rate is below threshold"],
                     failed_case_ids=["open_domain_explanation_answer"],
+                    fallback_case_ids=[],
                     grounding=(12, 12),
                     open_domain=(4, 5),
                 ),
@@ -59,6 +65,7 @@ class RolloutStabilityTests(unittest.TestCase):
         self.assertEqual(payload["blocker_counts"]["open-domain answer pass rate is below threshold"], 1)
         self.assertEqual(payload["failed_case_counts"]["route_docs_clarification_question"], 1)
         self.assertEqual(payload["failed_case_counts"]["open_domain_explanation_answer"], 1)
+        self.assertEqual(payload["fallback_case_counts"]["route_answer_follow_up_explain_more"], 1)
 
     def test_format_rollout_stability_report_includes_per_run_summary_and_frequencies(self) -> None:
         comparisons = iter(
@@ -68,6 +75,7 @@ class RolloutStabilityTests(unittest.TestCase):
                     default_switch_allowed=False,
                     blockers=["grounding pass rate is below threshold"],
                     failed_case_ids=["route_answer_follow_up_explain_more"],
+                    fallback_case_ids=["route_answer_follow_up_explain_more"],
                     grounding=(11, 12),
                     open_domain=(4, 5),
                 ),
@@ -76,6 +84,7 @@ class RolloutStabilityTests(unittest.TestCase):
                     default_switch_allowed=True,
                     blockers=[],
                     failed_case_ids=[],
+                    fallback_case_ids=[],
                     grounding=(12, 12),
                     open_domain=(5, 5),
                 ),
@@ -95,6 +104,82 @@ class RolloutStabilityTests(unittest.TestCase):
         self.assertIn("blocker frequency:", text)
         self.assertIn("grounding pass rate is below threshold: 1/2", text)
         self.assertIn("route_answer_follow_up_explain_more: 1/2", text)
+        self.assertIn("fallback-case frequency:", text)
+
+    def test_write_rollout_stability_artifact_persists_report_payload(self) -> None:
+        comparisons = iter(
+            [
+                self._comparison(
+                    candidate_profile="llm_env",
+                    default_switch_allowed=True,
+                    blockers=[],
+                    failed_case_ids=[],
+                    fallback_case_ids=[],
+                    grounding=(12, 12),
+                    open_domain=(5, 5),
+                ),
+                self._comparison(
+                    candidate_profile="llm_env",
+                    default_switch_allowed=True,
+                    blockers=[],
+                    failed_case_ids=[],
+                    fallback_case_ids=[],
+                    grounding=(12, 12),
+                    open_domain=(5, 5),
+                ),
+            ]
+        )
+
+        def _fake_runner(*args, **kwargs):  # type: ignore[no-untyped-def]
+            del args, kwargs
+            return next(comparisons)
+
+        report = run_rollout_stability("llm_env", runs=2, comparison_runner=_fake_runner)
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            artifact_path = Path(tmpdir) / "rollout_stability_llm_env.json"
+            _write_rollout_stability_artifact(report, artifact_path=artifact_path)
+            payload = json.loads(artifact_path.read_text(encoding="utf-8"))
+
+        self.assertEqual(payload["schema_version"], 1)
+        self.assertEqual(payload["runner"], "qa.rollout_stability")
+        self.assertEqual(payload["report"]["candidate_profile"], "llm_env")
+        self.assertEqual(payload["report"]["gate_passes"], 2)
+        self.assertEqual(payload["report"]["runs_requested"], 2)
+
+    def test_run_rollout_stability_ignores_override_profile_fallback_cases(self) -> None:
+        comparison = self._comparison(
+            candidate_profile="llm_env",
+            default_switch_allowed=True,
+            blockers=[],
+            failed_case_ids=[],
+            fallback_case_ids=[],
+            grounding=(12, 12),
+            open_domain=(5, 5),
+        )
+        comparison.summaries[1].report.results.append(
+            QaEvalCaseResult(
+                case_id="route_llm_missing_key_fallback",
+                case_type="interaction",
+                category="test",
+                passed=True,
+                checks={},
+                details={
+                    "profile": "llm_missing_key_fallback",
+                    "answer_calls": 1,
+                    "actual_error_code": None,
+                    "fallback_used": True,
+                },
+            )
+        )
+
+        def _fake_runner(*args, **kwargs):  # type: ignore[no-untyped-def]
+            del args, kwargs
+            return comparison
+
+        report = run_rollout_stability("llm_env", runs=1, comparison_runner=_fake_runner)
+
+        self.assertEqual(report.to_dict()["fallback_case_counts"], {})
 
     def _comparison(
         self,
@@ -103,12 +188,14 @@ class RolloutStabilityTests(unittest.TestCase):
         default_switch_allowed: bool,
         blockers: list[str],
         failed_case_ids: list[str],
+        fallback_case_ids: list[str],
         grounding: tuple[int, int],
         open_domain: tuple[int, int],
     ) -> QaEvalComparisonReport:
         baseline_summary = self._profile_summary(
             "deterministic",
             failed_case_ids=[],
+            fallback_case_ids=[],
             grounding=(12, 12),
             open_domain=(0, 0),
             fallback=(0, 12),
@@ -118,6 +205,7 @@ class RolloutStabilityTests(unittest.TestCase):
         candidate_summary = self._profile_summary(
             candidate_profile,
             failed_case_ids=failed_case_ids,
+            fallback_case_ids=fallback_case_ids,
             grounding=grounding,
             open_domain=open_domain,
             fallback=(0, 19),
@@ -140,12 +228,14 @@ class RolloutStabilityTests(unittest.TestCase):
         profile: str,
         *,
         failed_case_ids: list[str],
+        fallback_case_ids: list[str],
         grounding: tuple[int, int],
         open_domain: tuple[int, int],
         fallback: tuple[int, int],
         env_backed: bool,
         open_domain_enabled: bool,
     ) -> QaEvalProfileSummary:
+        failed_case_id_set = set(failed_case_ids)
         results = [
             QaEvalCaseResult(
                 case_id=case_id,
@@ -153,10 +243,33 @@ class RolloutStabilityTests(unittest.TestCase):
                 category="test",
                 passed=False,
                 checks={"answer_text": False},
-                details={},
+                details={
+                    "profile": profile,
+                    "answer_calls": 1,
+                    "actual_error_code": None,
+                    "fallback_used": case_id in set(fallback_case_ids),
+                },
             )
             for case_id in failed_case_ids
         ]
+        for case_id in fallback_case_ids:
+            if case_id in failed_case_id_set:
+                continue
+            results.append(
+                QaEvalCaseResult(
+                    case_id=case_id,
+                    case_type="interaction",
+                    category="test",
+                    passed=True,
+                    checks={},
+                    details={
+                        "profile": profile,
+                        "answer_calls": 1,
+                        "actual_error_code": None,
+                        "fallback_used": True,
+                    },
+                )
+            )
         report = QaEvalReport(
             default_profile=profile,
             total_cases=len(results),

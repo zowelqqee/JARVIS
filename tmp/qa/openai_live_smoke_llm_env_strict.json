@@ -1,8 +1,8 @@
 {
-  "created_at": "2026-03-25T19:46:35.392473+00:00",
+  "created_at": "2026-03-26T13:24:42.610075+00:00",
   "diagnostics": {
     "answer_kind": "open_domain_model",
-    "correlation_id": "1fc9b60d-83fa-403f-8157-3390ab1aebb8",
+    "correlation_id": "9787277f-a6b0-46b9-a133-53e8b7a2facb",
     "debug_enabled": false,
     "deterministic_fallback": false,
     "fallback_enabled": false,
@@ -10,7 +10,7 @@
     "open_domain_enabled": true,
     "provenance": "model_knowledge",
     "provider": "openai_responses",
-    "request_id": "req_a38cadb721f043b4b14ecf29efe90925",
+    "request_id": "req_c4e7452da9114615be9c073e3bd1c621",
     "source_count": 0,
     "strict_mode": true,
     "warning": null

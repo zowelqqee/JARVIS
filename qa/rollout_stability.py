@@ -7,12 +7,15 @@ import json
 import os
 from collections import Counter
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any, Callable
 
 from evals.run_qa_eval import DEFAULT_CORPUS_PATH, QaEvalComparisonReport, compare_eval_profiles, load_qa_eval_cases
-from qa.rollout_profiles import live_smoke_artifact_path_for_candidate
+from qa.rollout_profiles import live_smoke_artifact_path_for_candidate, rollout_stability_artifact_path_for_candidate
 
 _LIVE_SMOKE_ARTIFACT_ENV = "JARVIS_QA_OPENAI_LIVE_ARTIFACT"
+_ROLLOUT_STABILITY_ARTIFACT_ENV = "JARVIS_QA_ROLLOUT_STABILITY_ARTIFACT"
 _BASELINE_PROFILE = "deterministic"
 _CANDIDATE_PROFILES = ("llm_env", "llm_env_strict")
 
@@ -26,6 +29,7 @@ class RolloutStabilityRunSummary:
     recommended_default_profile: str
     blockers: list[str] = field(default_factory=list)
     failed_case_ids: list[str] = field(default_factory=list)
+    fallback_case_ids: list[str] = field(default_factory=list)
     grounding_passed: int = 0
     grounding_total: int = 0
     open_domain_passed: int = 0
@@ -42,6 +46,7 @@ class RolloutStabilityRunSummary:
             "recommended_default_profile": self.recommended_default_profile,
             "blockers": list(self.blockers),
             "failed_case_ids": list(self.failed_case_ids),
+            "fallback_case_ids": list(self.fallback_case_ids),
             "grounding_passed": self.grounding_passed,
             "grounding_total": self.grounding_total,
             "open_domain_passed": self.open_domain_passed,
@@ -65,9 +70,11 @@ class RolloutStabilityReport:
     def to_dict(self) -> dict[str, Any]:
         blocker_counts = Counter()
         failed_case_counts = Counter()
+        fallback_case_counts = Counter()
         for run in self.runs:
             blocker_counts.update(run.blockers)
             failed_case_counts.update(run.failed_case_ids)
+            fallback_case_counts.update(run.fallback_case_ids)
         return {
             "baseline_profile": self.baseline_profile,
             "candidate_profile": self.candidate_profile,
@@ -76,6 +83,7 @@ class RolloutStabilityReport:
             "runs": [run.to_dict() for run in self.runs],
             "blocker_counts": dict(blocker_counts),
             "failed_case_counts": dict(failed_case_counts),
+            "fallback_case_counts": dict(fallback_case_counts),
         }
 
     @property
@@ -107,7 +115,14 @@ def run_rollout_stability(
             candidate_profile=candidate,
         )
         candidate_summary = _candidate_summary(comparison, candidate)
-        failed_case_ids = [result.case_id for result in candidate_summary.report.results if not result.passed]
+        candidate_interaction_results = _candidate_interaction_results(candidate_summary)
+        candidate_answer_results = _candidate_answer_results(candidate_summary)
+        failed_case_ids = [result.case_id for result in candidate_interaction_results if not result.passed]
+        fallback_case_ids = [
+            result.case_id
+            for result in candidate_answer_results
+            if bool((result.details or {}).get("fallback_used"))
+        ]
         run_summaries.append(
             RolloutStabilityRunSummary(
                 run_index=run_index,
@@ -115,6 +130,7 @@ def run_rollout_stability(
                 recommended_default_profile=str(comparison.recommended_default_profile or "").strip(),
                 blockers=list(comparison.blockers),
                 failed_case_ids=failed_case_ids,
+                fallback_case_ids=fallback_case_ids,
                 grounding_passed=int(candidate_summary.grounding_passed),
                 grounding_total=int(candidate_summary.grounding_total),
                 open_domain_passed=int(candidate_summary.open_domain_passed),
@@ -158,9 +174,11 @@ def format_rollout_stability_report(report: RolloutStabilityReport) -> str:
             )
     blocker_counts = Counter()
     failed_case_counts = Counter()
+    fallback_case_counts = Counter()
     for run in report.runs:
         blocker_counts.update(run.blockers)
         failed_case_counts.update(run.failed_case_ids)
+        fallback_case_counts.update(run.fallback_case_ids)
     if blocker_counts:
         lines.append("blocker frequency:")
         for blocker, count in blocker_counts.most_common():
@@ -173,6 +191,12 @@ def format_rollout_stability_report(report: RolloutStabilityReport) -> str:
             lines.append(f"  - {case_id}: {count}/{report.runs_requested}")
     else:
         lines.append("failed-case frequency: none")
+    if fallback_case_counts:
+        lines.append("fallback-case frequency:")
+        for case_id, count in fallback_case_counts.most_common():
+            lines.append(f"  - {case_id}: {count}/{report.runs_requested}")
+    else:
+        lines.append("fallback-case frequency: none")
     return "\n".join(lines)
 
 
@@ -185,7 +209,16 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     os.environ.setdefault(_LIVE_SMOKE_ARTIFACT_ENV, str(live_smoke_artifact_path_for_candidate(args.candidate_profile)))
+    stability_artifact_path = Path(
+        str(
+            os.environ.get(
+                _ROLLOUT_STABILITY_ARTIFACT_ENV,
+                str(rollout_stability_artifact_path_for_candidate(args.candidate_profile)),
+            )
+        ).strip()
+    )
     report = run_rollout_stability(args.candidate_profile, runs=args.runs)
+    _write_rollout_stability_artifact(report, artifact_path=stability_artifact_path)
     if args.json:
         print(json.dumps(report.to_dict(), indent=2, sort_keys=True))
     else:
@@ -200,10 +233,40 @@ def _candidate_summary(comparison: QaEvalComparisonReport, candidate_profile: st
     raise ValueError(f"Candidate profile {candidate_profile!r} is missing from comparison summaries.")
 
 
+def _candidate_interaction_results(candidate_summary: Any) -> list[Any]:
+    default_profile = str(getattr(candidate_summary.report, "default_profile", "") or "")
+    return [
+        result
+        for result in list(getattr(candidate_summary.report, "results", []) or [])
+        if getattr(result, "case_type", None) == "interaction"
+        and str((getattr(result, "details", {}) or {}).get("profile") or "") == default_profile
+    ]
+
+
+def _candidate_answer_results(candidate_summary: Any) -> list[Any]:
+    return [
+        result
+        for result in _candidate_interaction_results(candidate_summary)
+        if bool((getattr(result, "details", {}) or {}).get("answer_calls"))
+        and not str((getattr(result, "details", {}) or {}).get("actual_error_code") or "").strip()
+    ]
+
+
 def _percent(numerator: int, denominator: int) -> str:
     if denominator <= 0:
         return "n/a"
     return f"{(float(numerator) / float(denominator)) * 100.0:.1f}%"
+
+
+def _write_rollout_stability_artifact(report: RolloutStabilityReport, *, artifact_path: Path) -> None:
+    payload = {
+        "schema_version": 1,
+        "runner": "qa.rollout_stability",
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "report": report.to_dict(),
+    }
+    artifact_path.parent.mkdir(parents=True, exist_ok=True)
+    artifact_path.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
 
 
 if __name__ == "__main__":

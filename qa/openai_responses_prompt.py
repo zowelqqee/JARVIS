@@ -116,10 +116,19 @@ def _question_guidance_section(question: QuestionRequest, *, grounding_bundle: G
         confirmation_message = str(runtime_facts.get("confirmation_message", "") or "").strip()
         clarification_question = str(runtime_facts.get("clarification_question", "") or "").strip()
         blocked_reason = str(runtime_facts.get("blocked_reason", "") or "").strip()
+        runtime_state = str(runtime_facts.get("runtime_state", "") or "").strip()
         concrete_boundary = confirmation_message or clarification_question or blocked_reason
         if concrete_boundary:
             guidance_lines.append(f"Preserve the concrete blocked-state boundary when answering: {concrete_boundary}")
             guidance_lines.append("Repeat that concrete blocked-state boundary verbatim in answer_text when it is present.")
+        elif runtime_state == "awaiting_confirmation":
+            guidance_lines.append(
+                "If no concrete confirmation message is present, say that explicit confirmation before execution can continue and do not invent a different item or option to confirm."
+            )
+        if runtime_state in {"awaiting_confirmation", "awaiting_clarification"}:
+            guidance_lines.append(
+                "When blocked-state sources cover question-mode rules, product boundaries, and runtime flow, keep at least three source_attributions in the grounded answer."
+            )
         guidance_lines.append("Use enough grounded sources to cover the read-only QA boundary, the blocked state, and the runtime pause semantics.")
     if question_type == "answer_follow_up":
         recent_answer_context = dict(session_facts.get("recent_answer_context", {}) or {})

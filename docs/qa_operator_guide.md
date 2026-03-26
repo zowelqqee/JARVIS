@@ -18,9 +18,23 @@ Useful read-only helper commands:
 - `qa smoke`
 - `qa gate`
 - `qa gate strict`
+- `qa beta`
+- `python3 -m qa.beta_release_review`
+- `python3 -m qa.beta_readiness`
+- `python3 -m qa.manual_beta_checklist`
 - `qa smoke` now prints the live-smoke artifact path/status and whether open-domain live verification is already present
 - `qa gate` now prints an offline rollout-gate precheck for the current `llm_env` candidate config
 - `qa gate strict` does the same for `llm_env_strict` and prints the exact comparative gate command to run next
+- `qa beta` prints the offline beta-decision summary: current stage/default hold, candidate artifact readiness for both profiles, the current recommended beta candidate, and any recorded beta-readiness artifact state
+- `python3 -m qa.beta_release_review` is the machine-readable release-review helper for `beta_question_default`; it records candidate-specific latency review, cost review, operator sign-off, and product approval in `tmp/qa/beta_release_review.json`
+- `python3 -m qa.beta_readiness` builds the machine-readable beta-readiness record from the latest smoke/stability artifacts plus the recorded manual checklist and beta release-review artifacts; it stays offline, does not rerun the provider path, and no longer accepts manual/release-review shortcut flags
+- `python3 -m qa.manual_beta_checklist` is the machine-readable manual checklist helper for `beta_question_default`; it records whether the required manual question-mode scenarios were actually verified
+- `qa beta` also cross-checks any recorded `tmp/qa/beta_readiness.json` against the latest smoke/stability artifacts, so an older sign-off cannot silently mask a newly red or drifted candidate
+- That cross-check is snapshot-aware: the recorded beta artifact now keeps the exact smoke/stability `created_at` evidence per candidate, and `qa beta` treats a sign-off as stale if it points at an older evidence snapshot even when the candidate still looks green.
+- It is also fingerprint-aware: the beta artifact stores smoke/stability sha256 fingerprints, so a rewritten artifact with the same timestamp still fails consistency if the underlying evidence changed.
+- The same rule now applies to `tmp/qa/manual_beta_checklist.json` and `tmp/qa/beta_release_review.json`: `qa beta` treats beta sign-off as stale if either recorded snapshot or fingerprint no longer matches the current artifact.
+- `tmp/qa/beta_release_review.json` is also snapshot-aware on its own now: it stores the exact manual-checklist snapshot/fingerprint it was reviewed against, so `qa beta` can catch stale release review even before any final `tmp/qa/beta_readiness.json` exists.
+- Supporting release artifacts are freshness-checked too: `qa beta` now prints `fresh=yes|no|n/a` for both `tmp/qa/manual_beta_checklist.json` and `tmp/qa/beta_release_review.json`, and stale manual/release evidence must be re-recorded before final beta readiness.
 
 Deterministic sanity checks:
 - `python3 -m evals.run_qa_eval`
@@ -91,11 +105,31 @@ Comparative default-decision gate:
 - The stability sweep repeats the same comparative gate multiple times and aggregates blocker/failing-case frequency, so release decisions are not based on a single lucky green run.
 - The `default-switch blockers` section is the source of truth for rollout decisions. A profile can still show non-blocking case mismatches in the sample list while the gate remains green if those mismatches are outside the tracked rollout thresholds.
 
-Current env-backed status (`2026-03-25`):
-- `llm_env_strict` has a real green live-smoke + comparative-gate run with `JARVIS_QA_LLM_OPEN_DOMAIN_ENABLED=true`, and the latest repeated strict stability sweep on `2026-03-25` now shows `2/2` gate passes on current HEAD.
-- `llm_env` also has real green live smoke with open-domain enabled, but the latest repeated non-strict stability sweep on `2026-03-25` still shows only `1/2` gate passes.
-- The blocking non-strict rerun still failed on `grounding pass rate`, `open-domain answer pass rate`, and `candidate grounding quality regressed versus deterministic baseline`, so `llm_env` should still be treated as alpha-only.
-- This makes `llm_env_strict` the stronger env-backed candidate today, but it still does not change the product stage by itself: keep the project at `alpha_opt_in` and keep deterministic as the product default until a deliberate default-switch decision is made.
+Current env-backed status (`2026-03-26`):
+- Fresh live smoke on `2026-03-26` is green for both `llm_env` and `llm_env_strict` with `JARVIS_QA_LLM_OPEN_DOMAIN_ENABLED=true`.
+- Fresh comparative gates on `2026-03-26` also produced green one-off reruns for both profiles earlier in the day.
+- Same-day repeated sweeps did oscillate earlier, which is exactly why candidate-specific stability artifacts and `qa beta` were hardened in this cycle.
+- The latest machine-readable stability artifacts on `2026-03-26` are now green again and show `2/2` gate passes for both `llm_env` and `llm_env_strict`.
+- `qa beta` now reads those candidate-specific stability artifacts directly, so the operator sees the current status (`stability=green(2/2)` or `stability=failed(...)`) instead of relying on stale memory of an earlier rerun.
+- On the same latest artifacts, `qa beta` currently recommends `llm_env_strict` as the cleaner beta candidate because it keeps deterministic fallback disabled while the technical signal remains green.
+- The next explicit blockers are now visible in tooling too: `tmp/qa/manual_beta_checklist.json` and `tmp/qa/beta_release_review.json` are currently missing, so manual beta verification and release review have not yet been recorded.
+- Even with a technically green latest signal, keep the project at `alpha_opt_in` and keep deterministic as the product default until `beta_question_default` is explicitly ready.
+
+Beta-readiness record:
+- First record the manual beta checklist after the real scripted pass:
+  - `python3 -m qa.manual_beta_checklist --all-passed --write-artifact`
+- Then record the candidate-specific release review after latency/cost review and operator/product sign-off are actually complete:
+  - `python3 -m qa.beta_release_review --candidate-profile llm_env_strict --latency-reviewed --cost-reviewed --operator-signoff --product-approval --write-artifact`
+- Only after both artifacts exist, record the consolidated beta-readiness snapshot:
+  - `python3 -m qa.beta_readiness --candidate-profile llm_env_strict --write-artifact`
+- Output artifact:
+  - `tmp/qa/beta_readiness.json`
+- Supporting artifacts:
+  - `tmp/qa/manual_beta_checklist.json`
+  - `tmp/qa/beta_release_review.json`
+- These artifacts are operator-facing release-decision evidence only; they do not switch the default on their own.
+- Treat them like the technical rollout artifacts: if `qa beta` reports either supporting artifact as stale, re-record it before writing a new `tmp/qa/beta_readiness.json`.
+- If later `qa beta` reports that the recorded artifact is stale or inconsistent with the latest technical evidence, re-run the decision review instead of treating the old sign-off as valid.
 
 Open-domain mock harness:
 - `python3 -m evals.run_qa_eval --default-profile llm_open_domain_mock`

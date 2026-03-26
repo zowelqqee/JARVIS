@@ -42,3 +42,4 @@ If validating model-backed alpha readiness:
 - Voice failure diagnostics stay explicit and actionable (no generic `Voice capture failed` path).
 - Use `docs/manual_verification_commands.md` for the dual-mode scripted pass.
 - Use `docs/qa_operator_guide.md` for LLM alpha enablement, live smoke, and failure diagnosis.
+- After the scripted pass, use `python3 -m qa.manual_beta_checklist --all-passed --write-artifact`, then `python3 -m qa.beta_release_review --candidate-profile llm_env_strict --latency-reviewed --cost-reviewed --operator-signoff --product-approval --write-artifact`, and only then `python3 -m qa.beta_readiness --candidate-profile llm_env_strict --write-artifact` to record whether the candidate is actually ready for `beta_question_default`; if `qa beta` later reports either supporting artifact as stale, re-record it before trusting the old sign-off. These artifacts are evidence only and do not switch the default automatically.

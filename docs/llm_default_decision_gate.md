@@ -108,5 +108,18 @@ If repeated stability sweeps oscillate between green and blocked:
 
 ## Current Recommendation
 - default product path: deterministic
-- model-backed path: opt-in only
-- default switch: blocked until the comparative gate passes cleanly and repeatably in the target environment
+- model-backed path: opt-in only until `beta_question_default` is explicitly approved
+- latest env-backed gate signal: fresh smoke artifacts are green, and the latest candidate-specific repeated stability artifacts on `2026-03-26` are currently green again for both `llm_env` and `llm_env_strict`
+- latest offline beta recommendation: `qa beta` currently prefers `llm_env_strict` on the same `2026-03-26` artifacts because it keeps fallback disabled while the technical signal remains green
+- default switch: still held at product/stage level because the project remains `alpha_opt_in`
+
+## After The Gate Turns Green
+- A green comparative gate plus a green repeated stability sweep means the rollout plumbing is no longer the blocker.
+- The next step becomes release decisioning: choose one beta candidate profile, complete the manual verification checklist, review latency/cost in the target environment, and get explicit product approval for `beta_question_default`.
+- `qa beta` is the offline CLI helper for this stage; it does not rerun smoke/gate/stability, but it reads the latest candidate-specific stability artifacts so neither a stale red rerun nor a stale green rerun masquerades as current rollout evidence.
+- `python3 -m qa.manual_beta_checklist` is the machine-readable manual checklist helper for this stage; it writes `tmp/qa/manual_beta_checklist.json` after the real scripted pass.
+- `python3 -m qa.beta_release_review` is the matching machine-readable release-review helper; it writes `tmp/qa/beta_release_review.json` after latency/cost review, operator sign-off, and product approval are explicitly recorded for one candidate profile, and it binds that review to the exact manual-checklist snapshot used during sign-off.
+- `python3 -m qa.beta_readiness` is the final offline decision-record helper; it writes `tmp/qa/beta_readiness.json` only after the operator explicitly records candidate choice and both supporting artifacts, `tmp/qa/manual_beta_checklist.json` and `tmp/qa/beta_release_review.json`, are complete. It no longer accepts release-decision shortcut flags.
+- Supporting release-decision artifacts are freshness-gated too: if `qa beta` shows `manual checklist artifact fresh: no` or `release review artifact fresh: no`, re-record that artifact before any final beta-readiness sign-off.
+- After a beta-readiness artifact exists, `qa beta` must still show it as fresh and consistent with the latest smoke/stability evidence; otherwise release decisioning has drifted and must be repeated before any `beta_question_default` discussion.
+- Consistency here is exact evidence-snapshot consistency: a recorded sign-off tied to older or rewritten smoke/stability/manual-checklist/release-review artifacts must not be treated as current just because the same candidate happens to be green again later.

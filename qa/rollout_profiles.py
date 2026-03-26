@@ -14,6 +14,13 @@ _PROFILE_LIVE_SMOKE_ARTIFACTS = {
     "llm_env": _REPO_ROOT / "tmp" / "qa" / "openai_live_smoke_llm_env.json",
     "llm_env_strict": _REPO_ROOT / "tmp" / "qa" / "openai_live_smoke_llm_env_strict.json",
 }
+_PROFILE_STABILITY_ARTIFACTS = {
+    "llm_env": _REPO_ROOT / "tmp" / "qa" / "rollout_stability_llm_env.json",
+    "llm_env_strict": _REPO_ROOT / "tmp" / "qa" / "rollout_stability_llm_env_strict.json",
+}
+_BETA_READINESS_ARTIFACT = _REPO_ROOT / "tmp" / "qa" / "beta_readiness.json"
+_MANUAL_BETA_CHECKLIST_ARTIFACT = _REPO_ROOT / "tmp" / "qa" / "manual_beta_checklist.json"
+_BETA_RELEASE_REVIEW_ARTIFACT = _REPO_ROOT / "tmp" / "qa" / "beta_release_review.json"
 
 
 @dataclass(slots=True, frozen=True)
@@ -42,6 +49,29 @@ def rollout_smoke_command(candidate_profile: str | None = None) -> str:
     if not candidate:
         return "scripts/run_openai_live_smoke.sh"
     return f"scripts/run_openai_live_smoke.sh {candidate}"
+
+
+def rollout_stability_artifact_path_for_candidate(candidate_profile: str) -> Path:
+    """Return the default stability-artifact path for one rollout candidate."""
+    candidate = str(candidate_profile or "").strip()
+    if candidate not in _PROFILE_STABILITY_ARTIFACTS:
+        raise ValueError(f"Unsupported rollout candidate profile: {candidate_profile!r}.")
+    return _PROFILE_STABILITY_ARTIFACTS[candidate]
+
+
+def beta_readiness_artifact_path() -> Path:
+    """Return the default artifact path for the offline beta-readiness decision record."""
+    return _BETA_READINESS_ARTIFACT
+
+
+def manual_beta_checklist_artifact_path() -> Path:
+    """Return the default artifact path for the manual beta-checklist record."""
+    return _MANUAL_BETA_CHECKLIST_ARTIFACT
+
+
+def beta_release_review_artifact_path() -> Path:
+    """Return the default artifact path for the beta release-review record."""
+    return _BETA_RELEASE_REVIEW_ARTIFACT
 
 
 def rollout_compare_command(candidate_profile: str) -> str:

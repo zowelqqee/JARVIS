@@ -5,10 +5,14 @@ from __future__ import annotations
 import unittest
 
 from qa.rollout_profiles import (
+    beta_release_review_artifact_path,
+    beta_readiness_artifact_path,
     live_smoke_artifact_path_for_candidate,
+    manual_beta_checklist_artifact_path,
     resolve_rollout_candidate_settings,
     rollout_compare_command,
     rollout_smoke_command,
+    rollout_stability_artifact_path_for_candidate,
     rollout_stability_command,
 )
 
@@ -23,6 +27,17 @@ class RolloutProfilesTests(unittest.TestCase):
                 "openai_live_smoke_llm_env_strict.json"
             )
         )
+        self.assertTrue(
+            str(rollout_stability_artifact_path_for_candidate("llm_env")).endswith("rollout_stability_llm_env.json")
+        )
+        self.assertTrue(
+            str(rollout_stability_artifact_path_for_candidate("llm_env_strict")).endswith(
+                "rollout_stability_llm_env_strict.json"
+            )
+        )
+        self.assertTrue(str(beta_readiness_artifact_path()).endswith("beta_readiness.json"))
+        self.assertTrue(str(beta_release_review_artifact_path()).endswith("beta_release_review.json"))
+        self.assertTrue(str(manual_beta_checklist_artifact_path()).endswith("manual_beta_checklist.json"))
         self.assertTrue(str(live_smoke_artifact_path_for_candidate()).endswith("openai_live_smoke.json"))
 
     def test_candidate_commands_are_profile_scoped(self) -> None:
