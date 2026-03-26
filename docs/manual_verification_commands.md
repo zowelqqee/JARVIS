@@ -116,7 +116,8 @@
 
 ### 19) Beta-decision offline summary
 - Input: `qa beta`
-- Expected: prints `alpha_opt_in`, keeps deterministic as the default path, summarizes candidate artifact readiness for `llm_env` and `llm_env_strict`, reads the latest candidate-specific rollout-stability artifacts when present, shows the currently recommended beta candidate, and reports the manual beta checklist artifact, beta release-review artifact, their freshness, and any recorded beta-readiness artifact.
+- Expected: prints `alpha_opt_in`, keeps deterministic as the default path, summarizes candidate artifact readiness for `llm_env` and `llm_env_strict`, reads the latest candidate-specific rollout-stability artifacts when present, shows the currently recommended beta candidate, and reports the manual beta checklist artifact, beta release-review artifact, their freshness, pending manual/review work, and any recorded beta-readiness artifact.
+- Expected: for partial supporting artifacts, the printed `manual checklist command` / `release review command` now target only the remaining `--pass ...` / review flags; for missing or stale artifacts they still fall back to the full rerun command.
 
 ### 20) Manual beta checklist record
 - Command:
@@ -139,6 +140,7 @@
 - Important: this artifact records manual release review only; it does not replace live smoke/gate/stability evidence.
 - Important: it now also records the exact `tmp/qa/manual_beta_checklist.json` snapshot/fingerprint used during review, so a later manual-checklist rerun makes the stored release review stale.
 - Important: it is also freshness-checked; if `qa beta` reports `release review artifact fresh: no`, re-record the release review before writing `tmp/qa/beta_readiness.json`.
+- Important: even when the release-review artifact itself is fresh, `qa beta` now marks it inconsistent if the latest `tmp/qa/manual_beta_checklist.json` is already stale by age; in that case rerun the manual checklist first, then re-record the release review.
 - Important: once `tmp/qa/beta_readiness.json` exists, `qa beta` also expects the recorded release-review snapshot/fingerprint inside that artifact to match the latest `tmp/qa/beta_release_review.json`.
 
 ### 22) Beta-readiness record
@@ -146,6 +148,7 @@
   - `python3 -m qa.beta_readiness`
   - `python3 -m qa.beta_readiness --candidate-profile llm_env_strict --write-artifact`
 - Expected: stays offline, reads the latest smoke/stability artifacts plus the recorded manual beta checklist artifact and beta release-review artifact, shows the recommended beta candidate, and remains blocked until those supporting artifacts are both complete.
+- Expected: when supporting artifacts are still missing/incomplete, it now also prints and records `manual checklist pending items` and `release review pending checks`.
 - Important: this helper no longer accepts legacy `--manual-checklist` / `--latency-reviewed` / `--cost-reviewed` / `--operator-signoff` / `--product-approval` shortcuts; supporting evidence must come from artifacts.
 - Important: this helper now also blocks on stale manual/release supporting artifacts, not just missing/incomplete ones.
 - Expected artifact:
@@ -153,3 +156,4 @@
 - Important: writing the artifact records release-decision evidence; it does not flip the product default by itself.
 - Important: `qa beta` must still show that recorded artifact as fresh and consistent with the latest smoke/stability evidence; otherwise the recorded sign-off is stale and must be revisited.
 - Important: consistency now means exact smoke/stability/manual-checklist/release-review snapshot and fingerprint consistency, not only “the same candidate is still green”.
+- Important: freshness counts as part of that consistency too; a recorded `tmp/qa/beta_readiness.json` is now stale if the latest manual checklist or release-review artifact simply aged out, even when their fingerprints did not change.

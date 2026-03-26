@@ -286,6 +286,13 @@ class CliSmokeTests(unittest.TestCase):
                 self.assertIn("qa beta default path: deterministic", beta_output)
                 self.assertIn("qa beta recommended candidate: none", beta_output)
                 self.assertIn("qa beta manual checklist artifact:", beta_output)
+                self.assertIn("qa beta manual checklist pending items:", beta_output)
+                self.assertIn("arbitrary_factual_question", beta_output)
+                self.assertIn("provider_unavailable_path", beta_output)
+                self.assertIn(
+                    "qa beta release review pending checks: latency_review, cost_review, operator_signoff, product_approval",
+                    beta_output,
+                )
                 self.assertIn("qa beta recorded candidate: none", beta_output)
                 self.assertIn("qa beta decision artifact:", beta_output)
                 self.assertIn("(missing)", beta_output)
@@ -648,9 +655,14 @@ class CliSmokeTests(unittest.TestCase):
         self.assertIn("qa beta latest stability evidence: clean (llm_env, llm_env_strict)", beta_output)
         self.assertIn("qa beta recommended candidate: llm_env_strict", beta_output)
         self.assertIn("qa beta manual checklist artifact:", beta_output)
+        self.assertIn("qa beta manual checklist pending items:", beta_output)
         self.assertIn("(missing)", beta_output)
         self.assertIn("qa beta manual checklist artifact fresh: n/a", beta_output)
         self.assertIn("qa beta release review artifact fresh: n/a", beta_output)
+        self.assertIn(
+            "qa beta release review pending checks: latency_review, cost_review, operator_signoff, product_approval",
+            beta_output,
+        )
         self.assertIn("qa beta recorded candidate: none", beta_output)
         self.assertIn("qa beta decision artifact:", beta_output)
         self.assertIn("(missing)", beta_output)
@@ -767,6 +779,15 @@ class CliSmokeTests(unittest.TestCase):
             manual_payload = json.loads(manual_artifact.read_text(encoding="utf-8"))
             manual_payload["created_at"] = "2026-03-24T00:00:00+00:00"
             manual_artifact.write_text(json.dumps(manual_payload, indent=2, sort_keys=True), encoding="utf-8")
+            stale_manual_sha256 = hashlib.sha256(manual_artifact.read_bytes()).hexdigest()
+            release_review_artifact, _release_review_created_at, _release_review_sha256 = (
+                self._write_complete_beta_release_review(
+                    tmpdir,
+                    candidate_profile="llm_env_strict",
+                    manual_created_at="2026-03-24T00:00:00+00:00",
+                    manual_sha256=stale_manual_sha256,
+                )
+            )
 
             def _artifact_for_candidate(candidate_profile: str | None) -> Path:
                 if candidate_profile == "llm_env_strict":
@@ -790,6 +811,9 @@ class CliSmokeTests(unittest.TestCase):
             ), patch(
                 "cli.manual_beta_checklist_artifact_path",
                 return_value=manual_artifact,
+            ), patch(
+                "cli.beta_release_review_artifact_path",
+                return_value=release_review_artifact,
             ), patch(
                 "cli.load_answer_backend_config",
                 return_value=SimpleNamespace(
@@ -818,6 +842,11 @@ class CliSmokeTests(unittest.TestCase):
         self.assertFalse(should_exit)
         self.assertFalse(speak_enabled)
         self.assertIn("qa beta manual checklist artifact fresh: no (48.0h)", beta_output)
+        self.assertIn("qa beta release review artifact consistent with latest evidence: no", beta_output)
+        self.assertIn(
+            "qa beta release review artifact consistency reason: latest manual checklist artifact is stale",
+            beta_output,
+        )
         self.assertIn("next beta step: complete the manual beta checklist artifact before release sign-off.", beta_output)
         runtime_mock.assert_not_called()
 
@@ -1175,6 +1204,274 @@ class CliSmokeTests(unittest.TestCase):
         )
         self.assertIn(
             "release review command: python3 -m qa.beta_release_review --candidate-profile llm_env_strict --latency-reviewed --cost-reviewed --operator-signoff --product-approval --write-artifact",
+            beta_output,
+        )
+        runtime_mock.assert_not_called()
+
+    def test_qa_beta_uses_incremental_commands_for_partial_manual_and_release_work(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            artifact_llm_env = Path(tmpdir) / "openai_live_smoke_llm_env.json"
+            artifact_llm_env.write_text(
+                json.dumps(
+                    {
+                        "schema_version": 1,
+                        "runner": "tests.smoke_openai_responses_provider_live",
+                        "created_at": "2026-03-26T00:00:00+00:00",
+                        "question": "Why is the sky blue?",
+                        "success": True,
+                        "issues": [],
+                        "error": None,
+                        "open_domain_verified": True,
+                        "diagnostics": {
+                            "provider": "openai_responses",
+                            "model": "gpt-5-nano",
+                            "strict_mode": True,
+                            "fallback_enabled": True,
+                            "open_domain_enabled": True,
+                            "answer_kind": "open_domain_model",
+                            "provenance": "model_knowledge",
+                            "source_count": 0,
+                            "deterministic_fallback": False,
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+            artifact_llm_env_strict = Path(tmpdir) / "openai_live_smoke_llm_env_strict.json"
+            artifact_llm_env_strict.write_text(
+                json.dumps(
+                    {
+                        "schema_version": 1,
+                        "runner": "tests.smoke_openai_responses_provider_live",
+                        "created_at": "2026-03-26T00:00:00+00:00",
+                        "question": "Why is the sky blue?",
+                        "success": True,
+                        "issues": [],
+                        "error": None,
+                        "open_domain_verified": True,
+                        "diagnostics": {
+                            "provider": "openai_responses",
+                            "model": "gpt-5-nano",
+                            "strict_mode": True,
+                            "fallback_enabled": False,
+                            "open_domain_enabled": True,
+                            "answer_kind": "open_domain_model",
+                            "provenance": "model_knowledge",
+                            "source_count": 0,
+                            "deterministic_fallback": False,
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+            stability_llm_env = Path(tmpdir) / "rollout_stability_llm_env.json"
+            stability_llm_env.write_text(
+                json.dumps(
+                    {
+                        "schema_version": 1,
+                        "runner": "qa.rollout_stability",
+                        "created_at": "2026-03-26T00:00:00+00:00",
+                        "report": {
+                            "baseline_profile": "deterministic",
+                            "candidate_profile": "llm_env",
+                            "runs_requested": 2,
+                            "gate_passes": 2,
+                            "runs": [],
+                            "blocker_counts": {},
+                            "failed_case_counts": {},
+                            "fallback_case_counts": {},
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+            stability_llm_env_strict = Path(tmpdir) / "rollout_stability_llm_env_strict.json"
+            stability_llm_env_strict.write_text(
+                json.dumps(
+                    {
+                        "schema_version": 1,
+                        "runner": "qa.rollout_stability",
+                        "created_at": "2026-03-26T00:00:00+00:00",
+                        "report": {
+                            "baseline_profile": "deterministic",
+                            "candidate_profile": "llm_env_strict",
+                            "runs_requested": 2,
+                            "gate_passes": 2,
+                            "runs": [],
+                            "blocker_counts": {},
+                            "failed_case_counts": {},
+                            "fallback_case_counts": {},
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+            manual_artifact = Path(tmpdir) / "manual_beta_checklist.json"
+            manual_artifact.write_text(
+                json.dumps(
+                    {
+                        "schema_version": 1,
+                        "runner": "qa.manual_beta_checklist",
+                        "created_at": "2026-03-26T00:00:00+00:00",
+                        "report": {
+                            "checklist_id": "beta_question_default",
+                            "passed_items": 5,
+                            "total_items": 7,
+                            "all_passed": False,
+                            "items": {
+                                "arbitrary_factual_question": {"label": "Arbitrary factual question", "passed": True},
+                                "arbitrary_explanation_question": {"label": "Arbitrary explanation question", "passed": True},
+                                "casual_chat_question": {"label": "Casual chat question", "passed": True},
+                                "blocked_state_question": {"label": "Blocked-state question", "passed": False},
+                                "grounded_docs_question": {"label": "Grounded docs question", "passed": True},
+                                "mixed_question_command": {"label": "Mixed question + command", "passed": True},
+                                "provider_unavailable_path": {"label": "Provider unavailable path", "passed": False},
+                            },
+                            "notes": "",
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+            release_review_artifact = Path(tmpdir) / "beta_release_review.json"
+            release_review_artifact.write_text(
+                json.dumps(
+                    {
+                        "schema_version": 1,
+                        "runner": "qa.beta_release_review",
+                        "created_at": "2026-03-26T00:00:00+00:00",
+                        "report": {
+                            "review_id": "beta_question_default",
+                            "candidate_profile": "llm_env_strict",
+                            "completed_checks": 2,
+                            "total_checks": 4,
+                            "all_completed": False,
+                            "manual_checklist_artifact_status": "complete",
+                            "manual_checklist_artifact_completed": True,
+                            "manual_checklist_items_passed": 7,
+                            "manual_checklist_items_total": 7,
+                            "manual_checklist_artifact_fresh": True,
+                            "manual_checklist_artifact_created_at": "2026-03-26T00:00:00+00:00",
+                            "manual_checklist_artifact_sha256": hashlib.sha256(manual_artifact.read_bytes()).hexdigest(),
+                            "checks": {
+                                "latency_review": {"label": "Latency review", "completed": True},
+                                "cost_review": {"label": "Cost review", "completed": False},
+                                "operator_signoff": {"label": "Operator sign-off", "completed": False},
+                                "product_approval": {"label": "Product approval", "completed": True},
+                            },
+                            "notes": "",
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            def _artifact_for_candidate(candidate_profile: str | None) -> Path:
+                if candidate_profile == "llm_env_strict":
+                    return artifact_llm_env_strict
+                return artifact_llm_env
+
+            def _stability_for_candidate(candidate_profile: str) -> Path:
+                if candidate_profile == "llm_env_strict":
+                    return stability_llm_env_strict
+                return stability_llm_env
+
+            with patch("cli._handle_runtime_input") as runtime_mock, patch(
+                "cli._artifact_now",
+                return_value=cli.datetime(2026, 3, 26, tzinfo=cli.timezone.utc),
+            ), patch(
+                "cli.live_smoke_artifact_path_for_candidate",
+                side_effect=_artifact_for_candidate,
+            ), patch(
+                "cli.rollout_stability_artifact_path_for_candidate",
+                side_effect=_stability_for_candidate,
+            ), patch(
+                "cli.manual_beta_checklist_artifact_path",
+                return_value=manual_artifact,
+            ), patch(
+                "cli.load_answer_backend_config",
+                return_value=SimpleNamespace(
+                    backend_kind="llm",
+                    llm=SimpleNamespace(
+                        provider="openai_responses",
+                        enabled=True,
+                        fallback_enabled=True,
+                        open_domain_enabled=True,
+                        model="gpt-5-nano",
+                        reasoning_effort="minimal",
+                        strict_mode=True,
+                        max_output_tokens=800,
+                        api_key_env="OPENAI_API_KEY",
+                    ),
+                ),
+            ), patch.dict(
+                "os.environ",
+                {
+                    "OPENAI_API_KEY": "test-key",
+                },
+                clear=False,
+            ):
+                should_exit, speak_enabled, beta_output = self._run_command("qa beta", speak_enabled=False)
+
+            self.assertFalse(should_exit)
+            self.assertFalse(speak_enabled)
+            self.assertIn(
+                "manual checklist command: python3 -m qa.manual_beta_checklist --pass blocked_state_question --pass provider_unavailable_path --write-artifact",
+                beta_output,
+            )
+            runtime_mock.assert_not_called()
+
+            manual_payload = json.loads(manual_artifact.read_text(encoding="utf-8"))
+            manual_payload["report"]["all_passed"] = True
+            manual_payload["report"]["passed_items"] = 7
+            for item_state in manual_payload["report"]["items"].values():
+                item_state["passed"] = True
+            manual_artifact.write_text(json.dumps(manual_payload, indent=2, sort_keys=True), encoding="utf-8")
+
+            with patch("cli._handle_runtime_input") as runtime_mock, patch(
+                "cli._artifact_now",
+                return_value=cli.datetime(2026, 3, 26, tzinfo=cli.timezone.utc),
+            ), patch(
+                "cli.live_smoke_artifact_path_for_candidate",
+                side_effect=_artifact_for_candidate,
+            ), patch(
+                "cli.rollout_stability_artifact_path_for_candidate",
+                side_effect=_stability_for_candidate,
+            ), patch(
+                "cli.manual_beta_checklist_artifact_path",
+                return_value=manual_artifact,
+            ), patch(
+                "cli.beta_release_review_artifact_path",
+                return_value=release_review_artifact,
+            ), patch(
+                "cli.load_answer_backend_config",
+                return_value=SimpleNamespace(
+                    backend_kind="llm",
+                    llm=SimpleNamespace(
+                        provider="openai_responses",
+                        enabled=True,
+                        fallback_enabled=True,
+                        open_domain_enabled=True,
+                        model="gpt-5-nano",
+                        reasoning_effort="minimal",
+                        strict_mode=True,
+                        max_output_tokens=800,
+                        api_key_env="OPENAI_API_KEY",
+                    ),
+                ),
+            ), patch.dict(
+                "os.environ",
+                {
+                    "OPENAI_API_KEY": "test-key",
+                },
+                clear=False,
+            ):
+                should_exit, speak_enabled, beta_output = self._run_command("qa beta", speak_enabled=False)
+
+        self.assertFalse(should_exit)
+        self.assertFalse(speak_enabled)
+        self.assertIn(
+            "release review command: python3 -m qa.beta_release_review --candidate-profile llm_env_strict --cost-reviewed --operator-signoff --write-artifact",
             beta_output,
         )
         runtime_mock.assert_not_called()
@@ -2175,6 +2472,499 @@ class CliSmokeTests(unittest.TestCase):
         )
         self.assertIn(
             "qa beta decision artifact drift: recorded candidate llm_env_strict differs from the latest recommended candidate llm_env",
+            beta_output,
+        )
+        self.assertIn(
+            "qa beta decision: recorded beta readiness is stale against latest evidence; review must be repeated",
+            beta_output,
+        )
+        runtime_mock.assert_not_called()
+
+    def test_qa_beta_reports_ready_artifact_as_stale_when_manual_checklist_ages_out(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            artifact_llm_env = Path(tmpdir) / "openai_live_smoke_llm_env.json"
+            artifact_llm_env.write_text(
+                json.dumps(
+                    {
+                        "schema_version": 1,
+                        "runner": "tests.smoke_openai_responses_provider_live",
+                        "created_at": "2026-03-26T00:00:00+00:00",
+                        "question": "Why is the sky blue?",
+                        "success": True,
+                        "issues": [],
+                        "error": None,
+                        "open_domain_verified": True,
+                        "diagnostics": {
+                            "provider": "openai_responses",
+                            "model": "gpt-5-nano",
+                            "strict_mode": True,
+                            "fallback_enabled": True,
+                            "open_domain_enabled": True,
+                            "answer_kind": "open_domain_model",
+                            "provenance": "model_knowledge",
+                            "source_count": 0,
+                            "deterministic_fallback": False,
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+            artifact_llm_env_strict = Path(tmpdir) / "openai_live_smoke_llm_env_strict.json"
+            artifact_llm_env_strict.write_text(
+                json.dumps(
+                    {
+                        "schema_version": 1,
+                        "runner": "tests.smoke_openai_responses_provider_live",
+                        "created_at": "2026-03-26T00:00:00+00:00",
+                        "question": "Why is the sky blue?",
+                        "success": True,
+                        "issues": [],
+                        "error": None,
+                        "open_domain_verified": True,
+                        "diagnostics": {
+                            "provider": "openai_responses",
+                            "model": "gpt-5-nano",
+                            "strict_mode": True,
+                            "fallback_enabled": False,
+                            "open_domain_enabled": True,
+                            "answer_kind": "open_domain_model",
+                            "provenance": "model_knowledge",
+                            "source_count": 0,
+                            "deterministic_fallback": False,
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+            stability_llm_env = Path(tmpdir) / "rollout_stability_llm_env.json"
+            stability_llm_env.write_text(
+                json.dumps(
+                    {
+                        "schema_version": 1,
+                        "runner": "qa.rollout_stability",
+                        "created_at": "2026-03-26T00:00:00+00:00",
+                        "report": {
+                            "baseline_profile": "deterministic",
+                            "candidate_profile": "llm_env",
+                            "runs_requested": 2,
+                            "gate_passes": 2,
+                            "runs": [],
+                            "blocker_counts": {},
+                            "failed_case_counts": {},
+                            "fallback_case_counts": {},
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+            stability_llm_env_strict = Path(tmpdir) / "rollout_stability_llm_env_strict.json"
+            stability_llm_env_strict.write_text(
+                json.dumps(
+                    {
+                        "schema_version": 1,
+                        "runner": "qa.rollout_stability",
+                        "created_at": "2026-03-26T00:00:00+00:00",
+                        "report": {
+                            "baseline_profile": "deterministic",
+                            "candidate_profile": "llm_env_strict",
+                            "runs_requested": 2,
+                            "gate_passes": 2,
+                            "runs": [],
+                            "blocker_counts": {},
+                            "failed_case_counts": {},
+                            "fallback_case_counts": {},
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+            manual_artifact, manual_created_at, manual_sha256 = self._write_complete_manual_beta_checklist(tmpdir)
+            manual_payload = json.loads(manual_artifact.read_text(encoding="utf-8"))
+            manual_payload["created_at"] = "2026-03-24T00:00:00+00:00"
+            manual_artifact.write_text(json.dumps(manual_payload, indent=2, sort_keys=True), encoding="utf-8")
+            stale_manual_created_at = "2026-03-24T00:00:00+00:00"
+            stale_manual_sha256 = hashlib.sha256(manual_artifact.read_bytes()).hexdigest()
+            release_review_artifact, release_review_created_at, release_review_sha256 = self._write_complete_beta_release_review(
+                tmpdir,
+                candidate_profile="llm_env_strict",
+                manual_created_at=stale_manual_created_at,
+                manual_sha256=stale_manual_sha256,
+            )
+            beta_artifact = Path(tmpdir) / "beta_readiness.json"
+            beta_artifact.write_text(
+                json.dumps(
+                    {
+                        "schema_version": 1,
+                        "runner": "qa.beta_readiness",
+                        "created_at": "2026-03-26T00:00:00+00:00",
+                        "report": {
+                            "stage": "alpha_opt_in",
+                            "default_path": "deterministic",
+                            "recommended_candidate": "llm_env_strict",
+                            "chosen_candidate": "llm_env_strict",
+                            "technical_ready_candidates": ["llm_env", "llm_env_strict"],
+                            "manual_checklist_completed": True,
+                            "manual_checklist_artifact_status": "complete",
+                            "manual_checklist_artifact_completed": True,
+                            "manual_checklist_items_passed": 7,
+                            "manual_checklist_items_total": 7,
+                            "manual_checklist_artifact_created_at": stale_manual_created_at,
+                            "manual_checklist_artifact_sha256": stale_manual_sha256,
+                            "release_review_artifact_status": "complete",
+                            "release_review_artifact_completed": True,
+                            "release_review_artifact_candidate": "llm_env_strict",
+                            "release_review_checks_completed": 4,
+                            "release_review_checks_total": 4,
+                            "release_review_artifact_created_at": release_review_created_at,
+                            "release_review_artifact_sha256": release_review_sha256,
+                            "latency_review_completed": True,
+                            "cost_review_completed": True,
+                            "operator_signoff_completed": True,
+                            "product_approval_completed": True,
+                            "beta_ready": True,
+                            "blockers": [],
+                            "candidate_states": {
+                                "llm_env_strict": {
+                                    "candidate_profile": "llm_env_strict",
+                                    "api_key_present": True,
+                                    "fallback_enabled": False,
+                                    "open_domain_enabled": True,
+                                    "open_domain_verified": True,
+                                    "technical_ready": True,
+                                    "smoke_artifact_path": str(artifact_llm_env_strict),
+                                    "smoke_artifact_status": "green",
+                                    "smoke_artifact_created_at": "2026-03-26T00:00:00+00:00",
+                                    "smoke_artifact_sha256": hashlib.sha256(artifact_llm_env_strict.read_bytes()).hexdigest(),
+                                    "smoke_artifact_fresh": True,
+                                    "smoke_artifact_match": True,
+                                    "smoke_artifact_age_hours": 0.0,
+                                    "smoke_artifact_reason": None,
+                                    "stability_artifact_path": str(stability_llm_env_strict),
+                                    "stability_artifact_status": "green",
+                                    "stability_artifact_created_at": "2026-03-26T00:00:00+00:00",
+                                    "stability_artifact_sha256": hashlib.sha256(stability_llm_env_strict.read_bytes()).hexdigest(),
+                                    "stability_artifact_fresh": True,
+                                    "stability_artifact_age_hours": 0.0,
+                                    "stability_artifact_reason": None,
+                                    "stability_gate_passes": 2,
+                                    "stability_runs_requested": 2,
+                                    "blockers": [],
+                                }
+                            },
+                            "notes": "",
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            def _artifact_for_candidate(candidate_profile: str | None) -> Path:
+                if candidate_profile == "llm_env_strict":
+                    return artifact_llm_env_strict
+                return artifact_llm_env
+
+            def _stability_for_candidate(candidate_profile: str) -> Path:
+                if candidate_profile == "llm_env_strict":
+                    return stability_llm_env_strict
+                return stability_llm_env
+
+            with patch("cli._handle_runtime_input") as runtime_mock, patch(
+                "cli._artifact_now",
+                return_value=cli.datetime(2026, 3, 26, tzinfo=cli.timezone.utc),
+            ), patch(
+                "cli.live_smoke_artifact_path_for_candidate",
+                side_effect=_artifact_for_candidate,
+            ), patch(
+                "cli.rollout_stability_artifact_path_for_candidate",
+                side_effect=_stability_for_candidate,
+            ), patch(
+                "cli.beta_readiness_artifact_path",
+                return_value=beta_artifact,
+            ), patch(
+                "cli.manual_beta_checklist_artifact_path",
+                return_value=manual_artifact,
+            ), patch(
+                "cli.beta_release_review_artifact_path",
+                return_value=release_review_artifact,
+            ), patch(
+                "cli.load_answer_backend_config",
+                return_value=SimpleNamespace(
+                    backend_kind="llm",
+                    llm=SimpleNamespace(
+                        provider="openai_responses",
+                        enabled=True,
+                        fallback_enabled=True,
+                        open_domain_enabled=True,
+                        model="gpt-5-nano",
+                        reasoning_effort="minimal",
+                        strict_mode=True,
+                        max_output_tokens=800,
+                        api_key_env="OPENAI_API_KEY",
+                    ),
+                ),
+            ), patch.dict(
+                "os.environ",
+                {
+                    "OPENAI_API_KEY": "test-key",
+                },
+                clear=False,
+            ):
+                should_exit, speak_enabled, beta_output = self._run_command("qa beta", speak_enabled=False)
+
+        self.assertFalse(should_exit)
+        self.assertFalse(speak_enabled)
+        self.assertIn("qa beta manual checklist artifact fresh: no (48.0h)", beta_output)
+        self.assertIn("qa beta decision artifact consistent with latest evidence: no", beta_output)
+        self.assertIn(
+            "qa beta decision artifact consistency reason: latest manual checklist artifact is stale",
+            beta_output,
+        )
+        self.assertIn(
+            "qa beta decision: recorded beta readiness is stale against latest evidence; review must be repeated",
+            beta_output,
+        )
+        runtime_mock.assert_not_called()
+
+    def test_qa_beta_reports_ready_artifact_as_stale_when_release_review_ages_out(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            artifact_llm_env = Path(tmpdir) / "openai_live_smoke_llm_env.json"
+            artifact_llm_env.write_text(
+                json.dumps(
+                    {
+                        "schema_version": 1,
+                        "runner": "tests.smoke_openai_responses_provider_live",
+                        "created_at": "2026-03-26T00:00:00+00:00",
+                        "question": "Why is the sky blue?",
+                        "success": True,
+                        "issues": [],
+                        "error": None,
+                        "open_domain_verified": True,
+                        "diagnostics": {
+                            "provider": "openai_responses",
+                            "model": "gpt-5-nano",
+                            "strict_mode": True,
+                            "fallback_enabled": True,
+                            "open_domain_enabled": True,
+                            "answer_kind": "open_domain_model",
+                            "provenance": "model_knowledge",
+                            "source_count": 0,
+                            "deterministic_fallback": False,
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+            artifact_llm_env_strict = Path(tmpdir) / "openai_live_smoke_llm_env_strict.json"
+            artifact_llm_env_strict.write_text(
+                json.dumps(
+                    {
+                        "schema_version": 1,
+                        "runner": "tests.smoke_openai_responses_provider_live",
+                        "created_at": "2026-03-26T00:00:00+00:00",
+                        "question": "Why is the sky blue?",
+                        "success": True,
+                        "issues": [],
+                        "error": None,
+                        "open_domain_verified": True,
+                        "diagnostics": {
+                            "provider": "openai_responses",
+                            "model": "gpt-5-nano",
+                            "strict_mode": True,
+                            "fallback_enabled": False,
+                            "open_domain_enabled": True,
+                            "answer_kind": "open_domain_model",
+                            "provenance": "model_knowledge",
+                            "source_count": 0,
+                            "deterministic_fallback": False,
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+            stability_llm_env = Path(tmpdir) / "rollout_stability_llm_env.json"
+            stability_llm_env.write_text(
+                json.dumps(
+                    {
+                        "schema_version": 1,
+                        "runner": "qa.rollout_stability",
+                        "created_at": "2026-03-26T00:00:00+00:00",
+                        "report": {
+                            "baseline_profile": "deterministic",
+                            "candidate_profile": "llm_env",
+                            "runs_requested": 2,
+                            "gate_passes": 2,
+                            "runs": [],
+                            "blocker_counts": {},
+                            "failed_case_counts": {},
+                            "fallback_case_counts": {},
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+            stability_llm_env_strict = Path(tmpdir) / "rollout_stability_llm_env_strict.json"
+            stability_llm_env_strict.write_text(
+                json.dumps(
+                    {
+                        "schema_version": 1,
+                        "runner": "qa.rollout_stability",
+                        "created_at": "2026-03-26T00:00:00+00:00",
+                        "report": {
+                            "baseline_profile": "deterministic",
+                            "candidate_profile": "llm_env_strict",
+                            "runs_requested": 2,
+                            "gate_passes": 2,
+                            "runs": [],
+                            "blocker_counts": {},
+                            "failed_case_counts": {},
+                            "fallback_case_counts": {},
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+            manual_artifact, manual_created_at, manual_sha256 = self._write_complete_manual_beta_checklist(tmpdir)
+            release_review_artifact, _release_review_created_at, _release_review_sha256 = self._write_complete_beta_release_review(
+                tmpdir,
+                candidate_profile="llm_env_strict",
+                manual_created_at=manual_created_at,
+                manual_sha256=manual_sha256,
+            )
+            release_review_payload = json.loads(release_review_artifact.read_text(encoding="utf-8"))
+            release_review_payload["created_at"] = "2026-03-24T00:00:00+00:00"
+            release_review_artifact.write_text(
+                json.dumps(release_review_payload, indent=2, sort_keys=True),
+                encoding="utf-8",
+            )
+            stale_release_review_created_at = "2026-03-24T00:00:00+00:00"
+            stale_release_review_sha256 = hashlib.sha256(release_review_artifact.read_bytes()).hexdigest()
+            beta_artifact = Path(tmpdir) / "beta_readiness.json"
+            beta_artifact.write_text(
+                json.dumps(
+                    {
+                        "schema_version": 1,
+                        "runner": "qa.beta_readiness",
+                        "created_at": "2026-03-26T00:00:00+00:00",
+                        "report": {
+                            "stage": "alpha_opt_in",
+                            "default_path": "deterministic",
+                            "recommended_candidate": "llm_env_strict",
+                            "chosen_candidate": "llm_env_strict",
+                            "technical_ready_candidates": ["llm_env", "llm_env_strict"],
+                            "manual_checklist_completed": True,
+                            "manual_checklist_artifact_status": "complete",
+                            "manual_checklist_artifact_completed": True,
+                            "manual_checklist_items_passed": 7,
+                            "manual_checklist_items_total": 7,
+                            "manual_checklist_artifact_created_at": manual_created_at,
+                            "manual_checklist_artifact_sha256": manual_sha256,
+                            "release_review_artifact_status": "complete",
+                            "release_review_artifact_completed": True,
+                            "release_review_artifact_candidate": "llm_env_strict",
+                            "release_review_checks_completed": 4,
+                            "release_review_checks_total": 4,
+                            "release_review_artifact_created_at": stale_release_review_created_at,
+                            "release_review_artifact_sha256": stale_release_review_sha256,
+                            "latency_review_completed": True,
+                            "cost_review_completed": True,
+                            "operator_signoff_completed": True,
+                            "product_approval_completed": True,
+                            "beta_ready": True,
+                            "blockers": [],
+                            "candidate_states": {
+                                "llm_env_strict": {
+                                    "candidate_profile": "llm_env_strict",
+                                    "api_key_present": True,
+                                    "fallback_enabled": False,
+                                    "open_domain_enabled": True,
+                                    "open_domain_verified": True,
+                                    "technical_ready": True,
+                                    "smoke_artifact_path": str(artifact_llm_env_strict),
+                                    "smoke_artifact_status": "green",
+                                    "smoke_artifact_created_at": "2026-03-26T00:00:00+00:00",
+                                    "smoke_artifact_sha256": hashlib.sha256(artifact_llm_env_strict.read_bytes()).hexdigest(),
+                                    "smoke_artifact_fresh": True,
+                                    "smoke_artifact_match": True,
+                                    "smoke_artifact_age_hours": 0.0,
+                                    "smoke_artifact_reason": None,
+                                    "stability_artifact_path": str(stability_llm_env_strict),
+                                    "stability_artifact_status": "green",
+                                    "stability_artifact_created_at": "2026-03-26T00:00:00+00:00",
+                                    "stability_artifact_sha256": hashlib.sha256(stability_llm_env_strict.read_bytes()).hexdigest(),
+                                    "stability_artifact_fresh": True,
+                                    "stability_artifact_age_hours": 0.0,
+                                    "stability_artifact_reason": None,
+                                    "stability_gate_passes": 2,
+                                    "stability_runs_requested": 2,
+                                    "blockers": [],
+                                }
+                            },
+                            "notes": "",
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            def _artifact_for_candidate(candidate_profile: str | None) -> Path:
+                if candidate_profile == "llm_env_strict":
+                    return artifact_llm_env_strict
+                return artifact_llm_env
+
+            def _stability_for_candidate(candidate_profile: str) -> Path:
+                if candidate_profile == "llm_env_strict":
+                    return stability_llm_env_strict
+                return stability_llm_env
+
+            with patch("cli._handle_runtime_input") as runtime_mock, patch(
+                "cli._artifact_now",
+                return_value=cli.datetime(2026, 3, 26, tzinfo=cli.timezone.utc),
+            ), patch(
+                "cli.live_smoke_artifact_path_for_candidate",
+                side_effect=_artifact_for_candidate,
+            ), patch(
+                "cli.rollout_stability_artifact_path_for_candidate",
+                side_effect=_stability_for_candidate,
+            ), patch(
+                "cli.beta_readiness_artifact_path",
+                return_value=beta_artifact,
+            ), patch(
+                "cli.manual_beta_checklist_artifact_path",
+                return_value=manual_artifact,
+            ), patch(
+                "cli.beta_release_review_artifact_path",
+                return_value=release_review_artifact,
+            ), patch(
+                "cli.load_answer_backend_config",
+                return_value=SimpleNamespace(
+                    backend_kind="llm",
+                    llm=SimpleNamespace(
+                        provider="openai_responses",
+                        enabled=True,
+                        fallback_enabled=True,
+                        open_domain_enabled=True,
+                        model="gpt-5-nano",
+                        reasoning_effort="minimal",
+                        strict_mode=True,
+                        max_output_tokens=800,
+                        api_key_env="OPENAI_API_KEY",
+                    ),
+                ),
+            ), patch.dict(
+                "os.environ",
+                {
+                    "OPENAI_API_KEY": "test-key",
+                },
+                clear=False,
+            ):
+                should_exit, speak_enabled, beta_output = self._run_command("qa beta", speak_enabled=False)
+
+        self.assertFalse(should_exit)
+        self.assertFalse(speak_enabled)
+        self.assertIn("qa beta release review artifact fresh: no (48.0h)", beta_output)
+        self.assertIn("qa beta decision artifact consistent with latest evidence: no", beta_output)
+        self.assertIn(
+            "qa beta decision artifact consistency reason: latest beta release review artifact is stale",
             beta_output,
         )
         self.assertIn(

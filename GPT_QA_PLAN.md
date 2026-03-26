@@ -140,6 +140,11 @@
   - `2026-03-26`: legacy shortcut flags в `python3 -m qa.beta_readiness` удалены; consolidated readiness record теперь собирается только из artifact-based evidence, а не из ручных boolean overrides
   - `2026-03-26`: `beta_release_review.json` теперь хранит exact manual-checklist snapshot/fingerprint; `qa beta` и `qa.beta_readiness` считают release review stale, если после review drift'нул `manual_beta_checklist.json`
   - `2026-03-26`: для `manual_beta_checklist.json` и `beta_release_review.json` добавлены freshness/age checks; `qa beta` теперь показывает `fresh=yes|no|n/a` по supporting artifacts, а `qa.beta_readiness` блокируется, если manual/release evidence старее rollout freshness window
+  - `2026-03-26`: release-review consistency дополнительно tightened: `qa beta` и `qa.beta_readiness` теперь считают `beta_release_review.json` stale не только при manual-checklist fingerprint/snapshot drift, но и если latest `manual_beta_checklist.json` сам уже вышел за freshness window
+  - `2026-03-26`: `qa beta` теперь печатает ещё и `manual checklist pending items` / `release review pending checks`, чтобы manual beta pass и release sign-off были actionable прямо из CLI, а не только через docs
+  - `2026-03-26`: те же `pending manual items` / `pending release-review checks` теперь записываются и в `qa.beta_readiness` record, так что final offline decision artifact остаётся actionable even when supporting artifacts are still missing/incomplete
+  - `2026-03-26`: consistency для уже записанного `beta_readiness.json` тоже tightened: `qa beta` теперь invalidates recorded beta sign-off, если latest `manual_beta_checklist.json` или `beta_release_review.json` просто состарились по freshness window, даже без fingerprint drift
+  - `2026-03-26`: `qa beta` теперь ещё и строит incremental manual/release commands из pending work: для partial artifacts он предлагает добить только недостающие `--pass ...` / review flags, а для missing/stale artifacts остаётся на full rerun command
   - remaining work внутри stage 8 снова не про smoke/gate plumbing correctness, а про release decisioning / manual beta readiness when the latest artifacts are green
   - default switch по-прежнему заблокирован; rollout stage остаётся `alpha_opt_in`, deterministic path остаётся product default
 

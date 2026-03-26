@@ -21,6 +21,12 @@ _REVIEW_CHECKS = (
     ("operator_signoff", "Operator sign-off"),
     ("product_approval", "Product approval"),
 )
+_REVIEW_CHECK_FLAGS = {
+    "latency_review": "--latency-reviewed",
+    "cost_review": "--cost-reviewed",
+    "operator_signoff": "--operator-signoff",
+    "product_approval": "--product-approval",
+}
 
 
 @dataclass(slots=True, frozen=True)
@@ -248,6 +254,34 @@ def beta_release_review_status(
     return "incomplete", completed_checks, total_checks, False, candidate_profile
 
 
+def beta_release_review_pending_checks(
+    artifact_payload: dict[str, Any] | None,
+    artifact_error: str | None,
+) -> list[str]:
+    """Return pending release-review check ids from the latest artifact payload."""
+    if artifact_error is not None:
+        return []
+    report = dict((artifact_payload or {}).get("report", {}) or {})
+    checks = report.get("checks")
+    if not isinstance(checks, dict):
+        return [check_id for check_id, _label in _REVIEW_CHECKS]
+    pending_checks: list[str] = []
+    for check_id, _label in _REVIEW_CHECKS:
+        check_state = dict(checks.get(check_id, {}) or {})
+        if not bool(check_state.get("completed", False)):
+            pending_checks.append(check_id)
+    return pending_checks
+
+
+def beta_release_review_suggested_args(pending_check_ids: list[str]) -> str:
+    """Return suggested CLI args for completing the remaining release-review checks."""
+    pending_check_set = set(pending_check_ids)
+    ordered_pending_check_ids = [check_id for check_id, _label in _REVIEW_CHECKS if check_id in pending_check_set]
+    if not ordered_pending_check_ids or len(ordered_pending_check_ids) == len(_REVIEW_CHECKS):
+        ordered_pending_check_ids = [check_id for check_id, _label in _REVIEW_CHECKS]
+    return " ".join(_REVIEW_CHECK_FLAGS[check_id] for check_id in ordered_pending_check_ids)
+
+
 def beta_release_review_artifact_consistency(
     *,
     artifact_payload: dict[str, Any] | None,
@@ -269,6 +303,11 @@ def beta_release_review_artifact_consistency(
         return False, "recorded manual checklist snapshot is missing"
     if not latest_manual_sha256:
         return False, "latest manual checklist artifact is missing or unreadable"
+    _manual_age_hours, manual_fresh, manual_fresh_reason = _artifact_freshness(manual_checklist_artifact_payload)
+    if manual_checklist_artifact_payload is not None and manual_checklist_artifact_error is None and manual_fresh is not True:
+        if manual_fresh_reason:
+            return False, f"latest manual checklist artifact is stale: {manual_fresh_reason}"
+        return False, "latest manual checklist artifact is stale"
     if recorded_manual_sha256 != latest_manual_sha256:
         return False, "recorded manual checklist artifact fingerprint no longer matches the latest artifact"
     recorded_manual_created_at = str(report.get("manual_checklist_artifact_created_at", "") or "").strip()

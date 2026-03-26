@@ -14,10 +14,15 @@ from typing import Any, Mapping
 from qa.answer_config import load_answer_backend_config
 from qa.beta_release_review import (
     beta_release_review_artifact_consistency,
+    beta_release_review_pending_checks,
     beta_release_review_status,
     load_beta_release_review_artifact,
 )
-from qa.manual_beta_checklist import load_manual_beta_checklist_artifact, manual_beta_checklist_status
+from qa.manual_beta_checklist import (
+    load_manual_beta_checklist_artifact,
+    manual_beta_checklist_pending_items,
+    manual_beta_checklist_status,
+)
 from qa.rollout_profiles import (
     beta_release_review_artifact_path,
     beta_readiness_artifact_path,
@@ -111,6 +116,7 @@ class BetaReadinessRecord:
     manual_checklist_artifact_age_hours: float | None
     manual_checklist_artifact_fresh: bool | None
     manual_checklist_artifact_reason: str | None
+    manual_checklist_pending_items: list[str]
     manual_checklist_artifact_created_at: str | None
     manual_checklist_artifact_sha256: str | None
     release_review_artifact_status: str
@@ -123,6 +129,7 @@ class BetaReadinessRecord:
     release_review_artifact_reason: str | None
     release_review_artifact_consistent: bool | None
     release_review_artifact_consistency_reason: str | None
+    release_review_pending_checks: list[str]
     release_review_artifact_created_at: str | None
     release_review_artifact_sha256: str | None
     latency_review_completed: bool
@@ -152,6 +159,7 @@ class BetaReadinessRecord:
             "manual_checklist_artifact_age_hours": self.manual_checklist_artifact_age_hours,
             "manual_checklist_artifact_fresh": self.manual_checklist_artifact_fresh,
             "manual_checklist_artifact_reason": self.manual_checklist_artifact_reason or "",
+            "manual_checklist_pending_items": list(self.manual_checklist_pending_items),
             "manual_checklist_artifact_created_at": self.manual_checklist_artifact_created_at,
             "manual_checklist_artifact_sha256": self.manual_checklist_artifact_sha256,
             "release_review_artifact_status": self.release_review_artifact_status,
@@ -164,6 +172,7 @@ class BetaReadinessRecord:
             "release_review_artifact_reason": self.release_review_artifact_reason or "",
             "release_review_artifact_consistent": self.release_review_artifact_consistent,
             "release_review_artifact_consistency_reason": self.release_review_artifact_consistency_reason or "",
+            "release_review_pending_checks": list(self.release_review_pending_checks),
             "release_review_artifact_created_at": self.release_review_artifact_created_at,
             "release_review_artifact_sha256": self.release_review_artifact_sha256,
             "latency_review_completed": self.latency_review_completed,
@@ -208,6 +217,10 @@ def build_beta_readiness_record(
         manual_checklist_artifact_fresh,
         manual_checklist_artifact_reason,
     ) = _artifact_freshness(manual_artifact_payload)
+    manual_checklist_pending_item_ids = manual_beta_checklist_pending_items(
+        manual_artifact_payload,
+        manual_artifact_error,
+    )
     (
         release_review_artifact_path_value,
         release_review_artifact_payload,
@@ -225,6 +238,10 @@ def build_beta_readiness_record(
         release_review_artifact_fresh,
         release_review_artifact_reason,
     ) = _artifact_freshness(release_review_artifact_payload)
+    release_review_pending_check_ids = beta_release_review_pending_checks(
+        release_review_artifact_payload,
+        release_review_artifact_error,
+    )
     effective_latency_review_completed = _beta_release_review_check_completed(
         release_review_artifact_payload, "latency_review"
     )
@@ -313,6 +330,7 @@ def build_beta_readiness_record(
         manual_checklist_artifact_age_hours=manual_checklist_artifact_age_hours,
         manual_checklist_artifact_fresh=manual_checklist_artifact_fresh,
         manual_checklist_artifact_reason=manual_checklist_artifact_reason,
+        manual_checklist_pending_items=manual_checklist_pending_item_ids,
         manual_checklist_artifact_created_at=_artifact_created_at(manual_artifact_payload),
         manual_checklist_artifact_sha256=_artifact_sha256(manual_artifact_path, artifact_error=manual_artifact_error),
         release_review_artifact_status=release_review_artifact_status,
@@ -325,6 +343,7 @@ def build_beta_readiness_record(
         release_review_artifact_reason=release_review_artifact_reason,
         release_review_artifact_consistent=release_review_artifact_consistent,
         release_review_artifact_consistency_reason=release_review_artifact_consistency_reason,
+        release_review_pending_checks=release_review_pending_check_ids,
         release_review_artifact_created_at=_artifact_created_at(release_review_artifact_payload),
         release_review_artifact_sha256=_artifact_sha256(
             release_review_artifact_path_value,
@@ -448,12 +467,14 @@ def format_beta_readiness_record(record: BetaReadinessRecord) -> str:
         f"{record.manual_checklist_artifact_status}"
         f"{_format_ratio(record.manual_checklist_items_passed, record.manual_checklist_items_total)}"
         f"{_format_freshness(record.manual_checklist_artifact_fresh, record.manual_checklist_artifact_age_hours)}",
+        f"manual checklist pending items: {', '.join(record.manual_checklist_pending_items) if record.manual_checklist_pending_items else 'none'}",
         "release review artifact: "
         f"{record.release_review_artifact_status}"
         f"{_format_ratio(record.release_review_checks_completed, record.release_review_checks_total)}"
         f"{_format_candidate(record.release_review_artifact_candidate)}"
         f"{_format_freshness(record.release_review_artifact_fresh, record.release_review_artifact_age_hours)}"
         f"{_format_consistency(record.release_review_artifact_consistent)}",
+        f"release review pending checks: {', '.join(record.release_review_pending_checks) if record.release_review_pending_checks else 'none'}",
         f"latency review: {'yes' if record.latency_review_completed else 'no'}",
         f"cost review: {'yes' if record.cost_review_completed else 'no'}",
         f"operator sign-off: {'yes' if record.operator_signoff_completed else 'no'}",

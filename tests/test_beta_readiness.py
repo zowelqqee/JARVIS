@@ -41,6 +41,12 @@ class BetaReadinessTests(unittest.TestCase):
         self.assertIn("manual beta checklist artifact is missing or incomplete", record.blockers)
         self.assertIn("beta release review artifact is missing or incomplete", record.blockers)
         self.assertIn("product approval for beta_question_default is missing", record.blockers)
+        self.assertIn("arbitrary_factual_question", record.manual_checklist_pending_items)
+        self.assertIn("provider_unavailable_path", record.manual_checklist_pending_items)
+        self.assertEqual(
+            record.release_review_pending_checks,
+            ["latency_review", "cost_review", "operator_signoff", "product_approval"],
+        )
         self.assertEqual(len(record.candidate_states), 2)
         self.assertTrue(all(candidate_state.technical_ready for candidate_state in record.candidate_states))
 
@@ -68,12 +74,14 @@ class BetaReadinessTests(unittest.TestCase):
         self.assertTrue(payload["report"]["beta_ready"])
         self.assertEqual(payload["report"]["manual_checklist_artifact_status"], "complete")
         self.assertTrue(payload["report"]["manual_checklist_artifact_completed"])
+        self.assertEqual(payload["report"]["manual_checklist_pending_items"], [])
         self.assertTrue(payload["report"]["manual_checklist_artifact_created_at"])
         self.assertTrue(payload["report"]["manual_checklist_artifact_sha256"])
         self.assertEqual(payload["report"]["release_review_artifact_status"], "complete")
         self.assertTrue(payload["report"]["release_review_artifact_completed"])
         self.assertEqual(payload["report"]["release_review_artifact_candidate"], "llm_env_strict")
         self.assertTrue(payload["report"]["release_review_artifact_consistent"])
+        self.assertEqual(payload["report"]["release_review_pending_checks"], [])
         self.assertTrue(payload["report"]["release_review_artifact_created_at"])
         self.assertTrue(payload["report"]["release_review_artifact_sha256"])
         self.assertTrue(payload["report"]["candidate_states"]["llm_env_strict"]["smoke_artifact_created_at"])
@@ -100,7 +108,12 @@ class BetaReadinessTests(unittest.TestCase):
         self.assertIn("chosen candidate: llm_env", text)
         self.assertIn("beta_question_default ready: no", text)
         self.assertIn("manual checklist artifact: complete(7/7)", text)
+        self.assertIn("manual checklist pending items: none", text)
         self.assertIn("release review artifact: missing", text)
+        self.assertIn(
+            "release review pending checks: latency_review, cost_review, operator_signoff, product_approval",
+            text,
+        )
         self.assertIn("latency review is not completed", text)
         self.assertIn("candidate states:", text)
         self.assertIn("llm_env_strict: technical-ready=yes; smoke=green; stability=green(2/2); fallback=off", text)
@@ -151,8 +164,14 @@ class BetaReadinessTests(unittest.TestCase):
         self.assertFalse(record.manual_checklist_completed)
         self.assertFalse(record.manual_checklist_artifact_fresh)
         self.assertFalse(record.release_review_artifact_fresh)
+        self.assertFalse(record.release_review_artifact_consistent)
         self.assertIn("manual beta checklist artifact is stale", record.blockers)
         self.assertIn("beta release review artifact is stale", record.blockers)
+        self.assertIn(
+            "beta release review artifact is stale against the latest manual checklist evidence",
+            record.blockers,
+        )
+        self.assertEqual(record.release_review_artifact_consistency_reason, "latest manual checklist artifact is stale")
         self.assertIn("manual checklist artifact: complete(7/7); fresh=no (48.0h)", format_beta_readiness_record(record))
 
     def test_main_rejects_legacy_release_decision_flags(self) -> None:

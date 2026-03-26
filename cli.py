@@ -15,10 +15,17 @@ from input.voice_input import VoiceInputError, capture_voice_input
 from interaction.interaction_manager import InteractionManager
 from qa.beta_release_review import (
     beta_release_review_artifact_consistency,
+    beta_release_review_pending_checks,
+    beta_release_review_suggested_args,
     beta_release_review_status,
     load_beta_release_review_artifact,
 )
-from qa.manual_beta_checklist import load_manual_beta_checklist_artifact, manual_beta_checklist_status
+from qa.manual_beta_checklist import (
+    load_manual_beta_checklist_artifact,
+    manual_beta_checklist_pending_items,
+    manual_beta_checklist_suggested_args,
+    manual_beta_checklist_status,
+)
 from qa.answer_config import load_answer_backend_config
 from qa.rollout_profiles import (
     beta_release_review_artifact_path,
@@ -385,6 +392,16 @@ def _print_qa_beta() -> None:
         release_review_artifact_fresh,
         release_review_artifact_fresh_reason,
     ) = _beta_readiness_artifact_freshness(release_review_artifact_payload)
+    manual_checklist_pending_item_ids = manual_beta_checklist_pending_items(
+        manual_checklist_artifact_payload,
+        manual_checklist_artifact_error,
+    )
+    manual_checklist_command_args = manual_beta_checklist_suggested_args(manual_checklist_pending_item_ids)
+    release_review_pending_check_ids = beta_release_review_pending_checks(
+        release_review_artifact_payload,
+        release_review_artifact_error,
+    )
+    release_review_command_args = beta_release_review_suggested_args(release_review_pending_check_ids)
     beta_artifact_age_hours, beta_artifact_fresh, beta_artifact_fresh_reason = _beta_readiness_artifact_freshness(
         beta_artifact_payload
     )
@@ -497,6 +514,8 @@ def _print_qa_beta() -> None:
         f"{'yes' if manual_checklist_artifact_fresh else 'no' if manual_checklist_artifact_fresh is False else 'n/a'}"
         f"{_format_optional_age(manual_checklist_artifact_age_hours, manual_checklist_artifact_fresh)}"
     )
+    if manual_checklist_pending_item_ids:
+        print(f"qa beta manual checklist pending items: {', '.join(manual_checklist_pending_item_ids)}")
     print(
         "qa beta release review artifact: "
         f"{release_review_artifact_path} "
@@ -511,6 +530,8 @@ def _print_qa_beta() -> None:
         "qa beta release review artifact consistent with latest evidence: "
         f"{'yes' if release_review_artifact_consistent else 'no' if release_review_artifact_consistent is False else 'n/a'}"
     )
+    if release_review_pending_check_ids:
+        print(f"qa beta release review pending checks: {', '.join(release_review_pending_check_ids)}")
     print(f"qa beta release review candidate: {release_review_candidate or 'none'}")
     print(f"qa beta recorded candidate: {beta_artifact_candidate or 'none'}")
     print(f"qa beta decision artifact: {beta_artifact_path} ({beta_artifact_status})")
@@ -555,7 +576,7 @@ def _print_qa_beta() -> None:
         print("qa beta latest stability evidence: incomplete")
     if not manual_checklist_complete or manual_checklist_artifact_fresh is False:
         print("next beta step: complete the manual beta checklist artifact before release sign-off.")
-        print("manual checklist command: python3 -m qa.manual_beta_checklist --all-passed --write-artifact")
+        print(f"manual checklist command: python3 -m qa.manual_beta_checklist {manual_checklist_command_args} --write-artifact")
     elif recommended_candidate is None:
         print("next beta step: get one candidate back to fresh green smoke + stability before manual beta sign-off.")
     elif (
@@ -572,8 +593,7 @@ def _print_qa_beta() -> None:
             "release review command: "
             "python3 -m qa.beta_release_review "
             f"--candidate-profile {recommended_candidate} "
-            "--latency-reviewed --cost-reviewed --operator-signoff "
-            "--product-approval --write-artifact"
+            f"{release_review_command_args} --write-artifact"
         )
     elif recommended_candidate is not None:
         print(
@@ -901,6 +921,15 @@ def _beta_readiness_artifact_consistency(
         return False, "recorded manual checklist snapshot is missing"
     if not latest_manual_checklist_sha256:
         return False, "latest manual checklist artifact is missing or unreadable"
+    (
+        _manual_checklist_age_hours,
+        manual_checklist_fresh,
+        manual_checklist_fresh_reason,
+    ) = _beta_readiness_artifact_freshness(manual_checklist_artifact_payload)
+    if manual_checklist_artifact_payload is not None and manual_checklist_artifact_error is None and manual_checklist_fresh is not True:
+        if manual_checklist_fresh_reason:
+            return False, f"latest manual checklist artifact is stale: {manual_checklist_fresh_reason}"
+        return False, "latest manual checklist artifact is stale"
     if recorded_manual_checklist_sha256 != latest_manual_checklist_sha256:
         return False, "recorded manual checklist artifact fingerprint no longer matches the latest artifact"
     recorded_manual_checklist_created_at = str(report.get("manual_checklist_artifact_created_at", "") or "").strip()
@@ -919,6 +948,15 @@ def _beta_readiness_artifact_consistency(
         return False, "recorded beta release review snapshot is missing"
     if not latest_release_review_sha256:
         return False, "latest beta release review artifact is missing or unreadable"
+    (
+        _release_review_age_hours,
+        release_review_fresh,
+        release_review_fresh_reason,
+    ) = _beta_readiness_artifact_freshness(release_review_artifact_payload)
+    if release_review_artifact_payload is not None and release_review_artifact_error is None and release_review_fresh is not True:
+        if release_review_fresh_reason:
+            return False, f"latest beta release review artifact is stale: {release_review_fresh_reason}"
+        return False, "latest beta release review artifact is stale"
     if recorded_release_review_sha256 != latest_release_review_sha256:
         return False, "recorded beta release review artifact fingerprint no longer matches the latest artifact"
     recorded_release_review_created_at = str(report.get("release_review_artifact_created_at", "") or "").strip()

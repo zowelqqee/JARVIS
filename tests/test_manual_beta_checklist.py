@@ -10,6 +10,8 @@ from pathlib import Path
 from qa.manual_beta_checklist import (
     build_manual_beta_checklist_record,
     load_manual_beta_checklist_artifact,
+    manual_beta_checklist_pending_items,
+    manual_beta_checklist_suggested_args,
     manual_beta_checklist_status,
     write_manual_beta_checklist_artifact,
 )
@@ -52,6 +54,51 @@ class ManualBetaChecklistTests(unittest.TestCase):
         self.assertEqual(status, "complete")
         self.assertEqual((passed_items, total_items), (7, 7))
         self.assertTrue(completed)
+
+    def test_manual_beta_checklist_pending_items_returns_remaining_ids(self) -> None:
+        record = build_manual_beta_checklist_record(
+            passed_item_ids=["arbitrary_factual_question", "grounded_docs_question"],
+        )
+
+        pending_items = manual_beta_checklist_pending_items(
+            {"report": record.to_dict()},
+            None,
+        )
+
+        self.assertEqual(
+            pending_items,
+            [
+                "arbitrary_explanation_question",
+                "casual_chat_question",
+                "blocked_state_question",
+                "mixed_question_command",
+                "provider_unavailable_path",
+            ],
+        )
+
+    def test_manual_beta_checklist_suggested_args_uses_incremental_pass_flags(self) -> None:
+        self.assertEqual(
+            manual_beta_checklist_suggested_args(
+                ["blocked_state_question", "provider_unavailable_path"],
+            ),
+            "--pass blocked_state_question --pass provider_unavailable_path",
+        )
+
+    def test_manual_beta_checklist_suggested_args_falls_back_to_all_passed_for_full_rerun(self) -> None:
+        self.assertEqual(
+            manual_beta_checklist_suggested_args(
+                [
+                    "arbitrary_factual_question",
+                    "arbitrary_explanation_question",
+                    "casual_chat_question",
+                    "blocked_state_question",
+                    "grounded_docs_question",
+                    "mixed_question_command",
+                    "provider_unavailable_path",
+                ]
+            ),
+            "--all-passed",
+        )
 
 
 if __name__ == "__main__":

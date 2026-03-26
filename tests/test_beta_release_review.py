@@ -11,6 +11,8 @@ from unittest.mock import patch
 
 from qa.beta_release_review import (
     beta_release_review_artifact_consistency,
+    beta_release_review_pending_checks,
+    beta_release_review_suggested_args,
     beta_release_review_status,
     build_beta_release_review_record,
     load_beta_release_review_artifact,
@@ -138,6 +140,66 @@ class BetaReleaseReviewTests(unittest.TestCase):
                 reason,
                 "recorded manual checklist artifact fingerprint no longer matches the latest artifact",
             )
+
+    def test_release_review_consistency_rejects_stale_manual_checklist(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            manual_artifact = self._write_manual_artifact(
+                tmpdir,
+                all_passed=True,
+                created_at="2026-03-24T00:00:00+00:00",
+            )
+            with patch("qa.beta_release_review.manual_beta_checklist_artifact_path", return_value=manual_artifact), patch(
+                "qa.beta_release_review._artifact_now",
+                return_value=datetime(2026, 3, 24, tzinfo=timezone.utc),
+            ):
+                record = build_beta_release_review_record(candidate_profile="llm_env_strict", all_completed=True)
+            artifact_path = Path(tmpdir) / "beta_release_review.json"
+            write_beta_release_review_artifact(record, artifact_path=artifact_path)
+            _artifact_path, artifact_payload, artifact_error = load_beta_release_review_artifact(artifact_path)
+            manual_payload = json.loads(manual_artifact.read_text(encoding="utf-8"))
+            with patch(
+                "qa.beta_release_review._artifact_now",
+                return_value=datetime(2026, 3, 26, tzinfo=timezone.utc),
+            ):
+                consistent, reason = beta_release_review_artifact_consistency(
+                    artifact_payload=artifact_payload,
+                    manual_checklist_artifact_payload=manual_payload,
+                    manual_checklist_artifact_path=manual_artifact,
+                    manual_checklist_artifact_error=artifact_error,
+                    expected_candidate="llm_env_strict",
+                )
+
+            self.assertFalse(consistent)
+            self.assertEqual(reason, "latest manual checklist artifact is stale")
+
+    def test_beta_release_review_pending_checks_returns_remaining_ids(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            manual_artifact = self._write_manual_artifact(tmpdir, all_passed=True)
+            with patch("qa.beta_release_review.manual_beta_checklist_artifact_path", return_value=manual_artifact):
+                record = build_beta_release_review_record(
+                    candidate_profile="llm_env_strict",
+                    latency_review_completed=True,
+                    product_approval_completed=True,
+                )
+
+        pending_checks = beta_release_review_pending_checks({"report": record.to_dict()}, None)
+
+        self.assertEqual(
+            pending_checks,
+            ["cost_review", "operator_signoff"],
+        )
+
+    def test_beta_release_review_suggested_args_uses_incremental_flags(self) -> None:
+        self.assertEqual(
+            beta_release_review_suggested_args(["cost_review", "operator_signoff"]),
+            "--cost-reviewed --operator-signoff",
+        )
+
+    def test_beta_release_review_suggested_args_falls_back_to_full_review_flags(self) -> None:
+        self.assertEqual(
+            beta_release_review_suggested_args([]),
+            "--latency-reviewed --cost-reviewed --operator-signoff --product-approval",
+        )
 
     def _write_manual_artifact(
         self,

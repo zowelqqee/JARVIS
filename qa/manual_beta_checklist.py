@@ -181,6 +181,34 @@ def manual_beta_checklist_status(
     return "incomplete", passed_items, total_items, False
 
 
+def manual_beta_checklist_pending_items(
+    artifact_payload: dict[str, Any] | None,
+    artifact_error: str | None,
+) -> list[str]:
+    """Return pending manual-checklist item ids from the latest artifact payload."""
+    if artifact_error is not None:
+        return []
+    report = dict((artifact_payload or {}).get("report", {}) or {})
+    items = report.get("items")
+    if not isinstance(items, dict):
+        return [item.item_id for item in _CHECKLIST_ITEMS]
+    pending_items: list[str] = []
+    for item in _CHECKLIST_ITEMS:
+        item_state = dict(items.get(item.item_id, {}) or {})
+        if not bool(item_state.get("passed", False)):
+            pending_items.append(item.item_id)
+    return pending_items
+
+
+def manual_beta_checklist_suggested_args(pending_item_ids: list[str]) -> str:
+    """Return suggested CLI args for completing the remaining manual checklist work."""
+    pending_item_set = set(pending_item_ids)
+    ordered_pending_item_ids = [item.item_id for item in _CHECKLIST_ITEMS if item.item_id in pending_item_set]
+    if not ordered_pending_item_ids or len(ordered_pending_item_ids) == len(_CHECKLIST_ITEMS):
+        return "--all-passed"
+    return " ".join(f"--pass {item_id}" for item_id in ordered_pending_item_ids)
+
+
 def main(argv: list[str] | None = None) -> int:
     """Inspect or update the manual beta checklist artifact."""
     parser = argparse.ArgumentParser(description="Inspect or update the manual QA beta checklist artifact.")

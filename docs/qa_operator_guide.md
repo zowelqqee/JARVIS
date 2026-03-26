@@ -35,6 +35,11 @@ Useful read-only helper commands:
 - The same rule now applies to `tmp/qa/manual_beta_checklist.json` and `tmp/qa/beta_release_review.json`: `qa beta` treats beta sign-off as stale if either recorded snapshot or fingerprint no longer matches the current artifact.
 - `tmp/qa/beta_release_review.json` is also snapshot-aware on its own now: it stores the exact manual-checklist snapshot/fingerprint it was reviewed against, so `qa beta` can catch stale release review even before any final `tmp/qa/beta_readiness.json` exists.
 - Supporting release artifacts are freshness-checked too: `qa beta` now prints `fresh=yes|no|n/a` for both `tmp/qa/manual_beta_checklist.json` and `tmp/qa/beta_release_review.json`, and stale manual/release evidence must be re-recorded before final beta readiness.
+- That consistency check is stricter than simple fingerprint drift: if the latest `tmp/qa/manual_beta_checklist.json` is itself stale by age, `qa beta` and `qa.beta_readiness` now also treat the stored release review as stale until the checklist is re-recorded.
+- `qa beta` now also prints `manual checklist pending items` and `release review pending checks`, so the operator can see the remaining scripted manual scenarios and sign-off gaps without opening the artifacts by hand.
+- `python3 -m qa.beta_readiness` now prints and persists the same pending-item / pending-check summaries, so the final offline decision record stays actionable even before the supporting artifacts are complete.
+- The same freshness rule now applies to any recorded `tmp/qa/beta_readiness.json`: even if its snapshots still fingerprint-match, `qa beta` treats the recorded sign-off as stale once the latest manual checklist or release-review artifact ages past the freshness window.
+- When the supporting artifacts are merely incomplete, `qa beta` now suggests incremental commands too: partial manual artifacts get `--pass ...` only for the remaining scenarios, and partial release-review artifacts get only the missing review flags instead of a forced full rerun.
 
 Deterministic sanity checks:
 - `python3 -m evals.run_qa_eval`
