@@ -200,8 +200,14 @@ def manual_beta_checklist_pending_items(
     return pending_items
 
 
-def manual_beta_checklist_suggested_args(pending_item_ids: list[str]) -> str:
+def manual_beta_checklist_suggested_args(
+    pending_item_ids: list[str],
+    *,
+    force_full_rerun: bool = False,
+) -> str:
     """Return suggested CLI args for completing the remaining manual checklist work."""
+    if force_full_rerun:
+        return "--all-passed"
     pending_item_set = set(pending_item_ids)
     ordered_pending_item_ids = [item.item_id for item in _CHECKLIST_ITEMS if item.item_id in pending_item_set]
     if not ordered_pending_item_ids or len(ordered_pending_item_ids) == len(_CHECKLIST_ITEMS):

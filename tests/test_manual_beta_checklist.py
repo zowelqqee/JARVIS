@@ -100,6 +100,15 @@ class ManualBetaChecklistTests(unittest.TestCase):
             "--all-passed",
         )
 
+    def test_manual_beta_checklist_suggested_args_can_force_full_rerun(self) -> None:
+        self.assertEqual(
+            manual_beta_checklist_suggested_args(
+                ["blocked_state_question", "provider_unavailable_path"],
+                force_full_rerun=True,
+            ),
+            "--all-passed",
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -363,6 +363,7 @@ def _print_qa_beta() -> None:
         artifact_error=beta_artifact_error,
     )
     beta_artifact_candidate = _beta_readiness_artifact_candidate(beta_artifact_payload)
+    beta_artifact_candidate_selection = _beta_readiness_artifact_candidate_selection_source(beta_artifact_payload)
     manual_checklist_artifact_path, manual_checklist_artifact_payload, manual_checklist_artifact_error = (
         load_manual_beta_checklist_artifact(manual_beta_checklist_artifact_path())
     )
@@ -387,6 +388,9 @@ def _print_qa_beta() -> None:
         release_review_complete,
         release_review_candidate,
     ) = beta_release_review_status(release_review_artifact_payload, release_review_artifact_error)
+    release_review_candidate_selection = _beta_release_review_artifact_candidate_selection_source(
+        release_review_artifact_payload
+    )
     (
         release_review_artifact_age_hours,
         release_review_artifact_fresh,
@@ -396,12 +400,14 @@ def _print_qa_beta() -> None:
         manual_checklist_artifact_payload,
         manual_checklist_artifact_error,
     )
-    manual_checklist_command_args = manual_beta_checklist_suggested_args(manual_checklist_pending_item_ids)
+    manual_checklist_command_args = manual_beta_checklist_suggested_args(
+        manual_checklist_pending_item_ids,
+        force_full_rerun=manual_checklist_artifact_fresh is False,
+    )
     release_review_pending_check_ids = beta_release_review_pending_checks(
         release_review_artifact_payload,
         release_review_artifact_error,
     )
-    release_review_command_args = beta_release_review_suggested_args(release_review_pending_check_ids)
     beta_artifact_age_hours, beta_artifact_fresh, beta_artifact_fresh_reason = _beta_readiness_artifact_freshness(
         beta_artifact_payload
     )
@@ -487,6 +493,10 @@ def _print_qa_beta() -> None:
             expected_candidate=recommended_candidate,
         )
     )
+    release_review_command_args = beta_release_review_suggested_args(
+        release_review_pending_check_ids,
+        force_full_rerun=release_review_artifact_fresh is False or release_review_artifact_consistent is False,
+    )
     beta_artifact_consistent, beta_artifact_consistency_reason = _beta_readiness_artifact_consistency(
         artifact_payload=beta_artifact_payload,
         recommended_candidate=recommended_candidate,
@@ -533,7 +543,9 @@ def _print_qa_beta() -> None:
     if release_review_pending_check_ids:
         print(f"qa beta release review pending checks: {', '.join(release_review_pending_check_ids)}")
     print(f"qa beta release review candidate: {release_review_candidate or 'none'}")
+    print(f"qa beta release review candidate selection: {release_review_candidate_selection or 'none'}")
     print(f"qa beta recorded candidate: {beta_artifact_candidate or 'none'}")
+    print(f"qa beta recorded candidate selection: {beta_artifact_candidate_selection or 'none'}")
     print(f"qa beta decision artifact: {beta_artifact_path} ({beta_artifact_status})")
     print(
         "qa beta decision artifact fresh: "
@@ -977,6 +989,14 @@ def _beta_readiness_artifact_consistency(
     chosen_candidate = str(report.get("chosen_candidate", "") or "").strip()
     if not chosen_candidate:
         return False, "recorded candidate is missing"
+    candidate_selection_source = str(report.get("candidate_selection_source", "") or "").strip()
+    if candidate_selection_source != "explicit":
+        if candidate_selection_source:
+            return (
+                False,
+                f"recorded candidate selection source is {candidate_selection_source}; final beta artifact requires explicit operator choice",
+            )
+        return False, "recorded candidate selection source is missing; final beta artifact requires explicit operator choice"
     if chosen_candidate not in technically_ready_candidates:
         return False, f"recorded candidate {chosen_candidate} is not technically ready on latest artifacts"
     recorded_candidate_states = dict(report.get("candidate_states", {}) or {})
@@ -1034,6 +1054,18 @@ def _beta_readiness_artifact_candidate(artifact_payload: dict[str, object] | Non
     report = dict((artifact_payload or {}).get("report", {}) or {})
     candidate = str(report.get("chosen_candidate", "") or "").strip()
     return candidate or None
+
+
+def _beta_readiness_artifact_candidate_selection_source(artifact_payload: dict[str, object] | None) -> str | None:
+    report = dict((artifact_payload or {}).get("report", {}) or {})
+    candidate_selection_source = str(report.get("candidate_selection_source", "") or "").strip()
+    return candidate_selection_source or None
+
+
+def _beta_release_review_artifact_candidate_selection_source(artifact_payload: dict[str, object] | None) -> str | None:
+    report = dict((artifact_payload or {}).get("report", {}) or {})
+    candidate_selection_source = str(report.get("candidate_selection_source", "") or "").strip()
+    return candidate_selection_source or None
 
 
 def _beta_readiness_artifact_manual_summary(artifact_payload: dict[str, object] | None) -> str:

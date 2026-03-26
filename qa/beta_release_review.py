@@ -35,6 +35,7 @@ class BetaReleaseReviewRecord:
 
     review_id: str
     candidate_profile: str | None
+    candidate_selection_source: str
     checks: dict[str, dict[str, Any]]
     manual_checklist_artifact_status: str
     manual_checklist_artifact_completed: bool
@@ -68,6 +69,7 @@ class BetaReleaseReviewRecord:
         return {
             "review_id": self.review_id,
             "candidate_profile": self.candidate_profile or "",
+            "candidate_selection_source": self.candidate_selection_source,
             "completed_checks": self.completed_checks,
             "total_checks": self.total_checks,
             "all_completed": self.all_completed,
@@ -100,6 +102,10 @@ def build_beta_release_review_record(
     """Build one beta release-review record, optionally updating an existing artifact."""
     existing_report = {} if reset else dict((existing_payload or {}).get("report", {}) or {})
     resolved_candidate = str(candidate_profile or existing_report.get("candidate_profile", "") or "").strip() or None
+    candidate_selection_source = _candidate_selection_source(
+        explicit_candidate=candidate_profile,
+        existing_candidate=existing_report.get("candidate_profile"),
+    )
     if resolved_candidate is not None and resolved_candidate not in _CANDIDATE_PROFILES:
         raise ValueError(f"Unsupported beta release-review candidate profile: {candidate_profile!r}.")
     (
@@ -143,6 +149,7 @@ def build_beta_release_review_record(
     return BetaReleaseReviewRecord(
         review_id="beta_question_default",
         candidate_profile=resolved_candidate,
+        candidate_selection_source=candidate_selection_source,
         checks=checks,
         manual_checklist_artifact_status=manual_checklist_artifact_status,
         manual_checklist_artifact_completed=manual_checklist_artifact_completed,
@@ -163,6 +170,7 @@ def format_beta_release_review_record(record: BetaReleaseReviewRecord) -> str:
         "JARVIS QA Beta Release Review",
         f"review: {record.review_id}",
         f"candidate: {record.candidate_profile or 'none'}",
+        f"candidate selection: {record.candidate_selection_source}",
         f"progress: {record.completed_checks}/{record.total_checks}",
         "manual checklist artifact: "
         f"{record.manual_checklist_artifact_status}"
@@ -273,8 +281,14 @@ def beta_release_review_pending_checks(
     return pending_checks
 
 
-def beta_release_review_suggested_args(pending_check_ids: list[str]) -> str:
+def beta_release_review_suggested_args(
+    pending_check_ids: list[str],
+    *,
+    force_full_rerun: bool = False,
+) -> str:
     """Return suggested CLI args for completing the remaining release-review checks."""
+    if force_full_rerun:
+        pending_check_ids = []
     pending_check_set = set(pending_check_ids)
     ordered_pending_check_ids = [check_id for check_id, _label in _REVIEW_CHECKS if check_id in pending_check_set]
     if not ordered_pending_check_ids or len(ordered_pending_check_ids) == len(_REVIEW_CHECKS):
@@ -315,6 +329,14 @@ def beta_release_review_artifact_consistency(
     if recorded_manual_created_at and latest_manual_created_at and recorded_manual_created_at != latest_manual_created_at:
         return False, "recorded manual checklist artifact snapshot no longer matches the latest artifact"
     recorded_candidate = str(report.get("candidate_profile", "") or "").strip()
+    candidate_selection_source = str(report.get("candidate_selection_source", "") or "").strip()
+    if candidate_selection_source != "explicit":
+        if candidate_selection_source:
+            return (
+                False,
+                f"recorded beta release review candidate selection source is {candidate_selection_source}; explicit operator choice is required",
+            )
+        return False, "recorded beta release review candidate selection source is missing"
     if expected_candidate and recorded_candidate and recorded_candidate != expected_candidate:
         return False, f"recorded beta release review candidate {recorded_candidate} differs from expected candidate {expected_candidate}"
     return True, None
@@ -334,6 +356,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--write-artifact", action="store_true", help="Write the review artifact to tmp/qa.")
     parser.add_argument("--json", action="store_true", help="Print the full artifact JSON.")
     args = parser.parse_args(argv)
+    if args.write_artifact and not args.candidate_profile:
+        parser.error("--write-artifact requires explicit --candidate-profile")
 
     artifact_path, existing_payload, existing_error = load_beta_release_review_artifact()
     if existing_error is not None:
@@ -373,6 +397,14 @@ def _existing_check_states(existing_payload: dict[str, Any] | None) -> dict[str,
             continue
         existing_states[check_id] = dict(check_state)
     return existing_states
+
+
+def _candidate_selection_source(*, explicit_candidate: str | None, existing_candidate: Any) -> str:
+    if str(explicit_candidate or "").strip():
+        return "explicit"
+    if str(existing_candidate or "").strip():
+        return "existing_artifact"
+    return "none"
 
 
 def _artifact_created_at(artifact_payload: dict[str, Any] | None) -> str | None:

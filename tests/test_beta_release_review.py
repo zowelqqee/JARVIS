@@ -5,6 +5,8 @@ from __future__ import annotations
 import json
 import tempfile
 import unittest
+import io
+from contextlib import redirect_stderr
 from datetime import datetime, timezone
 from pathlib import Path
 from unittest.mock import patch
@@ -16,6 +18,7 @@ from qa.beta_release_review import (
     beta_release_review_status,
     build_beta_release_review_record,
     load_beta_release_review_artifact,
+    main,
     write_beta_release_review_artifact,
 )
 from qa.manual_beta_checklist import build_manual_beta_checklist_record, write_manual_beta_checklist_artifact
@@ -37,6 +40,7 @@ class BetaReleaseReviewTests(unittest.TestCase):
         self.assertEqual(record.completed_checks, record.total_checks)
         self.assertTrue(record.all_completed)
         self.assertEqual(record.candidate_profile, "llm_env_strict")
+        self.assertEqual(record.candidate_selection_source, "explicit")
         self.assertEqual(record.manual_checklist_artifact_status, "complete")
         self.assertEqual(record.to_dict()["notes"], "Latency, cost, sign-off, and approval all recorded.")
 
@@ -58,6 +62,7 @@ class BetaReleaseReviewTests(unittest.TestCase):
         self.assertEqual(payload["schema_version"], 1)
         self.assertEqual(payload["runner"], "qa.beta_release_review")
         self.assertEqual(payload["report"]["candidate_profile"], "llm_env")
+        self.assertEqual(payload["report"]["candidate_selection_source"], "explicit")
         self.assertEqual(payload["report"]["completed_checks"], 2)
         self.assertEqual(payload["report"]["manual_checklist_artifact_status"], "complete")
         self.assertFalse(payload["report"]["all_completed"])
@@ -172,6 +177,30 @@ class BetaReleaseReviewTests(unittest.TestCase):
             self.assertFalse(consistent)
             self.assertEqual(reason, "latest manual checklist artifact is stale")
 
+    def test_release_review_consistency_rejects_missing_candidate_selection_source(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            manual_artifact = self._write_manual_artifact(tmpdir, all_passed=True)
+            with patch("qa.beta_release_review.manual_beta_checklist_artifact_path", return_value=manual_artifact):
+                record = build_beta_release_review_record(candidate_profile="llm_env_strict", all_completed=True)
+            artifact_path = Path(tmpdir) / "beta_release_review.json"
+            write_beta_release_review_artifact(record, artifact_path=artifact_path)
+            payload = json.loads(artifact_path.read_text(encoding="utf-8"))
+            del payload["report"]["candidate_selection_source"]
+            artifact_path.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
+            _artifact_path, artifact_payload, artifact_error = load_beta_release_review_artifact(artifact_path)
+            manual_payload = json.loads(manual_artifact.read_text(encoding="utf-8"))
+
+            consistent, reason = beta_release_review_artifact_consistency(
+                artifact_payload=artifact_payload,
+                manual_checklist_artifact_payload=manual_payload,
+                manual_checklist_artifact_path=manual_artifact,
+                manual_checklist_artifact_error=artifact_error,
+                expected_candidate="llm_env_strict",
+            )
+
+        self.assertFalse(consistent)
+        self.assertEqual(reason, "recorded beta release review candidate selection source is missing")
+
     def test_beta_release_review_pending_checks_returns_remaining_ids(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             manual_artifact = self._write_manual_artifact(tmpdir, all_passed=True)
@@ -200,6 +229,22 @@ class BetaReleaseReviewTests(unittest.TestCase):
             beta_release_review_suggested_args([]),
             "--latency-reviewed --cost-reviewed --operator-signoff --product-approval",
         )
+
+    def test_beta_release_review_suggested_args_can_force_full_rerun(self) -> None:
+        self.assertEqual(
+            beta_release_review_suggested_args(
+                ["cost_review", "operator_signoff"],
+                force_full_rerun=True,
+            ),
+            "--latency-reviewed --cost-reviewed --operator-signoff --product-approval",
+        )
+
+    def test_main_rejects_write_artifact_without_explicit_candidate(self) -> None:
+        with redirect_stderr(io.StringIO()):
+            with self.assertRaises(SystemExit) as raised:
+                main(["--write-artifact"])
+
+        self.assertEqual(raised.exception.code, 2)
 
     def _write_manual_artifact(
         self,

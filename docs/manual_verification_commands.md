@@ -118,6 +118,7 @@
 - Input: `qa beta`
 - Expected: prints `alpha_opt_in`, keeps deterministic as the default path, summarizes candidate artifact readiness for `llm_env` and `llm_env_strict`, reads the latest candidate-specific rollout-stability artifacts when present, shows the currently recommended beta candidate, and reports the manual beta checklist artifact, beta release-review artifact, their freshness, pending manual/review work, and any recorded beta-readiness artifact.
 - Expected: for partial supporting artifacts, the printed `manual checklist command` / `release review command` now target only the remaining `--pass ...` / review flags; for missing or stale artifacts they still fall back to the full rerun command.
+- Important: “stale” wins over “partial”. If a partial manual checklist or partial release-review artifact aged out, `qa beta` should print the full rerun command, not an incremental completion command.
 
 ### 20) Manual beta checklist record
 - Command:
@@ -149,6 +150,10 @@
   - `python3 -m qa.beta_readiness --candidate-profile llm_env_strict --write-artifact`
 - Expected: stays offline, reads the latest smoke/stability artifacts plus the recorded manual beta checklist artifact and beta release-review artifact, shows the recommended beta candidate, and remains blocked until those supporting artifacts are both complete.
 - Expected: when supporting artifacts are still missing/incomplete, it now also prints and records `manual checklist pending items` and `release review pending checks`.
+- Expected: it now also prints `manual checklist command`, `release review command`, `next step reason`, and `next step command`, so the helper output itself is enough to continue the offline release flow.
+- Expected: `--write-artifact` now requires explicit `--candidate-profile`, and the helper refuses to write `tmp/qa/beta_readiness.json` while blockers remain.
+- Expected: `qa beta` now also rejects a legacy ready artifact if it does not record `candidate_selection_source=explicit`; a final beta sign-off must always reflect explicit operator choice.
+- Expected: `python3 -m qa.beta_release_review --write-artifact` now also requires explicit `--candidate-profile`, and `qa beta` rejects a legacy release-review artifact if it does not record `candidate_selection_source=explicit`.
 - Important: this helper no longer accepts legacy `--manual-checklist` / `--latency-reviewed` / `--cost-reviewed` / `--operator-signoff` / `--product-approval` shortcuts; supporting evidence must come from artifacts.
 - Important: this helper now also blocks on stale manual/release supporting artifacts, not just missing/incomplete ones.
 - Expected artifact:

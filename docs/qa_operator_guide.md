@@ -38,8 +38,15 @@ Useful read-only helper commands:
 - That consistency check is stricter than simple fingerprint drift: if the latest `tmp/qa/manual_beta_checklist.json` is itself stale by age, `qa beta` and `qa.beta_readiness` now also treat the stored release review as stale until the checklist is re-recorded.
 - `qa beta` now also prints `manual checklist pending items` and `release review pending checks`, so the operator can see the remaining scripted manual scenarios and sign-off gaps without opening the artifacts by hand.
 - `python3 -m qa.beta_readiness` now prints and persists the same pending-item / pending-check summaries, so the final offline decision record stays actionable even before the supporting artifacts are complete.
+- `python3 -m qa.beta_readiness` now also prints its own `manual checklist command`, `release review command`, `next step reason`, and `next step command`, so the operator can continue from the artifact output itself without falling back to `qa beta`.
+- Its final write path is stricter now too: `--write-artifact` requires an explicit `--candidate-profile`, and the helper refuses to write `tmp/qa/beta_readiness.json` while the record is still blocked.
+- `qa beta` now validates the same rule on read too: a recorded `tmp/qa/beta_readiness.json` is stale unless it explicitly records that the candidate was chosen by operator action, not only auto-derived from the latest recommendation or release-review artifact.
+- For visibility, `qa beta` now prints `qa beta recorded candidate selection: ...` next to the recorded candidate.
+- `python3 -m qa.beta_release_review` now follows the same rule: `--write-artifact` requires explicit `--candidate-profile`, the artifact records `candidate_selection_source`, and `qa beta` rejects a legacy release-review artifact that does not show explicit candidate selection.
+- For visibility, `qa beta` now also prints `qa beta release review candidate selection: ...`.
 - The same freshness rule now applies to any recorded `tmp/qa/beta_readiness.json`: even if its snapshots still fingerprint-match, `qa beta` treats the recorded sign-off as stale once the latest manual checklist or release-review artifact ages past the freshness window.
 - When the supporting artifacts are merely incomplete, `qa beta` now suggests incremental commands too: partial manual artifacts get `--pass ...` only for the remaining scenarios, and partial release-review artifacts get only the missing review flags instead of a forced full rerun.
+- That shortcut applies only while the artifact is still fresh. Once a partial manual checklist or partial release review ages out, `qa beta` goes back to the full rerun command because the earlier partial evidence is no longer current enough to extend incrementally.
 
 Deterministic sanity checks:
 - `python3 -m evals.run_qa_eval`
@@ -127,6 +134,8 @@ Beta-readiness record:
   - `python3 -m qa.beta_release_review --candidate-profile llm_env_strict --latency-reviewed --cost-reviewed --operator-signoff --product-approval --write-artifact`
 - Only after both artifacts exist, record the consolidated beta-readiness snapshot:
   - `python3 -m qa.beta_readiness --candidate-profile llm_env_strict --write-artifact`
+- Once the supporting artifacts are already complete, `python3 -m qa.beta_readiness` now prints this exact final write command itself as `next step command`.
+- If you call `python3 -m qa.beta_readiness --candidate-profile ... --write-artifact` too early, it now prints the blocked summary and exits without writing a final beta-readiness artifact.
 - Output artifact:
   - `tmp/qa/beta_readiness.json`
 - Supporting artifacts:

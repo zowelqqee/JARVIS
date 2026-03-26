@@ -35,14 +35,28 @@ class BetaReadinessTests(unittest.TestCase):
 
         self.assertEqual(record.recommended_candidate, "llm_env_strict")
         self.assertEqual(record.chosen_candidate, "llm_env_strict")
+        self.assertEqual(record.candidate_selection_source, "recommended_candidate")
         self.assertEqual(record.technical_ready_candidates, ["llm_env", "llm_env_strict"])
         self.assertFalse(record.beta_ready)
+        self.assertEqual(record.next_step_kind, "complete_manual_beta_checklist")
+        self.assertEqual(
+            record.next_step_command,
+            "python3 -m qa.manual_beta_checklist --all-passed --write-artifact",
+        )
+        self.assertEqual(
+            record.next_step_reason,
+            "manual beta checklist evidence is missing, incomplete, or stale",
+        )
         self.assertIn("manual verification checklist is not completed", record.blockers)
         self.assertIn("manual beta checklist artifact is missing or incomplete", record.blockers)
         self.assertIn("beta release review artifact is missing or incomplete", record.blockers)
         self.assertIn("product approval for beta_question_default is missing", record.blockers)
         self.assertIn("arbitrary_factual_question", record.manual_checklist_pending_items)
         self.assertIn("provider_unavailable_path", record.manual_checklist_pending_items)
+        self.assertEqual(
+            record.manual_checklist_command,
+            "python3 -m qa.manual_beta_checklist --all-passed --write-artifact",
+        )
         self.assertEqual(
             record.release_review_pending_checks,
             ["latency_review", "cost_review", "operator_signoff", "product_approval"],
@@ -67,10 +81,12 @@ class BetaReadinessTests(unittest.TestCase):
                 payload = json.loads(artifact_path.read_text(encoding="utf-8"))
 
         self.assertTrue(record.beta_ready)
+        self.assertEqual(record.candidate_selection_source, "explicit")
         self.assertEqual(resolved_path, artifact_path)
         self.assertEqual(payload["schema_version"], 1)
         self.assertEqual(payload["runner"], "qa.beta_readiness")
         self.assertEqual(payload["report"]["chosen_candidate"], "llm_env_strict")
+        self.assertEqual(payload["report"]["candidate_selection_source"], "explicit")
         self.assertTrue(payload["report"]["beta_ready"])
         self.assertEqual(payload["report"]["manual_checklist_artifact_status"], "complete")
         self.assertTrue(payload["report"]["manual_checklist_artifact_completed"])
@@ -82,6 +98,20 @@ class BetaReadinessTests(unittest.TestCase):
         self.assertEqual(payload["report"]["release_review_artifact_candidate"], "llm_env_strict")
         self.assertTrue(payload["report"]["release_review_artifact_consistent"])
         self.assertEqual(payload["report"]["release_review_pending_checks"], [])
+        self.assertEqual(payload["report"]["manual_checklist_command"], "python3 -m qa.manual_beta_checklist --all-passed --write-artifact")
+        self.assertEqual(
+            payload["report"]["release_review_command"],
+            "python3 -m qa.beta_release_review --candidate-profile llm_env_strict --latency-reviewed --cost-reviewed --operator-signoff --product-approval --write-artifact",
+        )
+        self.assertEqual(payload["report"]["next_step_kind"], "write_beta_readiness_artifact")
+        self.assertEqual(
+            payload["report"]["next_step_reason"],
+            "supporting evidence is complete; record the consolidated beta readiness artifact",
+        )
+        self.assertEqual(
+            payload["report"]["next_step_command"],
+            "python3 -m qa.beta_readiness --candidate-profile llm_env_strict --write-artifact",
+        )
         self.assertTrue(payload["report"]["release_review_artifact_created_at"])
         self.assertTrue(payload["report"]["release_review_artifact_sha256"])
         self.assertTrue(payload["report"]["candidate_states"]["llm_env_strict"]["smoke_artifact_created_at"])
@@ -106,12 +136,26 @@ class BetaReadinessTests(unittest.TestCase):
         self.assertIn("JARVIS QA Beta Readiness", text)
         self.assertIn("recommended candidate: llm_env_strict", text)
         self.assertIn("chosen candidate: llm_env", text)
+        self.assertIn("candidate selection: explicit", text)
         self.assertIn("beta_question_default ready: no", text)
         self.assertIn("manual checklist artifact: complete(7/7)", text)
         self.assertIn("manual checklist pending items: none", text)
         self.assertIn("release review artifact: missing", text)
         self.assertIn(
             "release review pending checks: latency_review, cost_review, operator_signoff, product_approval",
+            text,
+        )
+        self.assertIn(
+            "release review command: python3 -m qa.beta_release_review --candidate-profile llm_env --latency-reviewed --cost-reviewed --operator-signoff --product-approval --write-artifact",
+            text,
+        )
+        self.assertIn("next step: record_beta_release_review", text)
+        self.assertIn(
+            "next step reason: beta release review evidence is missing, incomplete, stale, or tied to a different candidate/manual snapshot",
+            text,
+        )
+        self.assertIn(
+            "next step command: python3 -m qa.beta_release_review --candidate-profile llm_env --latency-reviewed --cost-reviewed --operator-signoff --product-approval --write-artifact",
             text,
         )
         self.assertIn("latency review is not completed", text)
@@ -139,6 +183,11 @@ class BetaReadinessTests(unittest.TestCase):
         self.assertIn(
             "recorded manual checklist artifact fingerprint no longer matches the latest artifact",
             record.release_review_artifact_consistency_reason or "",
+        )
+        self.assertEqual(record.next_step_kind, "complete_manual_beta_checklist")
+        self.assertEqual(
+            record.next_step_command,
+            "python3 -m qa.manual_beta_checklist --all-passed --write-artifact",
         )
 
     def test_build_beta_readiness_record_blocks_stale_manual_and_release_review_artifacts(self) -> None:
@@ -172,7 +221,36 @@ class BetaReadinessTests(unittest.TestCase):
             record.blockers,
         )
         self.assertEqual(record.release_review_artifact_consistency_reason, "latest manual checklist artifact is stale")
+        self.assertEqual(record.next_step_kind, "complete_manual_beta_checklist")
+        self.assertEqual(
+            record.next_step_command,
+            "python3 -m qa.manual_beta_checklist --all-passed --write-artifact",
+        )
         self.assertIn("manual checklist artifact: complete(7/7); fresh=no (48.0h)", format_beta_readiness_record(record))
+
+    def test_build_beta_readiness_record_suggests_final_write_command_when_ready(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            self._write_candidate_artifacts(tmpdir, "llm_env", fallback_enabled=True)
+            self._write_candidate_artifacts(tmpdir, "llm_env_strict", fallback_enabled=False)
+            self._write_manual_artifact(tmpdir, all_passed=True)
+            self._write_release_review_artifact(tmpdir, candidate_profile="llm_env_strict", all_completed=True)
+            with self._patch_candidate_paths(tmpdir):
+                record = build_beta_readiness_record(
+                    candidate_profile="llm_env_strict",
+                    environ=self._env(),
+                )
+
+        self.assertTrue(record.beta_ready)
+        self.assertEqual(record.candidate_selection_source, "explicit")
+        self.assertEqual(record.next_step_kind, "write_beta_readiness_artifact")
+        self.assertEqual(
+            record.next_step_reason,
+            "supporting evidence is complete; record the consolidated beta readiness artifact",
+        )
+        self.assertEqual(
+            record.next_step_command,
+            "python3 -m qa.beta_readiness --candidate-profile llm_env_strict --write-artifact",
+        )
 
     def test_main_rejects_legacy_release_decision_flags(self) -> None:
         legacy_flags = (
@@ -189,6 +267,29 @@ class BetaReadinessTests(unittest.TestCase):
                         main([flag])
 
             self.assertEqual(raised.exception.code, 2)
+
+    def test_main_rejects_write_artifact_without_explicit_candidate(self) -> None:
+        with redirect_stderr(io.StringIO()):
+            with self.assertRaises(SystemExit) as raised:
+                main(["--write-artifact"])
+
+        self.assertEqual(raised.exception.code, 2)
+
+    def test_write_beta_readiness_artifact_rejects_blocked_record(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            self._write_candidate_artifacts(tmpdir, "llm_env", fallback_enabled=True)
+            self._write_candidate_artifacts(tmpdir, "llm_env_strict", fallback_enabled=False)
+            with self._patch_candidate_paths(tmpdir):
+                record = build_beta_readiness_record(
+                    candidate_profile="llm_env_strict",
+                    environ=self._env(),
+                )
+
+            artifact_path = Path(tmpdir) / "beta_readiness.json"
+            with self.assertRaisesRegex(ValueError, "blocked; refusing to write final artifact"):
+                write_beta_readiness_artifact(record, artifact_path=artifact_path)
+
+        self.assertFalse(artifact_path.exists())
 
     def _env(self) -> dict[str, str]:
         return {

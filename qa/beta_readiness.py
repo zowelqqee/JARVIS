@@ -15,12 +15,14 @@ from qa.answer_config import load_answer_backend_config
 from qa.beta_release_review import (
     beta_release_review_artifact_consistency,
     beta_release_review_pending_checks,
+    beta_release_review_suggested_args,
     beta_release_review_status,
     load_beta_release_review_artifact,
 )
 from qa.manual_beta_checklist import (
     load_manual_beta_checklist_artifact,
     manual_beta_checklist_pending_items,
+    manual_beta_checklist_suggested_args,
     manual_beta_checklist_status,
 )
 from qa.rollout_profiles import (
@@ -107,6 +109,7 @@ class BetaReadinessRecord:
     default_path: str
     recommended_candidate: str | None
     chosen_candidate: str | None
+    candidate_selection_source: str
     technical_ready_candidates: list[str]
     manual_checklist_completed: bool
     manual_checklist_artifact_status: str
@@ -117,6 +120,7 @@ class BetaReadinessRecord:
     manual_checklist_artifact_fresh: bool | None
     manual_checklist_artifact_reason: str | None
     manual_checklist_pending_items: list[str]
+    manual_checklist_command: str
     manual_checklist_artifact_created_at: str | None
     manual_checklist_artifact_sha256: str | None
     release_review_artifact_status: str
@@ -130,12 +134,16 @@ class BetaReadinessRecord:
     release_review_artifact_consistent: bool | None
     release_review_artifact_consistency_reason: str | None
     release_review_pending_checks: list[str]
+    release_review_command: str | None
     release_review_artifact_created_at: str | None
     release_review_artifact_sha256: str | None
     latency_review_completed: bool
     cost_review_completed: bool
     operator_signoff_completed: bool
     product_approval_completed: bool
+    next_step_kind: str
+    next_step_reason: str
+    next_step_command: str | None
     blockers: list[str] = field(default_factory=list)
     candidate_states: list[BetaCandidateState] = field(default_factory=list)
     notes: str | None = None
@@ -150,6 +158,7 @@ class BetaReadinessRecord:
             "default_path": self.default_path,
             "recommended_candidate": self.recommended_candidate,
             "chosen_candidate": self.chosen_candidate,
+            "candidate_selection_source": self.candidate_selection_source,
             "technical_ready_candidates": list(self.technical_ready_candidates),
             "manual_checklist_completed": self.manual_checklist_completed,
             "manual_checklist_artifact_status": self.manual_checklist_artifact_status,
@@ -160,6 +169,7 @@ class BetaReadinessRecord:
             "manual_checklist_artifact_fresh": self.manual_checklist_artifact_fresh,
             "manual_checklist_artifact_reason": self.manual_checklist_artifact_reason or "",
             "manual_checklist_pending_items": list(self.manual_checklist_pending_items),
+            "manual_checklist_command": self.manual_checklist_command,
             "manual_checklist_artifact_created_at": self.manual_checklist_artifact_created_at,
             "manual_checklist_artifact_sha256": self.manual_checklist_artifact_sha256,
             "release_review_artifact_status": self.release_review_artifact_status,
@@ -173,12 +183,16 @@ class BetaReadinessRecord:
             "release_review_artifact_consistent": self.release_review_artifact_consistent,
             "release_review_artifact_consistency_reason": self.release_review_artifact_consistency_reason or "",
             "release_review_pending_checks": list(self.release_review_pending_checks),
+            "release_review_command": self.release_review_command,
             "release_review_artifact_created_at": self.release_review_artifact_created_at,
             "release_review_artifact_sha256": self.release_review_artifact_sha256,
             "latency_review_completed": self.latency_review_completed,
             "cost_review_completed": self.cost_review_completed,
             "operator_signoff_completed": self.operator_signoff_completed,
             "product_approval_completed": self.product_approval_completed,
+            "next_step_kind": self.next_step_kind,
+            "next_step_reason": self.next_step_reason,
+            "next_step_command": self.next_step_command or "",
             "beta_ready": self.beta_ready,
             "blockers": list(self.blockers),
             "candidate_states": {
@@ -260,6 +274,15 @@ def build_beta_readiness_record(
     ]
     recommended_candidate = _recommended_candidate(candidate_states)
     effective_candidate = chosen_candidate or release_review_artifact_candidate or recommended_candidate
+    candidate_selection_source = _candidate_selection_source(
+        explicit_candidate=chosen_candidate,
+        release_review_candidate=release_review_artifact_candidate,
+        recommended_candidate=recommended_candidate,
+    )
+    manual_checklist_command = _manual_beta_checklist_command(
+        manual_checklist_pending_item_ids,
+        force_full_rerun=manual_checklist_artifact_fresh is False,
+    )
     release_review_artifact_consistent, release_review_artifact_consistency_reason = (
         beta_release_review_artifact_consistency(
             artifact_payload=release_review_artifact_payload,
@@ -268,6 +291,11 @@ def build_beta_readiness_record(
             manual_checklist_artifact_error=manual_artifact_error,
             expected_candidate=chosen_candidate or None,
         )
+    )
+    release_review_command = _beta_release_review_command(
+        candidate_profile=effective_candidate or recommended_candidate,
+        pending_check_ids=release_review_pending_check_ids,
+        force_full_rerun=release_review_artifact_fresh is False or release_review_artifact_consistent is False,
     )
     blockers: list[str] = []
     if not technical_ready_candidates:
@@ -316,11 +344,31 @@ def build_beta_readiness_record(
         blockers.append("operator sign-off is not completed")
     if not effective_product_approval_completed:
         blockers.append("product approval for beta_question_default is missing")
+    selected_candidate_technical_ready = bool(
+        effective_candidate
+        and any(
+            candidate_state.candidate_profile == effective_candidate and candidate_state.technical_ready
+            for candidate_state in candidate_states
+        )
+    )
+    next_step_kind, next_step_reason, next_step_command = _beta_readiness_next_step(
+        technical_ready_candidates=technical_ready_candidates,
+        effective_candidate=effective_candidate,
+        selected_candidate_technical_ready=selected_candidate_technical_ready,
+        effective_manual_checklist_completed=effective_manual_checklist_completed,
+        release_review_artifact_completed=release_review_artifact_completed,
+        release_review_artifact_candidate=release_review_artifact_candidate,
+        release_review_artifact_fresh=release_review_artifact_fresh,
+        release_review_artifact_consistent=release_review_artifact_consistent,
+        manual_checklist_command=manual_checklist_command,
+        release_review_command=release_review_command,
+    )
     return BetaReadinessRecord(
         stage=_STAGE,
         default_path=_DEFAULT_PATH,
         recommended_candidate=recommended_candidate,
         chosen_candidate=effective_candidate,
+        candidate_selection_source=candidate_selection_source,
         technical_ready_candidates=technical_ready_candidates,
         manual_checklist_completed=effective_manual_checklist_completed,
         manual_checklist_artifact_status=manual_checklist_artifact_status,
@@ -331,6 +379,7 @@ def build_beta_readiness_record(
         manual_checklist_artifact_fresh=manual_checklist_artifact_fresh,
         manual_checklist_artifact_reason=manual_checklist_artifact_reason,
         manual_checklist_pending_items=manual_checklist_pending_item_ids,
+        manual_checklist_command=manual_checklist_command,
         manual_checklist_artifact_created_at=_artifact_created_at(manual_artifact_payload),
         manual_checklist_artifact_sha256=_artifact_sha256(manual_artifact_path, artifact_error=manual_artifact_error),
         release_review_artifact_status=release_review_artifact_status,
@@ -344,6 +393,7 @@ def build_beta_readiness_record(
         release_review_artifact_consistent=release_review_artifact_consistent,
         release_review_artifact_consistency_reason=release_review_artifact_consistency_reason,
         release_review_pending_checks=release_review_pending_check_ids,
+        release_review_command=release_review_command,
         release_review_artifact_created_at=_artifact_created_at(release_review_artifact_payload),
         release_review_artifact_sha256=_artifact_sha256(
             release_review_artifact_path_value,
@@ -353,6 +403,9 @@ def build_beta_readiness_record(
         cost_review_completed=effective_cost_review_completed,
         operator_signoff_completed=effective_operator_signoff_completed,
         product_approval_completed=effective_product_approval_completed,
+        next_step_kind=next_step_kind,
+        next_step_reason=next_step_reason,
+        next_step_command=next_step_command,
         blockers=blockers,
         candidate_states=candidate_states,
         notes=str(notes or "").strip() or None,
@@ -461,6 +514,7 @@ def format_beta_readiness_record(record: BetaReadinessRecord) -> str:
         f"default path: {record.default_path}",
         f"recommended candidate: {record.recommended_candidate or 'none'}",
         f"chosen candidate: {record.chosen_candidate or 'none'}",
+        f"candidate selection: {record.candidate_selection_source}",
         f"technical ready candidates: {', '.join(record.technical_ready_candidates) if record.technical_ready_candidates else 'none'}",
         f"manual checklist: {'yes' if record.manual_checklist_completed else 'no'}",
         "manual checklist artifact: "
@@ -468,6 +522,7 @@ def format_beta_readiness_record(record: BetaReadinessRecord) -> str:
         f"{_format_ratio(record.manual_checklist_items_passed, record.manual_checklist_items_total)}"
         f"{_format_freshness(record.manual_checklist_artifact_fresh, record.manual_checklist_artifact_age_hours)}",
         f"manual checklist pending items: {', '.join(record.manual_checklist_pending_items) if record.manual_checklist_pending_items else 'none'}",
+        f"manual checklist command: {record.manual_checklist_command}",
         "release review artifact: "
         f"{record.release_review_artifact_status}"
         f"{_format_ratio(record.release_review_checks_completed, record.release_review_checks_total)}"
@@ -475,10 +530,14 @@ def format_beta_readiness_record(record: BetaReadinessRecord) -> str:
         f"{_format_freshness(record.release_review_artifact_fresh, record.release_review_artifact_age_hours)}"
         f"{_format_consistency(record.release_review_artifact_consistent)}",
         f"release review pending checks: {', '.join(record.release_review_pending_checks) if record.release_review_pending_checks else 'none'}",
+        f"release review command: {record.release_review_command or 'n/a'}",
         f"latency review: {'yes' if record.latency_review_completed else 'no'}",
         f"cost review: {'yes' if record.cost_review_completed else 'no'}",
         f"operator sign-off: {'yes' if record.operator_signoff_completed else 'no'}",
         f"product approval: {'yes' if record.product_approval_completed else 'no'}",
+        f"next step: {record.next_step_kind}",
+        f"next step reason: {record.next_step_reason}",
+        f"next step command: {record.next_step_command or 'n/a'}",
         f"beta_question_default ready: {'yes' if record.beta_ready else 'no'}",
     ]
     if record.blockers:
@@ -519,6 +578,10 @@ def write_beta_readiness_artifact(
     artifact_path: Path | None = None,
 ) -> Path:
     """Persist one beta-readiness artifact for operator review."""
+    if not record.beta_ready:
+        raise ValueError("beta readiness record is blocked; refusing to write final artifact")
+    if record.candidate_selection_source != "explicit":
+        raise ValueError("beta readiness record requires explicit candidate selection before final artifact write")
     resolved_artifact_path = artifact_path or beta_readiness_artifact_path()
     resolved_artifact_path.parent.mkdir(parents=True, exist_ok=True)
     resolved_artifact_path.write_text(
@@ -536,12 +599,17 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--write-artifact", action="store_true", help="Write the beta-readiness artifact to tmp/qa.")
     parser.add_argument("--json", action="store_true", help="Print the full record as JSON.")
     args = parser.parse_args(argv)
+    if args.write_artifact and not args.candidate_profile:
+        parser.error("--write-artifact requires explicit --candidate-profile")
 
     record = build_beta_readiness_record(
         candidate_profile=args.candidate_profile,
         notes=str(args.notes or "").strip() or None,
     )
     if args.write_artifact:
+        if not record.beta_ready:
+            print(format_beta_readiness_record(record))
+            raise SystemExit("beta readiness is still blocked; refusing to write final artifact")
         artifact_path = write_beta_readiness_artifact(record)
     else:
         artifact_path = None
@@ -561,6 +629,109 @@ def _recommended_candidate(candidate_states: list[BetaCandidateState]) -> str | 
             if candidate_state.candidate_profile == preferred_candidate and candidate_state.technical_ready:
                 return preferred_candidate
     return None
+
+
+def _candidate_selection_source(
+    *,
+    explicit_candidate: str | None,
+    release_review_candidate: str | None,
+    recommended_candidate: str | None,
+) -> str:
+    if explicit_candidate:
+        return "explicit"
+    if release_review_candidate:
+        return "release_review_artifact"
+    if recommended_candidate:
+        return "recommended_candidate"
+    return "none"
+
+
+def _manual_beta_checklist_command(
+    pending_item_ids: list[str],
+    *,
+    force_full_rerun: bool,
+) -> str:
+    args = manual_beta_checklist_suggested_args(
+        pending_item_ids,
+        force_full_rerun=force_full_rerun,
+    )
+    return f"python3 -m qa.manual_beta_checklist {args} --write-artifact"
+
+
+def _beta_release_review_command(
+    *,
+    candidate_profile: str | None,
+    pending_check_ids: list[str],
+    force_full_rerun: bool,
+) -> str | None:
+    if not candidate_profile:
+        return None
+    args = beta_release_review_suggested_args(
+        pending_check_ids,
+        force_full_rerun=force_full_rerun,
+    )
+    return f"python3 -m qa.beta_release_review --candidate-profile {candidate_profile} {args} --write-artifact"
+
+
+def _beta_readiness_write_command(candidate_profile: str | None) -> str | None:
+    if not candidate_profile:
+        return None
+    return f"python3 -m qa.beta_readiness --candidate-profile {candidate_profile} --write-artifact"
+
+
+def _beta_readiness_next_step(
+    *,
+    technical_ready_candidates: list[str],
+    effective_candidate: str | None,
+    selected_candidate_technical_ready: bool,
+    effective_manual_checklist_completed: bool,
+    release_review_artifact_completed: bool,
+    release_review_artifact_candidate: str | None,
+    release_review_artifact_fresh: bool | None,
+    release_review_artifact_consistent: bool | None,
+    manual_checklist_command: str,
+    release_review_command: str | None,
+) -> tuple[str, str, str | None]:
+    if not technical_ready_candidates:
+        return (
+            "refresh_technical_rollout_evidence",
+            "no candidate has fresh green smoke plus stability evidence",
+            None,
+        )
+    if effective_candidate is None:
+        return (
+            "select_beta_candidate",
+            "choose the beta candidate profile before recording final readiness",
+            None,
+        )
+    if not selected_candidate_technical_ready:
+        return (
+            "candidate_not_ready",
+            f"selected candidate {effective_candidate} is not technically ready on the latest evidence",
+            None,
+        )
+    if not effective_manual_checklist_completed:
+        return (
+            "complete_manual_beta_checklist",
+            "manual beta checklist evidence is missing, incomplete, or stale",
+            manual_checklist_command,
+        )
+    if (
+        not release_review_artifact_completed
+        or release_review_artifact_fresh is not True
+        or release_review_artifact_consistent is False
+        or release_review_artifact_candidate != effective_candidate
+    ):
+        return (
+            "record_beta_release_review",
+            "beta release review evidence is missing, incomplete, stale, or tied to a different candidate/manual snapshot",
+            release_review_command,
+        )
+    return (
+        "write_beta_readiness_artifact",
+        "supporting evidence is complete; record the consolidated beta readiness artifact",
+        _beta_readiness_write_command(effective_candidate),
+    )
 
 
 def _beta_release_review_check_completed(
