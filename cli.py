@@ -18,9 +18,17 @@ from qa.beta_release_review import (
     beta_release_review_pending_checks,
     beta_release_review_suggested_args,
     beta_release_review_status,
+    build_beta_release_review_record,
+    format_beta_release_review_record,
     load_beta_release_review_artifact,
 )
+from qa.beta_readiness import build_beta_readiness_record, format_beta_readiness_record
 from qa.manual_beta_checklist import (
+    build_manual_beta_checklist_record,
+    manual_beta_checklist_detail_lines,
+    format_manual_beta_checklist_record,
+    manual_beta_checklist_guide_command,
+    manual_beta_checklist_pending_item_details,
     load_manual_beta_checklist_artifact,
     manual_beta_checklist_pending_items,
     manual_beta_checklist_suggested_args,
@@ -160,6 +168,18 @@ def _handle_cli_command(
             _print_qa_beta()
             return False, speak_enabled
 
+        if lowered in {"qa checklist", "/qa checklist"}:
+            _print_qa_checklist()
+            return False, speak_enabled
+
+        if lowered in {"qa release review", "/qa release review"}:
+            _print_qa_release_review()
+            return False, speak_enabled
+
+        if lowered in {"qa readiness", "/qa readiness"}:
+            _print_qa_readiness()
+            return False, speak_enabled
+
         if lowered in {"voice", "/voice"}:
             print("voice: listening... speak now.")
             recognized_text = capture_voice_input(timeout_seconds=_VOICE_CAPTURE_TIMEOUT_SECONDS)
@@ -240,6 +260,12 @@ def _print_help() -> None:
     print("  /qa gate strict  Show offline precheck for llm_env_strict.")
     print("  qa beta          Show offline beta-decision readiness summary.")
     print("  /qa beta         Show offline beta-decision readiness summary.")
+    print("  qa checklist     Show the manual beta checklist helper summary.")
+    print("  /qa checklist    Show the manual beta checklist helper summary.")
+    print("  qa release review Show the beta release-review helper summary.")
+    print("  /qa release review Show the beta release-review helper summary.")
+    print("  qa readiness     Show the beta readiness helper summary.")
+    print("  /qa readiness    Show the beta readiness helper summary.")
     print("  reset            Clear runtime and session context.")
     print("  quit             Exit the CLI.")
     print("  exit             Exit the CLI.")
@@ -400,6 +426,10 @@ def _print_qa_beta() -> None:
         manual_checklist_artifact_payload,
         manual_checklist_artifact_error,
     )
+    manual_checklist_pending_item_detail_records = manual_beta_checklist_pending_item_details(
+        manual_checklist_artifact_payload,
+        manual_checklist_artifact_error,
+    )
     manual_checklist_command_args = manual_beta_checklist_suggested_args(
         manual_checklist_pending_item_ids,
         force_full_rerun=manual_checklist_artifact_fresh is False,
@@ -526,6 +556,8 @@ def _print_qa_beta() -> None:
     )
     if manual_checklist_pending_item_ids:
         print(f"qa beta manual checklist pending items: {', '.join(manual_checklist_pending_item_ids)}")
+        print("qa beta manual checklist helper command: qa checklist")
+    print(f"qa beta manual checklist guide command: {manual_beta_checklist_guide_command()}")
     print(
         "qa beta release review artifact: "
         f"{release_review_artifact_path} "
@@ -576,7 +608,10 @@ def _print_qa_beta() -> None:
         print(f"qa beta decision artifact consistency reason: {beta_artifact_consistency_reason}")
     if beta_artifact_recommendation_drift:
         print(f"qa beta decision artifact drift: {beta_artifact_recommendation_drift}")
-    if beta_artifact_status == "ready" and beta_artifact_consistent is not False and beta_artifact_fresh is not False:
+    beta_artifact_ready_current = (
+        beta_artifact_status == "ready" and beta_artifact_consistent is not False and beta_artifact_fresh is not False
+    )
+    if beta_artifact_ready_current:
         print("qa beta decision: recorded as ready for explicit beta_question_default review; default remains unchanged")
     elif beta_artifact_status == "ready":
         print("qa beta decision: recorded beta readiness is stale against latest evidence; review must be repeated")
@@ -586,9 +621,20 @@ def _print_qa_beta() -> None:
         print(f"qa beta latest stability evidence: clean ({', '.join(stability_ready_candidates)})")
     else:
         print("qa beta latest stability evidence: incomplete")
-    if not manual_checklist_complete or manual_checklist_artifact_fresh is False:
+    if beta_artifact_ready_current:
+        print(
+            "next beta step: offline beta evidence is already recorded; any rollout-stage or default-path change "
+            "remains a separate explicit product decision."
+        )
+    elif not manual_checklist_complete or manual_checklist_artifact_fresh is False:
         print("next beta step: complete the manual beta checklist artifact before release sign-off.")
         print(f"manual checklist command: python3 -m qa.manual_beta_checklist {manual_checklist_command_args} --write-artifact")
+        if manual_checklist_pending_item_detail_records:
+            for line in manual_beta_checklist_detail_lines(
+                manual_checklist_pending_item_detail_records,
+                heading="qa beta manual checklist scenario guide:",
+            ):
+                print(line)
     elif recommended_candidate is None:
         print("next beta step: get one candidate back to fresh green smoke + stability before manual beta sign-off.")
     elif (
@@ -620,6 +666,34 @@ def _print_qa_beta() -> None:
     print("manual checklist doc: docs/manual_verification_commands.md")
     print("decision gate doc: docs/llm_default_decision_gate.md")
     print("note: this helper is offline; it does not run smoke, gate, or stability and does not switch the default.")
+
+
+def _print_qa_checklist() -> None:
+    """Print the current manual beta checklist helper summary."""
+    artifact_path, existing_payload, existing_error = load_manual_beta_checklist_artifact()
+    if existing_error is not None:
+        print(f"qa checklist artifact error: {existing_error}")
+        print(f"artifact: {artifact_path}")
+        return
+    record = build_manual_beta_checklist_record(existing_payload=existing_payload)
+    print(format_manual_beta_checklist_record(record))
+
+
+def _print_qa_release_review() -> None:
+    """Print the current beta release-review helper summary."""
+    artifact_path, existing_payload, existing_error = load_beta_release_review_artifact()
+    if existing_error is not None:
+        print(f"qa release review artifact error: {existing_error}")
+        print(f"artifact: {artifact_path}")
+        return
+    record = build_beta_release_review_record(existing_payload=existing_payload)
+    print(format_beta_release_review_record(record))
+
+
+def _print_qa_readiness() -> None:
+    """Print the current beta readiness helper summary."""
+    record = build_beta_readiness_record()
+    print(format_beta_readiness_record(record))
 
 
 def _candidate_gate_precheck(candidate_profile: str, *, config: object) -> dict[str, object]:

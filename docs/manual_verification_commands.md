@@ -46,8 +46,8 @@
 - Expected: intercepted by CLI shell layer before runtime parsing.
 
 ### 8) QA helper commands
-- Input: `qa backend`, `qa model`, `qa smoke`, `qa gate`, `qa gate strict`, `qa beta`
-- Expected: intercepted by CLI shell layer; print QA backend/model/live-smoke readiness, artifact status, offline gate precheck, open-domain verification, and beta-decision hold status without mutating runtime state.
+- Input: `qa backend`, `qa model`, `qa smoke`, `qa gate`, `qa gate strict`, `qa beta`, `qa checklist`, `qa release review`, `qa readiness`
+- Expected: intercepted by CLI shell layer; print QA backend/model/live-smoke readiness, artifact status, offline gate precheck, beta-decision hold status, or the read-only release-decision helper summaries without mutating runtime state.
 
 ### 9) Capability question
 - Input: `what can you do?`
@@ -117,6 +117,7 @@
 ### 19) Beta-decision offline summary
 - Input: `qa beta`
 - Expected: prints `alpha_opt_in`, keeps deterministic as the default path, summarizes candidate artifact readiness for `llm_env` and `llm_env_strict`, reads the latest candidate-specific rollout-stability artifacts when present, shows the currently recommended beta candidate, and reports the manual beta checklist artifact, beta release-review artifact, their freshness, pending manual/review work, and any recorded beta-readiness artifact.
+- Expected: when manual checklist work is still pending, `qa beta` now also prints `qa beta manual checklist helper command: qa checklist`, `qa beta manual checklist guide command: python3 -m qa.manual_beta_checklist`, and `qa beta manual checklist scenario guide`, so the top-level summary itself is actionable instead of only listing item ids.
 - Expected: for partial supporting artifacts, the printed `manual checklist command` / `release review command` now target only the remaining `--pass ...` / review flags; for missing or stale artifacts they still fall back to the full rerun command.
 - Important: “stale” wins over “partial”. If a partial manual checklist or partial release-review artifact aged out, `qa beta` should print the full rerun command, not an incremental completion command.
 
@@ -125,6 +126,35 @@
   - `python3 -m qa.manual_beta_checklist`
   - `python3 -m qa.manual_beta_checklist --all-passed --write-artifact`
 - Expected: stays offline, lists the required beta-question manual scenarios, and writes a machine-readable checklist artifact only after those scenarios were actually verified.
+- Expected: the helper now also prints `pending items`, `next step`, `next step command`, and the verification doc path, so the operator can continue the scripted pass from the helper output itself.
+- Expected: it now also prints a `pending scenario guide` with the exact sample prompt, env hint, and expected outcome for each remaining checklist item.
+- Scripted scenarios for checklist item ids:
+  - `arbitrary_factual_question`
+    - Input: `who is the president of France?`
+    - Env: `JARVIS_QA_BACKEND=llm JARVIS_QA_LLM_ENABLED=true JARVIS_QA_LLM_OPEN_DOMAIN_ENABLED=true`
+    - Expected: `mode: question`, `answer-kind: open_domain_model`, `provenance: model_knowledge`, no fake local sources.
+  - `arbitrary_explanation_question`
+    - Input: `why is the sky blue?`
+    - Env: `JARVIS_QA_BACKEND=llm JARVIS_QA_LLM_ENABLED=true JARVIS_QA_LLM_OPEN_DOMAIN_ENABLED=true`
+    - Expected: explanatory open-domain answer, `provenance: model_knowledge`, no fake local sources.
+  - `casual_chat_question`
+    - Input: `how's your day going?`
+    - Env: `JARVIS_QA_BACKEND=llm JARVIS_QA_LLM_ENABLED=true JARVIS_QA_LLM_OPEN_DOMAIN_ENABLED=true`
+    - Expected: bounded casual reply in question mode, no execution, no fake local sources.
+  - `blocked_state_question`
+    - Input: `close Telegram`
+    - Follow-up: `what exactly do you need me to confirm?`
+    - Expected: first `awaiting_confirmation`, then grounded read-only explanation of the confirmation boundary.
+  - `grounded_docs_question`
+    - Input: `how does clarification work?`
+    - Expected: grounded local docs answer with sources/support-attributions and no execution.
+  - `mixed_question_command`
+    - Input: `what can you do and open Safari`
+    - Expected: routing clarification only; no silent answer+execute behavior.
+  - `provider_unavailable_path`
+    - Input: `who is the president of France?`
+    - Env: `JARVIS_QA_BACKEND=llm JARVIS_QA_LLM_ENABLED=true JARVIS_QA_LLM_OPEN_DOMAIN_ENABLED=true`, but the configured API key env is unset or intentionally invalid.
+    - Expected: honest unavailable/failure path; no fake answer and no hidden execution fallback.
 - Expected artifact:
   - `tmp/qa/manual_beta_checklist.json`
 - Important: this artifact records the manual checklist state only; it does not replace live smoke/gate/stability evidence.
@@ -136,6 +166,8 @@
   - `python3 -m qa.beta_release_review`
   - `python3 -m qa.beta_release_review --candidate-profile llm_env_strict --latency-reviewed --cost-reviewed --operator-signoff --product-approval --write-artifact`
 - Expected: stays offline, records candidate-specific latency review, cost review, operator sign-off, and product approval, and remains incomplete until all four checks are explicitly marked complete for one candidate profile.
+- Expected: the helper now also prints `manual checklist pending items`, `manual checklist command`, `release review pending checks`, `next step`, and `next step command`, so it can honestly redirect the operator back to the checklist when manual evidence is missing/stale instead of only echoing raw booleans.
+- Expected: it now also mirrors the checklist guidance directly: `manual checklist guide command`, `manual checklist verification doc`, and `manual checklist scenario guide` are part of the output/artifact whenever checklist work is still pending.
 - Expected artifact:
   - `tmp/qa/beta_release_review.json`
 - Important: this artifact records manual release review only; it does not replace live smoke/gate/stability evidence.
@@ -150,6 +182,7 @@
   - `python3 -m qa.beta_readiness --candidate-profile llm_env_strict --write-artifact`
 - Expected: stays offline, reads the latest smoke/stability artifacts plus the recorded manual beta checklist artifact and beta release-review artifact, shows the recommended beta candidate, and remains blocked until those supporting artifacts are both complete.
 - Expected: when supporting artifacts are still missing/incomplete, it now also prints and records `manual checklist pending items` and `release review pending checks`.
+- Expected: it now also mirrors the checklist helper guidance: `manual checklist guide command`, `manual checklist verification doc`, and `manual checklist scenario guide` are part of the output/artifact whenever manual work is still pending.
 - Expected: it now also prints `manual checklist command`, `release review command`, `next step reason`, and `next step command`, so the helper output itself is enough to continue the offline release flow.
 - Expected: `--write-artifact` now requires explicit `--candidate-profile`, and the helper refuses to write `tmp/qa/beta_readiness.json` while blockers remain.
 - Expected: `qa beta` now also rejects a legacy ready artifact if it does not record `candidate_selection_source=explicit`; a final beta sign-off must always reflect explicit operator choice.

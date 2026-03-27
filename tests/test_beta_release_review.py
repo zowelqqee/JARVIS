@@ -17,6 +17,7 @@ from qa.beta_release_review import (
     beta_release_review_suggested_args,
     beta_release_review_status,
     build_beta_release_review_record,
+    format_beta_release_review_record,
     load_beta_release_review_artifact,
     main,
     write_beta_release_review_artifact,
@@ -42,6 +43,12 @@ class BetaReleaseReviewTests(unittest.TestCase):
         self.assertEqual(record.candidate_profile, "llm_env_strict")
         self.assertEqual(record.candidate_selection_source, "explicit")
         self.assertEqual(record.manual_checklist_artifact_status, "complete")
+        self.assertEqual(record.manual_checklist_pending_item_details, [])
+        self.assertEqual(record.pending_checks, [])
+        self.assertEqual(record.next_step_kind, "beta_release_review_complete")
+        self.assertIsNone(record.next_step_command)
+        self.assertEqual(record.manual_checklist_guide_command, "python3 -m qa.manual_beta_checklist")
+        self.assertEqual(record.manual_checklist_verification_doc, "docs/manual_verification_commands.md")
         self.assertEqual(record.to_dict()["notes"], "Latency, cost, sign-off, and approval all recorded.")
 
     def test_write_beta_release_review_artifact_persists_progress(self) -> None:
@@ -66,6 +73,16 @@ class BetaReleaseReviewTests(unittest.TestCase):
         self.assertEqual(payload["report"]["completed_checks"], 2)
         self.assertEqual(payload["report"]["manual_checklist_artifact_status"], "complete")
         self.assertFalse(payload["report"]["all_completed"])
+        self.assertEqual(payload["report"]["manual_checklist_pending_items"], [])
+        self.assertEqual(payload["report"]["manual_checklist_pending_item_details"], [])
+        self.assertEqual(payload["report"]["manual_checklist_guide_command"], "python3 -m qa.manual_beta_checklist")
+        self.assertEqual(payload["report"]["manual_checklist_verification_doc"], "docs/manual_verification_commands.md")
+        self.assertEqual(payload["report"]["pending_checks"], ["cost_review", "product_approval"])
+        self.assertEqual(payload["report"]["next_step_kind"], "complete_beta_release_review")
+        self.assertEqual(
+            payload["report"]["next_step_command"],
+            "python3 -m qa.beta_release_review --candidate-profile llm_env --cost-reviewed --product-approval --write-artifact",
+        )
 
     def test_beta_release_review_status_reads_complete_artifact(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -104,6 +121,9 @@ class BetaReleaseReviewTests(unittest.TestCase):
         self.assertEqual(record.manual_checklist_artifact_status, "complete")
         self.assertFalse(record.manual_checklist_artifact_fresh)
         self.assertFalse(record.all_completed)
+        self.assertEqual(record.next_step_kind, "complete_manual_beta_checklist")
+        self.assertEqual(record.next_step_command, "python3 -m qa.manual_beta_checklist --all-passed --write-artifact")
+        self.assertEqual(record.manual_checklist_guide_command, "python3 -m qa.manual_beta_checklist")
 
     def test_release_review_consistency_detects_manual_checklist_drift(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -237,6 +257,83 @@ class BetaReleaseReviewTests(unittest.TestCase):
                 force_full_rerun=True,
             ),
             "--latency-reviewed --cost-reviewed --operator-signoff --product-approval",
+        )
+
+    def test_build_beta_release_review_record_without_manual_artifact_points_back_to_checklist(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            manual_artifact = Path(tmpdir) / "manual_beta_checklist.json"
+            with patch("qa.beta_release_review.manual_beta_checklist_artifact_path", return_value=manual_artifact):
+                record = build_beta_release_review_record(candidate_profile="llm_env_strict")
+
+        self.assertEqual(
+            record.manual_checklist_pending_items,
+            [
+                "arbitrary_factual_question",
+                "arbitrary_explanation_question",
+                "casual_chat_question",
+                "blocked_state_question",
+                "grounded_docs_question",
+                "mixed_question_command",
+                "provider_unavailable_path",
+            ],
+        )
+        self.assertEqual(
+            record.manual_checklist_pending_item_details[0],
+            {
+                "item_id": "arbitrary_factual_question",
+                "label": "Arbitrary factual question",
+                "prompt": "who is the president of France?",
+                "expected": "mode=question; answer-kind=open_domain_model; provenance=model_knowledge; no fake local sources",
+                "env_hint": "JARVIS_QA_BACKEND=llm JARVIS_QA_LLM_ENABLED=true JARVIS_QA_LLM_OPEN_DOMAIN_ENABLED=true",
+                "doc_section": "Manual beta checklist scripted scenarios",
+            },
+        )
+        self.assertEqual(record.next_step_kind, "complete_manual_beta_checklist")
+        self.assertEqual(record.next_step_reason, "manual beta checklist evidence is missing, incomplete, or stale")
+        self.assertEqual(record.next_step_command, "python3 -m qa.manual_beta_checklist --all-passed --write-artifact")
+        self.assertEqual(record.manual_checklist_verification_doc, "docs/manual_verification_commands.md")
+
+    def test_format_beta_release_review_record_lists_pending_checks_and_next_step(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            manual_artifact = self._write_manual_artifact(tmpdir, all_passed=True)
+            with patch("qa.beta_release_review.manual_beta_checklist_artifact_path", return_value=manual_artifact):
+                record = build_beta_release_review_record(
+                    candidate_profile="llm_env_strict",
+                    latency_review_completed=True,
+                    product_approval_completed=True,
+                )
+
+        text = format_beta_release_review_record(record)
+
+        self.assertIn("manual checklist pending items: none", text)
+        self.assertIn("manual checklist guide command: python3 -m qa.manual_beta_checklist", text)
+        self.assertIn("manual checklist verification doc: docs/manual_verification_commands.md", text)
+        self.assertIn("manual checklist scenario guide: none", text)
+        self.assertIn("release review pending checks: cost_review, operator_signoff", text)
+        self.assertIn("next step: complete_beta_release_review", text)
+        self.assertIn(
+            "next step command: python3 -m qa.beta_release_review --candidate-profile llm_env_strict --cost-reviewed --operator-signoff --write-artifact",
+            text,
+        )
+
+    def test_format_beta_release_review_record_lists_manual_scenario_guide_when_checklist_pending(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            manual_artifact = Path(tmpdir) / "manual_beta_checklist.json"
+            with patch("qa.beta_release_review.manual_beta_checklist_artifact_path", return_value=manual_artifact):
+                record = build_beta_release_review_record(candidate_profile="llm_env_strict")
+
+        text = format_beta_release_review_record(record)
+
+        self.assertIn("manual checklist scenario guide:", text)
+        self.assertIn("  - arbitrary_factual_question: Arbitrary factual question", text)
+        self.assertIn("    input: who is the president of France?", text)
+        self.assertIn(
+            "    env: JARVIS_QA_BACKEND=llm JARVIS_QA_LLM_ENABLED=true JARVIS_QA_LLM_OPEN_DOMAIN_ENABLED=true",
+            text,
+        )
+        self.assertIn(
+            "    expected: mode=question; answer-kind=open_domain_model; provenance=model_knowledge; no fake local sources",
+            text,
         )
 
     def test_main_rejects_write_artifact_without_explicit_candidate(self) -> None:

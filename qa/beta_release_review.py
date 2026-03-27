@@ -10,7 +10,16 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from qa.manual_beta_checklist import load_manual_beta_checklist_artifact, manual_beta_checklist_status
+from qa.manual_beta_checklist import (
+    load_manual_beta_checklist_artifact,
+    manual_beta_checklist_detail_lines,
+    manual_beta_checklist_guide_command,
+    manual_beta_checklist_pending_item_details,
+    manual_beta_checklist_pending_items,
+    manual_beta_checklist_status,
+    manual_beta_checklist_suggested_args,
+    manual_beta_checklist_verification_doc,
+)
 from qa.rollout_profiles import beta_release_review_artifact_path
 from qa.rollout_profiles import manual_beta_checklist_artifact_path
 
@@ -46,6 +55,8 @@ class BetaReleaseReviewRecord:
     manual_checklist_artifact_reason: str | None
     manual_checklist_artifact_created_at: str | None
     manual_checklist_artifact_sha256: str | None
+    manual_checklist_pending_items: list[str]
+    manual_checklist_pending_item_details: list[dict[str, str]]
     notes: str | None = None
 
     @property
@@ -65,6 +76,60 @@ class BetaReleaseReviewRecord:
             and self.completed_checks == self.total_checks
         )
 
+    @property
+    def pending_checks(self) -> list[str]:
+        pending_checks: list[str] = []
+        for check_id, _label in _REVIEW_CHECKS:
+            check_state = dict(self.checks.get(check_id, {}) or {})
+            if not bool(check_state.get("completed", False)):
+                pending_checks.append(check_id)
+        return pending_checks
+
+    @property
+    def manual_checklist_command(self) -> str:
+        args = manual_beta_checklist_suggested_args(
+            self.manual_checklist_pending_items,
+            force_full_rerun=self.manual_checklist_artifact_fresh is False,
+        )
+        return f"{manual_beta_checklist_guide_command()} {args} --write-artifact"
+
+    @property
+    def manual_checklist_guide_command(self) -> str:
+        return manual_beta_checklist_guide_command()
+
+    @property
+    def manual_checklist_verification_doc(self) -> str:
+        return manual_beta_checklist_verification_doc()
+
+    @property
+    def next_step_kind(self) -> str:
+        if not self.manual_checklist_artifact_completed or self.manual_checklist_artifact_fresh is not True:
+            return "complete_manual_beta_checklist"
+        if not self.candidate_profile:
+            return "select_beta_candidate"
+        if self.pending_checks:
+            return "complete_beta_release_review"
+        return "beta_release_review_complete"
+
+    @property
+    def next_step_reason(self) -> str:
+        if self.next_step_kind == "complete_manual_beta_checklist":
+            return "manual beta checklist evidence is missing, incomplete, or stale"
+        if self.next_step_kind == "select_beta_candidate":
+            return "choose the candidate profile before recording the release review artifact"
+        if self.next_step_kind == "complete_beta_release_review":
+            return "record the remaining release-review checks for the selected candidate"
+        return "release review evidence is complete for the selected candidate"
+
+    @property
+    def next_step_command(self) -> str | None:
+        if self.next_step_kind == "complete_manual_beta_checklist":
+            return self.manual_checklist_command
+        if self.next_step_kind == "complete_beta_release_review":
+            args = beta_release_review_suggested_args(self.pending_checks)
+            return f"python3 -m qa.beta_release_review --candidate-profile {self.candidate_profile} {args} --write-artifact"
+        return None
+
     def to_dict(self) -> dict[str, Any]:
         return {
             "review_id": self.review_id,
@@ -82,7 +147,16 @@ class BetaReleaseReviewRecord:
             "manual_checklist_artifact_reason": self.manual_checklist_artifact_reason or "",
             "manual_checklist_artifact_created_at": self.manual_checklist_artifact_created_at,
             "manual_checklist_artifact_sha256": self.manual_checklist_artifact_sha256,
+            "manual_checklist_pending_items": list(self.manual_checklist_pending_items),
+            "manual_checklist_pending_item_details": list(self.manual_checklist_pending_item_details),
+            "manual_checklist_command": self.manual_checklist_command,
+            "manual_checklist_guide_command": self.manual_checklist_guide_command,
+            "manual_checklist_verification_doc": self.manual_checklist_verification_doc,
             "checks": dict(self.checks),
+            "pending_checks": list(self.pending_checks),
+            "next_step_kind": self.next_step_kind,
+            "next_step_reason": self.next_step_reason,
+            "next_step_command": self.next_step_command or "",
             "notes": self.notes or "",
         }
 
@@ -124,6 +198,14 @@ def build_beta_release_review_record(
         manual_checklist_artifact_fresh,
         manual_checklist_artifact_reason,
     ) = _artifact_freshness(manual_artifact_payload)
+    manual_checklist_pending_item_ids = manual_beta_checklist_pending_items(
+        manual_artifact_payload,
+        manual_artifact_error,
+    )
+    manual_checklist_pending_item_detail_records = manual_beta_checklist_pending_item_details(
+        manual_artifact_payload,
+        manual_artifact_error,
+    )
 
     existing_checks = _existing_check_states(existing_payload if not reset else None)
     checks: dict[str, dict[str, Any]] = {}
@@ -160,6 +242,8 @@ def build_beta_release_review_record(
         manual_checklist_artifact_reason=manual_checklist_artifact_reason,
         manual_checklist_artifact_created_at=_artifact_created_at(manual_artifact_payload),
         manual_checklist_artifact_sha256=_artifact_sha256(manual_artifact_path, artifact_error=manual_artifact_error),
+        manual_checklist_pending_items=manual_checklist_pending_item_ids,
+        manual_checklist_pending_item_details=manual_checklist_pending_item_detail_records,
         notes=str(notes or "").strip() or None,
     )
 
@@ -176,9 +260,27 @@ def format_beta_release_review_record(record: BetaReleaseReviewRecord) -> str:
         f"{record.manual_checklist_artifact_status}"
         f"{_format_ratio(record.manual_checklist_items_passed, record.manual_checklist_items_total)}"
         f"{_format_freshness(record.manual_checklist_artifact_fresh, record.manual_checklist_artifact_age_hours)}",
+        "manual checklist pending items: "
+        f"{', '.join(record.manual_checklist_pending_items) if record.manual_checklist_pending_items else 'none'}",
+        f"manual checklist command: {record.manual_checklist_command}",
+        f"manual checklist guide command: {record.manual_checklist_guide_command}",
+        f"manual checklist verification doc: {record.manual_checklist_verification_doc}",
         f"all completed: {'yes' if record.all_completed else 'no'}",
-        "checks:",
+        f"release review pending checks: {', '.join(record.pending_checks) if record.pending_checks else 'none'}",
+        f"next step: {record.next_step_kind}",
+        f"next step reason: {record.next_step_reason}",
+        f"next step command: {record.next_step_command or 'n/a'}",
     ]
+    if record.manual_checklist_pending_item_details:
+        lines.extend(
+            manual_beta_checklist_detail_lines(
+                record.manual_checklist_pending_item_details,
+                heading="manual checklist scenario guide:",
+            )
+        )
+    else:
+        lines.append("manual checklist scenario guide: none")
+    lines.append("checks:")
     for check_id, label in _REVIEW_CHECKS:
         check_state = dict(record.checks.get(check_id, {}) or {})
         lines.append(

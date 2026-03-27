@@ -38,7 +38,7 @@ If validating model-backed alpha readiness:
 - Recent-runtime question answers only from current session/runtime context.
 - Mixed question + action input asks for routing clarification instead of answering and executing together.
 - Unsupported window operations remain explicit failures with no fake success.
-- CLI shell commands (`help`, `voice`, `speak on/off`, `reset`, `quit`, `qa backend`, `qa model`, `qa smoke`, `qa gate`, `qa gate strict`) stay intercepted and deterministic.
+- CLI shell commands (`help`, `voice`, `speak on/off`, `reset`, `quit`, `qa backend`, `qa model`, `qa smoke`, `qa gate`, `qa gate strict`, `qa beta`, `qa checklist`, `qa release review`, `qa readiness`) stay intercepted and deterministic.
 - Voice failure diagnostics stay explicit and actionable (no generic `Voice capture failed` path).
 - Use `docs/manual_verification_commands.md` for the dual-mode scripted pass.
 - Use `docs/qa_operator_guide.md` for LLM alpha enablement, live smoke, and failure diagnosis.

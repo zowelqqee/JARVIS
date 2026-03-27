@@ -1,0 +1,75 @@
+{
+  "created_at": "2026-03-27T14:12:04.451394+00:00",
+  "report": {
+    "all_passed": true,
+    "checklist_id": "beta_question_default",
+    "items": {
+      "arbitrary_explanation_question": {
+        "doc_section": "Manual beta checklist scripted scenarios",
+        "env_hint": "JARVIS_QA_BACKEND=llm JARVIS_QA_LLM_ENABLED=true JARVIS_QA_LLM_OPEN_DOMAIN_ENABLED=true",
+        "expected": "mode=question; explanatory open-domain answer; provenance=model_knowledge; no fake local sources",
+        "label": "Arbitrary explanation question",
+        "passed": true,
+        "prompt": "why is the sky blue?"
+      },
+      "arbitrary_factual_question": {
+        "doc_section": "Manual beta checklist scripted scenarios",
+        "env_hint": "JARVIS_QA_BACKEND=llm JARVIS_QA_LLM_ENABLED=true JARVIS_QA_LLM_OPEN_DOMAIN_ENABLED=true",
+        "expected": "mode=question; answer-kind=open_domain_model; provenance=model_knowledge; no fake local sources",
+        "label": "Arbitrary factual question",
+        "passed": true,
+        "prompt": "who is the president of France?"
+      },
+      "blocked_state_question": {
+        "doc_section": "Manual beta checklist scripted scenarios",
+        "env_hint": "",
+        "expected": "awaiting_confirmation first; then grounded read-only explanation of the current confirmation boundary",
+        "label": "Blocked-state question",
+        "passed": true,
+        "prompt": "close Telegram -> what exactly do you need me to confirm?"
+      },
+      "casual_chat_question": {
+        "doc_section": "Manual beta checklist scripted scenarios",
+        "env_hint": "JARVIS_QA_BACKEND=llm JARVIS_QA_LLM_ENABLED=true JARVIS_QA_LLM_OPEN_DOMAIN_ENABLED=true",
+        "expected": "mode=question; bounded casual reply; no execution; no fake local sources",
+        "label": "Casual chat question",
+        "passed": true,
+        "prompt": "how's your day going?"
+      },
+      "grounded_docs_question": {
+        "doc_section": "Manual beta checklist scripted scenarios",
+        "env_hint": "",
+        "expected": "grounded local answer with sources/support-attributions; no execution",
+        "label": "Grounded docs question",
+        "passed": true,
+        "prompt": "how does clarification work?"
+      },
+      "mixed_question_command": {
+        "doc_section": "Manual beta checklist scripted scenarios",
+        "env_hint": "",
+        "expected": "routing clarification only; no silent answer+execute behavior",
+        "label": "Mixed question + command",
+        "passed": true,
+        "prompt": "what can you do and open Safari"
+      },
+      "provider_unavailable_path": {
+        "doc_section": "Manual beta checklist scripted scenarios",
+        "env_hint": "JARVIS_QA_BACKEND=llm JARVIS_QA_LLM_ENABLED=true JARVIS_QA_LLM_OPEN_DOMAIN_ENABLED=true with the configured API key env unset or invalid",
+        "expected": "honest unavailable/failure answer path; no fake answer; no hidden execution fallback",
+        "label": "Provider unavailable path",
+        "passed": true,
+        "prompt": "who is the president of France? (with provider intentionally unavailable)"
+      }
+    },
+    "next_step_command": "",
+    "next_step_kind": "manual_beta_checklist_complete",
+    "notes": "",
+    "passed_items": 7,
+    "pending_item_details": [],
+    "pending_items": [],
+    "total_items": 7,
+    "verification_doc": "docs/manual_verification_commands.md"
+  },
+  "runner": "qa.manual_beta_checklist",
+  "schema_version": 1
+}

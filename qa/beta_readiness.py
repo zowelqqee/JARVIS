@@ -20,10 +20,14 @@ from qa.beta_release_review import (
     load_beta_release_review_artifact,
 )
 from qa.manual_beta_checklist import (
+    manual_beta_checklist_detail_lines,
+    manual_beta_checklist_guide_command,
     load_manual_beta_checklist_artifact,
+    manual_beta_checklist_pending_item_details,
     manual_beta_checklist_pending_items,
     manual_beta_checklist_suggested_args,
     manual_beta_checklist_status,
+    manual_beta_checklist_verification_doc,
 )
 from qa.rollout_profiles import (
     beta_release_review_artifact_path,
@@ -120,7 +124,10 @@ class BetaReadinessRecord:
     manual_checklist_artifact_fresh: bool | None
     manual_checklist_artifact_reason: str | None
     manual_checklist_pending_items: list[str]
+    manual_checklist_pending_item_details: list[dict[str, str]]
     manual_checklist_command: str
+    manual_checklist_guide_command: str
+    manual_checklist_verification_doc: str
     manual_checklist_artifact_created_at: str | None
     manual_checklist_artifact_sha256: str | None
     release_review_artifact_status: str
@@ -169,7 +176,10 @@ class BetaReadinessRecord:
             "manual_checklist_artifact_fresh": self.manual_checklist_artifact_fresh,
             "manual_checklist_artifact_reason": self.manual_checklist_artifact_reason or "",
             "manual_checklist_pending_items": list(self.manual_checklist_pending_items),
+            "manual_checklist_pending_item_details": list(self.manual_checklist_pending_item_details),
             "manual_checklist_command": self.manual_checklist_command,
+            "manual_checklist_guide_command": self.manual_checklist_guide_command,
+            "manual_checklist_verification_doc": self.manual_checklist_verification_doc,
             "manual_checklist_artifact_created_at": self.manual_checklist_artifact_created_at,
             "manual_checklist_artifact_sha256": self.manual_checklist_artifact_sha256,
             "release_review_artifact_status": self.release_review_artifact_status,
@@ -232,6 +242,10 @@ def build_beta_readiness_record(
         manual_checklist_artifact_reason,
     ) = _artifact_freshness(manual_artifact_payload)
     manual_checklist_pending_item_ids = manual_beta_checklist_pending_items(
+        manual_artifact_payload,
+        manual_artifact_error,
+    )
+    manual_checklist_pending_item_detail_records = manual_beta_checklist_pending_item_details(
         manual_artifact_payload,
         manual_artifact_error,
     )
@@ -379,7 +393,10 @@ def build_beta_readiness_record(
         manual_checklist_artifact_fresh=manual_checklist_artifact_fresh,
         manual_checklist_artifact_reason=manual_checklist_artifact_reason,
         manual_checklist_pending_items=manual_checklist_pending_item_ids,
+        manual_checklist_pending_item_details=manual_checklist_pending_item_detail_records,
         manual_checklist_command=manual_checklist_command,
+        manual_checklist_guide_command=manual_beta_checklist_guide_command(),
+        manual_checklist_verification_doc=manual_beta_checklist_verification_doc(),
         manual_checklist_artifact_created_at=_artifact_created_at(manual_artifact_payload),
         manual_checklist_artifact_sha256=_artifact_sha256(manual_artifact_path, artifact_error=manual_artifact_error),
         release_review_artifact_status=release_review_artifact_status,
@@ -523,6 +540,8 @@ def format_beta_readiness_record(record: BetaReadinessRecord) -> str:
         f"{_format_freshness(record.manual_checklist_artifact_fresh, record.manual_checklist_artifact_age_hours)}",
         f"manual checklist pending items: {', '.join(record.manual_checklist_pending_items) if record.manual_checklist_pending_items else 'none'}",
         f"manual checklist command: {record.manual_checklist_command}",
+        f"manual checklist guide command: {record.manual_checklist_guide_command}",
+        f"manual checklist verification doc: {record.manual_checklist_verification_doc}",
         "release review artifact: "
         f"{record.release_review_artifact_status}"
         f"{_format_ratio(record.release_review_checks_completed, record.release_review_checks_total)}"
@@ -540,6 +559,15 @@ def format_beta_readiness_record(record: BetaReadinessRecord) -> str:
         f"next step command: {record.next_step_command or 'n/a'}",
         f"beta_question_default ready: {'yes' if record.beta_ready else 'no'}",
     ]
+    if record.manual_checklist_pending_item_details:
+        lines.extend(
+            manual_beta_checklist_detail_lines(
+                record.manual_checklist_pending_item_details,
+                heading="manual checklist scenario guide:",
+            )
+        )
+    else:
+        lines.append("manual checklist scenario guide: none")
     if record.blockers:
         lines.append("blockers:")
         for blocker in record.blockers:

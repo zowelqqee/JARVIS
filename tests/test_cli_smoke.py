@@ -287,6 +287,8 @@ class CliSmokeTests(unittest.TestCase):
                 self.assertIn("qa beta recommended candidate: none", beta_output)
                 self.assertIn("qa beta manual checklist artifact:", beta_output)
                 self.assertIn("qa beta manual checklist pending items:", beta_output)
+                self.assertIn("qa beta manual checklist helper command: qa checklist", beta_output)
+                self.assertIn("qa beta manual checklist guide command: python3 -m qa.manual_beta_checklist", beta_output)
                 self.assertIn("arbitrary_factual_question", beta_output)
                 self.assertIn("provider_unavailable_path", beta_output)
                 self.assertIn(
@@ -656,6 +658,8 @@ class CliSmokeTests(unittest.TestCase):
         self.assertIn("qa beta recommended candidate: llm_env_strict", beta_output)
         self.assertIn("qa beta manual checklist artifact:", beta_output)
         self.assertIn("qa beta manual checklist pending items:", beta_output)
+        self.assertIn("qa beta manual checklist helper command: qa checklist", beta_output)
+        self.assertIn("qa beta manual checklist guide command: python3 -m qa.manual_beta_checklist", beta_output)
         self.assertIn("(missing)", beta_output)
         self.assertIn("qa beta manual checklist artifact fresh: n/a", beta_output)
         self.assertIn("qa beta release review artifact fresh: n/a", beta_output)
@@ -676,7 +680,64 @@ class CliSmokeTests(unittest.TestCase):
         self.assertIn("fallback=off", beta_output)
         self.assertIn("next beta step: complete the manual beta checklist artifact before release sign-off.", beta_output)
         self.assertIn("manual checklist command: python3 -m qa.manual_beta_checklist --all-passed --write-artifact", beta_output)
+        self.assertIn("qa beta manual checklist scenario guide:", beta_output)
+        self.assertIn("  - arbitrary_factual_question: Arbitrary factual question", beta_output)
+        self.assertIn("    input: who is the president of France?", beta_output)
+        self.assertIn(
+            "    env: JARVIS_QA_BACKEND=llm JARVIS_QA_LLM_ENABLED=true JARVIS_QA_LLM_OPEN_DOMAIN_ENABLED=true",
+            beta_output,
+        )
+        self.assertIn(
+            "    expected: mode=question; answer-kind=open_domain_model; provenance=model_knowledge; no fake local sources",
+            beta_output,
+        )
         self.assertIn("note: this helper is offline; it does not run smoke, gate, or stability", beta_output)
+        runtime_mock.assert_not_called()
+
+    def test_cli_shell_exposes_release_decision_helper_commands(self) -> None:
+        with patch("cli._handle_runtime_input") as runtime_mock, patch(
+            "cli.load_manual_beta_checklist_artifact",
+            return_value=(Path("/tmp/manual_beta_checklist.json"), None, None),
+        ), patch(
+            "cli.build_manual_beta_checklist_record",
+            return_value=object(),
+        ) as checklist_build_mock, patch(
+            "cli.format_manual_beta_checklist_record",
+            return_value="CHECKLIST SUMMARY",
+        ), patch(
+            "cli.load_beta_release_review_artifact",
+            return_value=(Path("/tmp/beta_release_review.json"), None, None),
+        ), patch(
+            "cli.build_beta_release_review_record",
+            return_value=object(),
+        ) as review_build_mock, patch(
+            "cli.format_beta_release_review_record",
+            return_value="RELEASE REVIEW SUMMARY",
+        ), patch(
+            "cli.build_beta_readiness_record",
+            return_value=object(),
+        ) as readiness_build_mock, patch(
+            "cli.format_beta_readiness_record",
+            return_value="READINESS SUMMARY",
+        ):
+            should_exit, speak_enabled, checklist_output = self._run_command("qa checklist", speak_enabled=False)
+            self.assertFalse(should_exit)
+            self.assertFalse(speak_enabled)
+            self.assertIn("CHECKLIST SUMMARY", checklist_output)
+            checklist_build_mock.assert_called_once_with(existing_payload=None)
+
+            should_exit, speak_enabled, review_output = self._run_command("qa release review", speak_enabled=False)
+            self.assertFalse(should_exit)
+            self.assertFalse(speak_enabled)
+            self.assertIn("RELEASE REVIEW SUMMARY", review_output)
+            review_build_mock.assert_called_once_with(existing_payload=None)
+
+            should_exit, speak_enabled, readiness_output = self._run_command("qa readiness", speak_enabled=False)
+            self.assertFalse(should_exit)
+            self.assertFalse(speak_enabled)
+            self.assertIn("READINESS SUMMARY", readiness_output)
+            readiness_build_mock.assert_called_once_with()
+
         runtime_mock.assert_not_called()
 
     def test_qa_beta_reports_stale_manual_checklist_artifact(self) -> None:
@@ -1420,6 +1481,15 @@ class CliSmokeTests(unittest.TestCase):
                 "manual checklist command: python3 -m qa.manual_beta_checklist --pass blocked_state_question --pass provider_unavailable_path --write-artifact",
                 beta_output,
             )
+            self.assertIn("qa beta manual checklist helper command: qa checklist", beta_output)
+            self.assertIn("qa beta manual checklist guide command: python3 -m qa.manual_beta_checklist", beta_output)
+            self.assertIn("qa beta manual checklist scenario guide:", beta_output)
+            self.assertIn("  - blocked_state_question: Blocked-state question", beta_output)
+            self.assertIn("    input: close Telegram -> what exactly do you need me to confirm?", beta_output)
+            self.assertIn(
+                "    expected: awaiting_confirmation first; then grounded read-only explanation of the current confirmation boundary",
+                beta_output,
+            )
             runtime_mock.assert_not_called()
 
             manual_payload = json.loads(manual_artifact.read_text(encoding="utf-8"))
@@ -1666,6 +1736,9 @@ class CliSmokeTests(unittest.TestCase):
                 "manual checklist command: python3 -m qa.manual_beta_checklist --all-passed --write-artifact",
                 beta_output,
             )
+            self.assertIn("qa beta manual checklist helper command: qa checklist", beta_output)
+            self.assertIn("qa beta manual checklist guide command: python3 -m qa.manual_beta_checklist", beta_output)
+            self.assertIn("qa beta manual checklist scenario guide:", beta_output)
             runtime_mock.assert_not_called()
 
             manual_artifact.write_text(
@@ -1967,6 +2040,11 @@ class CliSmokeTests(unittest.TestCase):
             "qa beta decision: recorded as ready for explicit beta_question_default review; default remains unchanged",
             beta_output,
         )
+        self.assertIn(
+            "next beta step: offline beta evidence is already recorded; any rollout-stage or default-path change remains a separate explicit product decision.",
+            beta_output,
+        )
+        self.assertNotIn("beta readiness command:", beta_output)
         runtime_mock.assert_not_called()
 
     def test_qa_beta_rejects_release_review_artifact_without_explicit_candidate_selection(self) -> None:

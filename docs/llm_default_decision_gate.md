@@ -109,16 +109,21 @@ If repeated stability sweeps oscillate between green and blocked:
 ## Current Recommendation
 - default product path: deterministic
 - model-backed path: opt-in only until `beta_question_default` is explicitly approved
-- latest env-backed gate signal: fresh smoke artifacts are green, and the latest candidate-specific repeated stability artifacts on `2026-03-26` are currently green again for both `llm_env` and `llm_env_strict`
-- latest offline beta recommendation: `qa beta` currently prefers `llm_env_strict` on the same `2026-03-26` artifacts because it keeps fallback disabled while the technical signal remains green
+- latest env-backed gate signal on `2026-03-27`: fresh smoke artifacts are green for both `llm_env` and `llm_env_strict`, but the latest candidate-specific repeated stability artifact is green only for `llm_env_strict` (`3/3`) while `llm_env` remains non-green
+- latest offline beta recommendation: `qa beta` currently prefers `llm_env_strict` on the `2026-03-27` artifacts because it keeps fallback disabled and is the only candidate with fresh green smoke plus stability
 - default switch: still held at product/stage level because the project remains `alpha_opt_in`
 
 ## After The Gate Turns Green
 - A green comparative gate plus a green repeated stability sweep means the rollout plumbing is no longer the blocker.
-- The next step becomes release decisioning: choose one beta candidate profile, complete the manual verification checklist, review latency/cost in the target environment, and get explicit product approval for `beta_question_default`.
+- On `2026-03-27` that condition is currently true for `llm_env_strict`, and the manual verification checklist is already recorded as complete.
+- The next step is now release decisioning for that strict candidate: record latency/cost review, operator sign-off, and explicit product approval for `beta_question_default`.
 - `qa beta` is the offline CLI helper for this stage; it does not rerun smoke/gate/stability, but it reads the latest candidate-specific stability artifacts so neither a stale red rerun nor a stale green rerun masquerades as current rollout evidence.
 - `python3 -m qa.manual_beta_checklist` is the machine-readable manual checklist helper for this stage; it writes `tmp/qa/manual_beta_checklist.json` after the real scripted pass.
 - `python3 -m qa.beta_release_review` is the matching machine-readable release-review helper; it writes `tmp/qa/beta_release_review.json` after latency/cost review, operator sign-off, and product approval are explicitly recorded for one candidate profile, and it binds that review to the exact manual-checklist snapshot used during sign-off.
+- Those two supporting helpers are now self-guiding too: the checklist helper prints pending manual items and the next write command, while the release-review helper prints pending checks plus the next honest command, including bouncing back to the manual checklist when its evidence is missing or stale.
+- The checklist helper also prints the exact pending scenario guide now: sample prompts, env hints, and expected outcomes for each remaining manual item are part of the helper output and are mirrored in `docs/manual_verification_commands.md`.
+- That same manual guidance is now exposed from the higher-level release-decision surfaces too: `qa beta` points to both `qa checklist` and `python3 -m qa.manual_beta_checklist` and mirrors the pending scenario guide inline, while `python3 -m qa.beta_readiness` mirrors the checklist guide command, verification doc, and pending scenario guide in its own record.
+- `python3 -m qa.beta_release_review` now mirrors that same checklist guidance too, so stale/missing manual evidence is actionable directly from the release-review helper rather than only from the checklist or readiness layers.
 - `python3 -m qa.beta_readiness` is the final offline decision-record helper; it writes `tmp/qa/beta_readiness.json` only after the operator explicitly records candidate choice and both supporting artifacts, `tmp/qa/manual_beta_checklist.json` and `tmp/qa/beta_release_review.json`, are complete. It no longer accepts release-decision shortcut flags.
 - `python3 -m qa.beta_readiness` now also prints its own next-step reasoning and commands, including the final `--write-artifact` command once the supporting evidence is complete, so the release decision flow is self-contained even outside `qa beta`.
 - The final write path is now enforced, not just documented: `--write-artifact` requires explicit `--candidate-profile`, and blocked runs exit without writing `tmp/qa/beta_readiness.json`.

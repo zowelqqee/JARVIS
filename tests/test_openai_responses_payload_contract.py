@@ -146,6 +146,8 @@ class OpenAIResponsesPayloadContractTests(unittest.TestCase):
         self.assertIn("Question: What can you do?", input_text)
         self.assertIn("Question-specific guidance:", input_text)
         self.assertIn("supported command families", input_text)
+        self.assertIn("open_app", input_text)
+        self.assertIn("at least three distinct source_attributions", input_text)
         self.assertIn("Allowed local sources:", input_text)
         self.assertIn(self.grounding_bundle.source_paths[0], input_text)
         self.assertIn("kind=capability_metadata", input_text)
@@ -169,6 +171,64 @@ class OpenAIResponsesPayloadContractTests(unittest.TestCase):
         input_text = str((((payload.get("input") or [])[0].get("content") or [])[0].get("text")) or "")
         self.assertIn("Question-specific guidance:", input_text)
         self.assertIn("ambiguity, missing data, low confidence, or routing ambiguity", input_text)
+
+    def test_repo_structure_payload_requires_both_code_and_doc_citations(self) -> None:
+        repo_question = QuestionRequest(
+            raw_input="Where is the planner?",
+            question_type=QuestionType.REPO_STRUCTURE,
+            scope="repo_structure",
+            confidence=0.9,
+            context_refs={"topic": "planner"},
+        )
+        repo_bundle = build_grounding_bundle(repo_question)
+
+        payload = self.provider.build_request_payload(
+            repo_question,
+            grounding_bundle=repo_bundle,
+            config=self._config(),
+        )
+
+        input_text = str((((payload.get("input") or [])[0].get("content") or [])[0].get("text")) or "")
+        self.assertIn("name that exact file path in answer_text", input_text)
+        self.assertIn("keep both sources in source_attributions", input_text)
+
+    def test_answer_follow_up_payload_includes_clarification_expansion_guidance(self) -> None:
+        session_context = SessionContext()
+        session_context.set_recent_answer_context(
+            topic="clarification",
+            scope="docs",
+            sources=[
+                str((Path(__file__).resolve().parents[1] / "docs/clarification_rules.md").resolve()),
+                str((Path(__file__).resolve().parents[1] / "docs/runtime_flow.md").resolve()),
+            ],
+        )
+        follow_up_question = QuestionRequest(
+            raw_input="Explain more",
+            question_type=QuestionType.ANSWER_FOLLOW_UP,
+            scope="answer_follow_up",
+            confidence=0.92,
+            context_refs={
+                "answer_topic": "clarification",
+                "answer_scope": "docs",
+                "answer_sources": list(session_context.get_recent_answer_context().get("sources", [])),
+            },
+        )
+        follow_up_bundle = build_grounding_bundle(follow_up_question, session_context=session_context)
+
+        payload = self.provider.build_request_payload(
+            follow_up_question,
+            grounding_bundle=follow_up_bundle,
+            config=self._config(),
+        )
+
+        input_text = str((((payload.get("input") or [])[0].get("content") or [])[0].get("text")) or "")
+        self.assertIn("Reuse both recent-answer source paths in source_attributions", input_text)
+        self.assertIn(
+            "clarification happens before planning or execution when ambiguity, missing data, low confidence, or mixed question-and-command intent is present",
+            input_text,
+        )
+        self.assertIn("Open the explanation with wording close to", input_text)
+        self.assertIn("hard-boundary framing", input_text)
 
     def test_open_domain_payload_uses_general_schema_and_metadata(self) -> None:
         payload = self.provider.build_request_payload(

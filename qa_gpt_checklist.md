@@ -1,6 +1,6 @@
 # QA GPT Checklist
 
-Статус на `2026-03-26`.
+Статус на `2026-03-27`.
 
 ## Цель
 
@@ -19,19 +19,22 @@
 - rollout stage: `alpha_opt_in`
 - product default: `deterministic`
 - recommended beta candidate: `llm_env_strict`
-- technical env-backed evidence: есть
+- technical env-backed evidence: есть и снова fresh для `llm_env_strict`
+- manual beta checklist evidence: есть
 - final release evidence: ещё нет
 
 Что уже закрыто:
 - open-domain / grounded / safety / eval / rollout gate слой реализован
-- live smoke, comparative gate и repeated stability уже были реально прогнаны раньше
+- live smoke, comparative gate и repeated stability уже были реально прогнаны; на `2026-03-27` `llm_env_strict` снова имеет fresh green smoke + stability `3/3`
 - offline release-decision helpers уже есть:
   - `python3 -m qa.manual_beta_checklist`
   - `python3 -m qa.beta_release_review`
   - `python3 -m qa.beta_readiness`
+  - те же read-only summaries теперь доступны и внутри `python3 cli.py` через `qa checklist`, `qa release review`, `qa readiness`
 - helpers уже зажаты от фейковых sign-off:
   - final artifacts требуют explicit candidate choice
   - stale / drifted artifacts честно блокируются
+- real scripted manual beta pass уже записан в `tmp/qa/manual_beta_checklist.json` (`7/7`, fresh)
 
 Главный остаток сейчас не инженерный, а операционный.
 
@@ -42,7 +45,9 @@
 Перед release sign-off нужно проверить, что `qa beta` всё ещё показывает:
 - `qa beta technical precheck: ready`
 - `qa beta recommended candidate: llm_env_strict`
-- latest stability evidence без новых blocker’ов
+- `candidate llm_env_strict: ... stability=green(3/3) ...`
+- `qa beta manual checklist artifact: ... complete(7/7) ...`
+- `qa beta release review artifact: ... missing`
 
 Команда:
 
@@ -62,9 +67,17 @@ python3 -c "import cli; cli._print_qa_beta()"
 
 ### 2. Реально пройти manual beta checklist
 
-Нужно реально руками пройти scripted manual scenarios для question mode.
+Статус на `2026-03-27`: `done`.
 
-После реального прохождения записать artifact:
+Scripted manual scenarios для question mode уже реально пройдены и записаны.
+
+Записанный artifact:
+
+```text
+tmp/qa/manual_beta_checklist.json
+```
+
+Команда, которой это уже было честно сделано:
 
 ```bash
 python3 -m qa.manual_beta_checklist --all-passed --write-artifact
@@ -73,12 +86,7 @@ python3 -m qa.manual_beta_checklist --all-passed --write-artifact
 Что это означает по факту:
 - manual scenarios реально проверены
 - checklist не записывается “на доверии”
-
-Ожидаемый artifact:
-
-```text
-tmp/qa/manual_beta_checklist.json
-```
+- helper `python3 -m qa.manual_beta_checklist` теперь сам печатает pending scenario guide с sample prompts / env hints / expected outcomes, так что scripted pass можно собрать из CLI без догадок
 
 ### 3. Реально записать beta release review
 
@@ -104,6 +112,7 @@ python3 -m qa.beta_release_review \
 - release-review сделан именно для `llm_env_strict`
 - review привязан к текущему manual-checklist snapshot
 - это уже не transient state, а recorded evidence
+- helper `python3 -m qa.beta_release_review` теперь тоже показывает checklist guide command / verification doc / pending scenario guide, если релиз-review упирается в незакрытый manual checklist
 
 Ожидаемый artifact:
 
@@ -145,8 +154,8 @@ tmp/qa/beta_readiness.json
 `qa_gpt` можно считать release-ready только если одновременно выполнено всё ниже:
 
 - [ ] `qa beta` показывает актуальный technical-ready signal
-- [ ] recommended candidate остаётся `llm_env_strict`
-- [ ] `tmp/qa/manual_beta_checklist.json` существует и fresh
+- [x] recommended candidate остаётся `llm_env_strict`
+- [x] `tmp/qa/manual_beta_checklist.json` существует и fresh
 - [ ] `tmp/qa/beta_release_review.json` существует и fresh
 - [ ] `tmp/qa/beta_readiness.json` существует
 - [ ] `qa beta` не считает recorded artifacts stale/inconsistent
@@ -178,6 +187,8 @@ python3 -c "import cli; cli._print_qa_beta()"
 python3 -m qa.manual_beta_checklist --all-passed --write-artifact
 ```
 
+Статус: уже сделано на `2026-03-27`, повторять не нужно, пока artifact остаётся fresh.
+
 3. После реального review записать release review:
 
 ```bash
@@ -200,4 +211,4 @@ python3 -m qa.beta_readiness --candidate-profile llm_env_strict --write-artifact
 
 ## Итог В Одной Фразе
 
-До полноценного `qa_gpt` осталось не дописывать систему, а честно закрыть recorded release evidence и явное beta approval для `llm_env_strict`.
+До полноценного `qa_gpt` осталось не дописывать систему, а честно закрыть recorded release review / beta readiness evidence и явное beta approval для `llm_env_strict`.

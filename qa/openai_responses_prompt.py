@@ -94,8 +94,11 @@ def _question_guidance_section(question: QuestionRequest, *, grounding_bundle: G
         guidance_lines.extend(
             [
                 "Answer broad capability questions with enough grounded coverage to mention supported command families, question scope, and major limits.",
+                "Name concrete command intent identifiers such as open_app, open_file, search_local, or prepare_workspace when the capability catalog is available in the bundle.",
+                "Make it explicit that question-answer mode is read-only, grounded, and separate from command execution.",
                 "When multiple allowed sources each support a different capability claim, cite each materially relevant source instead of collapsing to one or two citations.",
                 "If the allowed bundle spans capability metadata, product rules, question-mode docs, and command-model docs, broad capability answers should usually cite each of those source families.",
+                "When that broad capabilities bundle is present, keep at least three distinct source_attributions in the grounded answer.",
             ]
         )
     if question_type == "runtime_status" and any(token in lowered for token in ("folder", "workspace", "project")):
@@ -110,6 +113,7 @@ def _question_guidance_section(question: QuestionRequest, *, grounding_bundle: G
             [
                 "If an allowed source path directly answers where a module lives, name that exact file path in answer_text.",
                 "Prefer using both the repo code path and the supporting repo-structure doc when both are present.",
+                "When the bundle includes both the exact module path and docs/repo_structure.md, keep both sources in source_attributions.",
             ]
         )
     if question_type == "blocked_state":
@@ -139,8 +143,19 @@ def _question_guidance_section(question: QuestionRequest, *, grounding_bundle: G
         guidance_lines.append("Reuse the provided recent-answer sources when expanding or explaining the previous grounded answer.")
         if len(recent_sources) >= 2:
             guidance_lines.append("When two or more recent-answer sources are provided, keep at least two source_attributions in the grounded answer.")
+            guidance_lines.append("Reuse both recent-answer source paths in source_attributions; do not collapse a follow-up explanation to a single citation.")
         if any(token in lowered for token in ("explain more", "more detail", "more details", "expand")):
             guidance_lines.append("For explain-more follow-ups, expand the prior grounded answer using those recent-answer sources instead of falling back to a generic summary.")
+            if recent_topic == "clarification":
+                guidance_lines.append(
+                    "Make it explicit that clarification happens before planning or execution when ambiguity, missing data, low confidence, or mixed question-and-command intent is present."
+                )
+                guidance_lines.append(
+                    "Open the explanation with wording close to: In more detail: clarification happens before planning or execution when ambiguity, missing data, low confidence, or mixed question-and-command intent is present."
+                )
+                guidance_lines.append(
+                    "Preserve the hard-boundary framing: clarification pauses progress until the missing detail or ambiguity is resolved."
+                )
         if any(token in lowered for token in ("which source", "where written", "where is that written")):
             guidance_lines.append("If the user asks which source was used, answer with the exact raw source path(s) verbatim in answer_text.")
             guidance_lines.append("For source-identification follow-ups, cite those same exact source paths in source_attributions instead of paraphrasing the document names.")

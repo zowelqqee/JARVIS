@@ -19,6 +19,9 @@ Useful read-only helper commands:
 - `qa gate`
 - `qa gate strict`
 - `qa beta`
+- `qa checklist`
+- `qa release review`
+- `qa readiness`
 - `python3 -m qa.beta_release_review`
 - `python3 -m qa.beta_readiness`
 - `python3 -m qa.manual_beta_checklist`
@@ -26,9 +29,14 @@ Useful read-only helper commands:
 - `qa gate` now prints an offline rollout-gate precheck for the current `llm_env` candidate config
 - `qa gate strict` does the same for `llm_env_strict` and prints the exact comparative gate command to run next
 - `qa beta` prints the offline beta-decision summary: current stage/default hold, candidate artifact readiness for both profiles, the current recommended beta candidate, and any recorded beta-readiness artifact state
+- `qa checklist`, `qa release review`, and `qa readiness` now expose the same read-only release-decision helper summaries inside `python3 cli.py`, so stage 8 can be inspected from one shell surface without switching to `python3 -m ...`
 - `python3 -m qa.beta_release_review` is the machine-readable release-review helper for `beta_question_default`; it records candidate-specific latency review, cost review, operator sign-off, and product approval in `tmp/qa/beta_release_review.json`
 - `python3 -m qa.beta_readiness` builds the machine-readable beta-readiness record from the latest smoke/stability artifacts plus the recorded manual checklist and beta release-review artifacts; it stays offline, does not rerun the provider path, and no longer accepts manual/release-review shortcut flags
 - `python3 -m qa.manual_beta_checklist` is the machine-readable manual checklist helper for `beta_question_default`; it records whether the required manual question-mode scenarios were actually verified
+- The two supporting helpers are actionable on their own now too: `python3 -m qa.manual_beta_checklist` prints pending items plus the next checklist command, and `python3 -m qa.beta_release_review` prints pending review checks plus the next honest command, including redirecting back to the manual checklist when that evidence is stale or incomplete
+- `python3 -m qa.manual_beta_checklist` now also prints a pending scenario guide with exact sample prompts, env hints, and expected outcomes for each remaining checklist item, so the scripted manual pass no longer depends on remembering the mapping from item ids to scenarios
+- That guidance now reaches the higher-level summaries too: `qa beta` prints the direct checklist helper alias, the module guide command, and the pending scenario guide itself, while `python3 -m qa.beta_readiness` mirrors the same guide command, doc path, and pending scenario guide inside its output/artifact
+- `python3 -m qa.beta_release_review` now mirrors that same manual guidance as well, so a blocked release-review run can still show the exact remaining checklist scenarios without bouncing to another helper first
 - `qa beta` also cross-checks any recorded `tmp/qa/beta_readiness.json` against the latest smoke/stability artifacts, so an older sign-off cannot silently mask a newly red or drifted candidate
 - That cross-check is snapshot-aware: the recorded beta artifact now keeps the exact smoke/stability `created_at` evidence per candidate, and `qa beta` treats a sign-off as stale if it points at an older evidence snapshot even when the candidate still looks green.
 - It is also fingerprint-aware: the beta artifact stores smoke/stability sha256 fingerprints, so a rewritten artifact with the same timestamp still fails consistency if the underlying evidence changed.
@@ -117,14 +125,13 @@ Comparative default-decision gate:
 - The stability sweep repeats the same comparative gate multiple times and aggregates blocker/failing-case frequency, so release decisions are not based on a single lucky green run.
 - The `default-switch blockers` section is the source of truth for rollout decisions. A profile can still show non-blocking case mismatches in the sample list while the gate remains green if those mismatches are outside the tracked rollout thresholds.
 
-Current env-backed status (`2026-03-26`):
-- Fresh live smoke on `2026-03-26` is green for both `llm_env` and `llm_env_strict` with `JARVIS_QA_LLM_OPEN_DOMAIN_ENABLED=true`.
-- Fresh comparative gates on `2026-03-26` also produced green one-off reruns for both profiles earlier in the day.
-- Same-day repeated sweeps did oscillate earlier, which is exactly why candidate-specific stability artifacts and `qa beta` were hardened in this cycle.
-- The latest machine-readable stability artifacts on `2026-03-26` are now green again and show `2/2` gate passes for both `llm_env` and `llm_env_strict`.
-- `qa beta` now reads those candidate-specific stability artifacts directly, so the operator sees the current status (`stability=green(2/2)` or `stability=failed(...)`) instead of relying on stale memory of an earlier rerun.
-- On the same latest artifacts, `qa beta` currently recommends `llm_env_strict` as the cleaner beta candidate because it keeps deterministic fallback disabled while the technical signal remains green.
-- The next explicit blockers are now visible in tooling too: `tmp/qa/manual_beta_checklist.json` and `tmp/qa/beta_release_review.json` are currently missing, so manual beta verification and release review have not yet been recorded.
+Current env-backed status (`2026-03-27`):
+- Fresh live smoke on `2026-03-27` is green for both `llm_env` and `llm_env_strict` with `JARVIS_QA_LLM_OPEN_DOMAIN_ENABLED=true`.
+- Fresh comparative gates on `2026-03-27` also produced green one-off reruns for both profiles earlier in the day.
+- Same-day repeated sweeps still matter: `llm_env` remains non-green on its latest stability artifact, while `llm_env_strict` is back to green and now shows `3/3` gate passes.
+- `qa beta` reads those candidate-specific stability artifacts directly, so the operator sees the current status (`stability=green(3/3)` or `stability=failed(...)`) instead of relying on memory of an earlier rerun.
+- On the latest `2026-03-27` artifacts, `qa beta` currently recommends `llm_env_strict` as the cleaner beta candidate because it keeps deterministic fallback disabled and is the only candidate with fresh green smoke plus stability.
+- `tmp/qa/manual_beta_checklist.json` is now recorded and fresh (`7/7`), so the next explicit blocker is `tmp/qa/beta_release_review.json`, not manual verification.
 - Even with a technically green latest signal, keep the project at `alpha_opt_in` and keep deterministic as the product default until `beta_question_default` is explicitly ready.
 
 Beta-readiness record:

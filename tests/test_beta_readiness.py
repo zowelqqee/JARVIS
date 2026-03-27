@@ -54,9 +54,22 @@ class BetaReadinessTests(unittest.TestCase):
         self.assertIn("arbitrary_factual_question", record.manual_checklist_pending_items)
         self.assertIn("provider_unavailable_path", record.manual_checklist_pending_items)
         self.assertEqual(
+            record.manual_checklist_pending_item_details[0],
+            {
+                "item_id": "arbitrary_factual_question",
+                "label": "Arbitrary factual question",
+                "prompt": "who is the president of France?",
+                "expected": "mode=question; answer-kind=open_domain_model; provenance=model_knowledge; no fake local sources",
+                "env_hint": "JARVIS_QA_BACKEND=llm JARVIS_QA_LLM_ENABLED=true JARVIS_QA_LLM_OPEN_DOMAIN_ENABLED=true",
+                "doc_section": "Manual beta checklist scripted scenarios",
+            },
+        )
+        self.assertEqual(
             record.manual_checklist_command,
             "python3 -m qa.manual_beta_checklist --all-passed --write-artifact",
         )
+        self.assertEqual(record.manual_checklist_guide_command, "python3 -m qa.manual_beta_checklist")
+        self.assertEqual(record.manual_checklist_verification_doc, "docs/manual_verification_commands.md")
         self.assertEqual(
             record.release_review_pending_checks,
             ["latency_review", "cost_review", "operator_signoff", "product_approval"],
@@ -91,6 +104,7 @@ class BetaReadinessTests(unittest.TestCase):
         self.assertEqual(payload["report"]["manual_checklist_artifact_status"], "complete")
         self.assertTrue(payload["report"]["manual_checklist_artifact_completed"])
         self.assertEqual(payload["report"]["manual_checklist_pending_items"], [])
+        self.assertEqual(payload["report"]["manual_checklist_pending_item_details"], [])
         self.assertTrue(payload["report"]["manual_checklist_artifact_created_at"])
         self.assertTrue(payload["report"]["manual_checklist_artifact_sha256"])
         self.assertEqual(payload["report"]["release_review_artifact_status"], "complete")
@@ -99,6 +113,8 @@ class BetaReadinessTests(unittest.TestCase):
         self.assertTrue(payload["report"]["release_review_artifact_consistent"])
         self.assertEqual(payload["report"]["release_review_pending_checks"], [])
         self.assertEqual(payload["report"]["manual_checklist_command"], "python3 -m qa.manual_beta_checklist --all-passed --write-artifact")
+        self.assertEqual(payload["report"]["manual_checklist_guide_command"], "python3 -m qa.manual_beta_checklist")
+        self.assertEqual(payload["report"]["manual_checklist_verification_doc"], "docs/manual_verification_commands.md")
         self.assertEqual(
             payload["report"]["release_review_command"],
             "python3 -m qa.beta_release_review --candidate-profile llm_env_strict --latency-reviewed --cost-reviewed --operator-signoff --product-approval --write-artifact",
@@ -140,6 +156,9 @@ class BetaReadinessTests(unittest.TestCase):
         self.assertIn("beta_question_default ready: no", text)
         self.assertIn("manual checklist artifact: complete(7/7)", text)
         self.assertIn("manual checklist pending items: none", text)
+        self.assertIn("manual checklist guide command: python3 -m qa.manual_beta_checklist", text)
+        self.assertIn("manual checklist verification doc: docs/manual_verification_commands.md", text)
+        self.assertIn("manual checklist scenario guide: none", text)
         self.assertIn("release review artifact: missing", text)
         self.assertIn(
             "release review pending checks: latency_review, cost_review, operator_signoff, product_approval",
@@ -161,6 +180,28 @@ class BetaReadinessTests(unittest.TestCase):
         self.assertIn("latency review is not completed", text)
         self.assertIn("candidate states:", text)
         self.assertIn("llm_env_strict: technical-ready=yes; smoke=green; stability=green(2/2); fallback=off", text)
+
+    def test_format_beta_readiness_record_lists_manual_scenario_guide_when_checklist_pending(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            self._write_candidate_artifacts(tmpdir, "llm_env", fallback_enabled=True)
+            self._write_candidate_artifacts(tmpdir, "llm_env_strict", fallback_enabled=False)
+            with self._patch_candidate_paths(tmpdir):
+                record = build_beta_readiness_record(
+                    environ=self._env(),
+                )
+
+        text = format_beta_readiness_record(record)
+        self.assertIn("manual checklist scenario guide:", text)
+        self.assertIn("  - arbitrary_factual_question: Arbitrary factual question", text)
+        self.assertIn("    input: who is the president of France?", text)
+        self.assertIn(
+            "    env: JARVIS_QA_BACKEND=llm JARVIS_QA_LLM_ENABLED=true JARVIS_QA_LLM_OPEN_DOMAIN_ENABLED=true",
+            text,
+        )
+        self.assertIn(
+            "    expected: mode=question; answer-kind=open_domain_model; provenance=model_knowledge; no fake local sources",
+            text,
+        )
 
     def test_build_beta_readiness_record_blocks_stale_release_review_artifact(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
