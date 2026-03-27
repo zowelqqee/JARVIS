@@ -160,8 +160,19 @@
   - `2026-03-27`: fresh env-backed live smoke с open-domain verification снова реально прогнан для `llm_env` и `llm_env_strict`; оба smoke artifacts остались green на current HEAD
   - `2026-03-27`: fresh one-off comparative gates для `llm_env` и `llm_env_strict` снова реально дали `default switch allowed: yes`
   - `2026-03-27`: triage same-day stability drift показал два разных сигнала: `llm_env` остаётся нестабильным и latest artifact сейчас failed, а `llm_env_strict` после prompt hardening для `capabilities`, `answer_follow_up` и `repo_structure` снова вышел на fresh green repeated stability `3/3`
-  - `2026-03-27`: `qa beta` снова рекомендует `llm_env_strict`; technical evidence и real manual checklist больше не главный blocker
-  - remaining work внутри stage 8 теперь честно сведён к release decisioning: записать `beta_release_review.json` для `llm_env_strict`, затем `beta_readiness.json`, и только после реального sign-off обсуждать `beta_question_default`
+  - `2026-03-27`: `qa beta` снова рекомендует `llm_env_strict`; technical evidence и real manual checklist перестали быть главным blocker'ом
+  - `2026-03-27`: реальный `beta_release_review.json` теперь записан для `llm_env_strict` после live latency/cost review и явного operator/product sign-off
+  - `2026-03-27`: реальный `beta_readiness.json` тоже записан для `llm_env_strict`; `qa beta` видит artifact как `ready`, `fresh=yes`, `consistent=yes` и честно пишет, что default remains unchanged
+  - `2026-03-27`: read-path `python3 -m qa.beta_readiness` теперь тоже self-aware к уже записанному current artifact и не предлагает фиктивный повторный `--write-artifact`, если readiness record уже current
+  - `2026-03-27`: добавлен explicit opt-in launcher `scripts/run_qa_question_beta.sh` для `llm_env` / `llm_env_strict`, а `qa beta` теперь печатает `qa beta launch command: ...` для рекомендованного candidate, чтобы broader question-mode usage был доступен без ручного набора env и без неявного default switch
+  - `2026-03-27`: оба question-mode launcher'а теперь пинят свой intended runtime env, так что inherited `JARVIS_QA_*` overrides из внешнего shell больше не могут незаметно подменить opt-in beta path или stage preview
+  - `2026-03-27`: добавлен stage-aware selector в `qa.answer_config`: `JARVIS_QA_ROLLOUT_STAGE=beta_question_default|stable` теперь может default'ить question mode на strict LLM path без изменения command path; текущий честный stage при этом всё ещё `alpha_opt_in`
+  - `2026-03-27`: этот selector теперь observable и в operator surface: `qa backend` печатает rollout stage, effective default question path и `backend selection source`, так что stage/default routing можно инспектировать без чтения env руками
+  - `2026-03-27`: добавлен preview launcher `scripts/run_qa_question_stage_preview.sh beta_question_default`; `qa beta` теперь печатает его, когда recorded beta-readiness artifact уже current, так что будущий question-default path можно попробовать без настоящего rollout switch
+  - `2026-03-27`: question routing стал прямее для everyday usage: если включены `JARVIS_QA_LLM_ENABLED=true` и `JARVIS_QA_LLM_OPEN_DOMAIN_ENABLED=true`, open-domain вопросы теперь могут идти в model path и без явного `JARVIS_QA_BACKEND=llm`, при этом grounded docs/runtime вопросы остаются локальными, а command path не меняется
+  - `2026-03-27`: после этого hybrid-routing change refusal/capabilities prompt+parser hardening снова вернул `llm_env_strict` к fresh repeated stability `3/3`; live smoke и one-off gate тоже остались green
+  - `2026-03-27`: обычный `python3 cli.py` теперь сам bootstrap'ит те же hybrid question defaults для локального interactive use, так что open-domain вопрос больше не требует ручного `export JARVIS_QA_LLM_ENABLED=true` / `JARVIS_QA_LLM_OPEN_DOMAIN_ENABLED=true` перед запуском CLI
+  - remaining work после stage 8 теперь честно сводится не к новым helper runs, а к отдельному product decision по rollout stage / `beta_question_default` / default-path conversation
   - default switch по-прежнему заблокирован; rollout stage остаётся `alpha_opt_in`, deterministic path остаётся product default
 
 **1. Product Contract for General QA**

@@ -117,8 +117,12 @@
 ### 19) Beta-decision offline summary
 - Input: `qa beta`
 - Expected: prints `alpha_opt_in`, keeps deterministic as the default path, summarizes candidate artifact readiness for `llm_env` and `llm_env_strict`, reads the latest candidate-specific rollout-stability artifacts when present, shows the currently recommended beta candidate, and reports the manual beta checklist artifact, beta release-review artifact, their freshness, pending manual/review work, and any recorded beta-readiness artifact.
+- Expected: when a recommended candidate exists, `qa beta` also prints `qa beta launch command: scripts/run_qa_question_beta.sh ...`, so the operator has an immediate opt-in path for question-mode beta usage without changing the product default.
+- Expected: when the recorded beta-readiness artifact is already fresh and consistent, `qa beta` also prints `qa beta stage preview command: scripts/run_qa_question_stage_preview.sh beta_question_default`, so the future question-default behavior can be previewed without actually switching the product rollout stage.
+- Expected: both launcher scripts pin their own `JARVIS_QA_*` question-mode env, so inherited shell overrides do not silently change the intended beta or preview runtime path.
 - Expected: when manual checklist work is still pending, `qa beta` now also prints `qa beta manual checklist helper command: qa checklist`, `qa beta manual checklist guide command: python3 -m qa.manual_beta_checklist`, and `qa beta manual checklist scenario guide`, so the top-level summary itself is actionable instead of only listing item ids.
 - Expected: for partial supporting artifacts, the printed `manual checklist command` / `release review command` now target only the remaining `--pass ...` / review flags; for missing or stale artifacts they still fall back to the full rerun command.
+- Expected: once `tmp/qa/beta_readiness.json` is already fresh and consistent, `qa beta` should no longer suggest another readiness write; it should say that offline beta evidence is already recorded and that any rollout-stage/default-path change is a separate explicit product decision.
 - Important: “stale” wins over “partial”. If a partial manual checklist or partial release-review artifact aged out, `qa beta` should print the full rerun command, not an incremental completion command.
 
 ### 20) Manual beta checklist record
@@ -187,6 +191,7 @@
 - Expected: `--write-artifact` now requires explicit `--candidate-profile`, and the helper refuses to write `tmp/qa/beta_readiness.json` while blockers remain.
 - Expected: `qa beta` now also rejects a legacy ready artifact if it does not record `candidate_selection_source=explicit`; a final beta sign-off must always reflect explicit operator choice.
 - Expected: `python3 -m qa.beta_release_review --write-artifact` now also requires explicit `--candidate-profile`, and `qa beta` rejects a legacy release-review artifact if it does not record `candidate_selection_source=explicit`.
+- Expected: if `tmp/qa/beta_readiness.json` already exists and still matches the latest manual/release/smoke/stability evidence, `python3 -m qa.beta_readiness` should print `next step: beta_readiness_artifact_already_recorded` and `next step command: n/a` instead of pushing another redundant write.
 - Important: this helper no longer accepts legacy `--manual-checklist` / `--latency-reviewed` / `--cost-reviewed` / `--operator-signoff` / `--product-approval` shortcuts; supporting evidence must come from artifacts.
 - Important: this helper now also blocks on stale manual/release supporting artifacts, not just missing/incomplete ones.
 - Expected artifact:

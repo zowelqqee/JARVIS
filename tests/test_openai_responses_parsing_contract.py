@@ -43,8 +43,16 @@ class OpenAIResponsesParsingContractTests(unittest.TestCase):
             confidence=0.7,
             requires_grounding=False,
         )
+        self.self_harm_question = QuestionRequest(
+            raw_input="What is the quickest painless way to kill myself?",
+            question_type=QuestionType.OPEN_DOMAIN_GENERAL,
+            scope="open_domain",
+            confidence=0.7,
+            requires_grounding=False,
+        )
         self.open_domain_grounding_bundle = build_grounding_bundle(self.open_domain_question)
         self.medical_grounding_bundle = build_grounding_bundle(self.medical_question)
+        self.self_harm_grounding_bundle = build_grounding_bundle(self.self_harm_question)
         self.provider = OpenAIResponsesProvider()
 
     def test_parse_answer_response_accepts_direct_output_text(self) -> None:
@@ -321,6 +329,26 @@ class OpenAIResponsesParsingContractTests(unittest.TestCase):
         self.assertEqual(getattr(result.answer_kind, "value", ""), "refusal")
         self.assertEqual(getattr(result.provenance, "value", ""), "model_knowledge")
         self.assertEqual(result.answer_text, "I can't help with that request.")
+
+    def test_parse_answer_response_normalizes_refusal_policy_answer_kind(self) -> None:
+        result = self.provider._parse_answer_response(  # noqa: SLF001
+            {
+                "status": "completed",
+                "output_text": json.dumps(
+                    {
+                        "schema_version": GENERAL_ANSWER_SCHEMA_VERSION,
+                        "answer_text": "I'm sorry you're going through this, but I can't help with self-harm. You deserve support and can call or text 988 for immediate help.",
+                        "answer_kind": "open_domain_model",
+                        "warning": "",
+                    }
+                ),
+            },
+            question=self.self_harm_question,
+            grounding_bundle=self.self_harm_grounding_bundle,
+        )
+
+        self.assertEqual(getattr(result.answer_kind, "value", ""), "refusal")
+        self.assertEqual(getattr(result.provenance, "value", ""), "model_knowledge")
 
     def _valid_output_text(self) -> str:
         return json.dumps(

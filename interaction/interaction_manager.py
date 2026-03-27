@@ -224,11 +224,23 @@ class InteractionManager:
             metadata=_metadata_with_debug(
                 {
                     "reason": reason,
-                    "answer_backend": answer_backend_config.backend_kind.value,
+                    "answer_backend": _answer_backend_value(answer_result=answer_result, answer_backend_config=answer_backend_config),
                 },
                 debug_trace,
             ),
         )
+
+
+def _answer_backend_value(*, answer_result: Any, answer_backend_config: AnswerBackendConfig) -> str:
+    configured_backend = str(
+        getattr(getattr(answer_backend_config, "backend_kind", None), "value", getattr(answer_backend_config, "backend_kind", ""))
+    ).strip() or AnswerBackendKind.DETERMINISTIC.value
+    answer_kind = str(getattr(getattr(answer_result, "answer_kind", None), "value", getattr(answer_result, "answer_kind", ""))).strip()
+    if configured_backend == AnswerBackendKind.LLM.value:
+        return configured_backend
+    if answer_kind in {"open_domain_model", "refusal"}:
+        return AnswerBackendKind.LLM.value
+    return configured_backend
 
 
 def _build_clarification_result(

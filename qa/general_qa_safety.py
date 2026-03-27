@@ -29,6 +29,7 @@ def inspect_general_qa_safety(raw_input: str) -> GeneralQaSafetyPolicy:
     if _looks_like_self_harm_request(lowered):
         tags.append("self_harm")
         guidance.append("Refuse self-harm facilitation and avoid providing instructions, methods, or optimization.")
+        guidance.append("Use brief supportive safety language and encourage immediate human help or crisis resources such as 988 where appropriate.")
         return GeneralQaSafetyPolicy(
             policy_tags=tuple(tags),
             response_mode="refusal",

@@ -18,6 +18,7 @@ if str(_TYPES_PATH) not in sys.path:
 from jarvis_error import ErrorCategory, ErrorCode, JarvisError  # type: ignore  # noqa: E402
 
 _ENV_BACKEND = "JARVIS_QA_BACKEND"
+_ENV_ROLLOUT_STAGE = "JARVIS_QA_ROLLOUT_STAGE"
 _ENV_LLM_ENABLED = "JARVIS_QA_LLM_ENABLED"
 _ENV_LLM_PROVIDER = "JARVIS_QA_LLM_PROVIDER"
 _ENV_LLM_MODEL = "JARVIS_QA_LLM_MODEL"
@@ -35,6 +36,10 @@ _DEFAULT_TIMEOUT_SECONDS = 30.0
 _DEFAULT_MAX_OUTPUT_TOKENS = 800
 _DEFAULT_MAX_RETRIES = 1
 _DEFAULT_REASONING_EFFORT = "minimal"
+_ROLLOUT_STAGE_ALPHA = "alpha_opt_in"
+_ROLLOUT_STAGE_BETA_QUESTION_DEFAULT = "beta_question_default"
+_ROLLOUT_STAGE_STABLE = "stable"
+_DEFAULT_ROLLOUT_STAGE = _ROLLOUT_STAGE_ALPHA
 
 
 @dataclass(slots=True, frozen=True)
@@ -60,14 +65,29 @@ class AnswerBackendConfig:
     """Resolved answer backend configuration."""
 
     backend_kind: AnswerBackendKind = AnswerBackendKind.DETERMINISTIC
+    rollout_stage: str = _DEFAULT_ROLLOUT_STAGE
+    backend_selection_source: str = "builtin_default"
     llm: LlmBackendConfig = field(default_factory=LlmBackendConfig)
 
     @classmethod
     def from_env(cls, environ: Mapping[str, str] | None = None) -> "AnswerBackendConfig":
         """Load answer backend settings from environment variables."""
         env = dict(os.environ if environ is None else environ)
-        backend_kind = _parse_backend_kind(env.get(_ENV_BACKEND, AnswerBackendKind.DETERMINISTIC.value))
-        llm_enabled = _parse_bool(env.get(_ENV_LLM_ENABLED), env_name=_ENV_LLM_ENABLED, default=False)
+        rollout_stage = _parse_rollout_stage(env.get(_ENV_ROLLOUT_STAGE, _DEFAULT_ROLLOUT_STAGE))
+        explicit_backend = env.get(_ENV_BACKEND)
+        stage_default_llm = _rollout_stage_uses_llm_question_default(rollout_stage) and explicit_backend is None
+        if explicit_backend is not None:
+            backend_selection_source = "explicit_backend_env"
+        elif stage_default_llm:
+            backend_selection_source = "rollout_stage_default"
+        else:
+            backend_selection_source = "builtin_default"
+        backend_kind = _parse_backend_kind(
+            explicit_backend if explicit_backend is not None else (
+                AnswerBackendKind.LLM.value if stage_default_llm else AnswerBackendKind.DETERMINISTIC.value
+            )
+        )
+        llm_enabled = _parse_bool(env.get(_ENV_LLM_ENABLED), env_name=_ENV_LLM_ENABLED, default=stage_default_llm)
         llm_provider = _parse_provider_kind(env.get(_ENV_LLM_PROVIDER, LlmProviderKind.OPENAI_RESPONSES.value))
         llm_model = str(env.get(_ENV_LLM_MODEL, _DEFAULT_OPENAI_MODEL) or _DEFAULT_OPENAI_MODEL).strip() or _DEFAULT_OPENAI_MODEL
         llm_api_base = str(env.get(_ENV_LLM_API_BASE, "") or "").strip() or None
@@ -100,15 +120,17 @@ class AnswerBackendConfig:
         llm_fallback_enabled = _parse_bool(
             env.get(_ENV_LLM_FALLBACK_ENABLED),
             env_name=_ENV_LLM_FALLBACK_ENABLED,
-            default=True,
+            default=False if stage_default_llm else True,
         )
         llm_open_domain_enabled = _parse_bool(
             env.get(_ENV_LLM_OPEN_DOMAIN_ENABLED),
             env_name=_ENV_LLM_OPEN_DOMAIN_ENABLED,
-            default=False,
+            default=stage_default_llm,
         )
         return cls(
             backend_kind=backend_kind,
+            rollout_stage=rollout_stage,
+            backend_selection_source=backend_selection_source,
             llm=LlmBackendConfig(
                 enabled=llm_enabled,
                 provider=llm_provider,
@@ -142,11 +164,21 @@ def open_domain_general_enabled(config: AnswerBackendConfig | None) -> bool:
     """Return whether the broader GPT-backed open-domain path is enabled."""
     if config is None:
         return False
-    backend_kind = getattr(getattr(config, "backend_kind", None), "value", getattr(config, "backend_kind", None))
-    if str(backend_kind or "").strip() != AnswerBackendKind.LLM.value:
-        return False
     llm_config = getattr(config, "llm", None)
     return bool(getattr(llm_config, "enabled", False)) and bool(getattr(llm_config, "open_domain_enabled", False))
+
+
+def rollout_stage_uses_llm_question_default(stage: str | None) -> bool:
+    """Return whether the rollout stage should default question mode to the strict LLM path."""
+    return _rollout_stage_uses_llm_question_default(str(stage or "").strip() or _DEFAULT_ROLLOUT_STAGE)
+
+
+def rollout_default_path_label(stage: str | None) -> str:
+    """Return the operator-facing default-path summary for one rollout stage."""
+    normalized_stage = str(stage or "").strip() or _DEFAULT_ROLLOUT_STAGE
+    if _rollout_stage_uses_llm_question_default(normalized_stage):
+        return "question=llm_env_strict, command=deterministic"
+    return AnswerBackendKind.DETERMINISTIC.value
 
 
 def _parse_backend_kind(raw_value: str) -> AnswerBackendKind:
@@ -159,6 +191,25 @@ def _parse_backend_kind(raw_value: str) -> AnswerBackendKind:
             raw_value=value,
             message="Unknown answer backend configuration value.",
         ) from exc
+
+
+def _parse_rollout_stage(raw_value: str) -> str:
+    value = str(raw_value or "").strip() or _DEFAULT_ROLLOUT_STAGE
+    if value in {
+        _ROLLOUT_STAGE_ALPHA,
+        _ROLLOUT_STAGE_BETA_QUESTION_DEFAULT,
+        _ROLLOUT_STAGE_STABLE,
+    }:
+        return value
+    raise _config_error(
+        env_name=_ENV_ROLLOUT_STAGE,
+        raw_value=value,
+        message="Unknown rollout stage configuration value.",
+    )
+
+
+def _rollout_stage_uses_llm_question_default(stage: str) -> bool:
+    return stage in {_ROLLOUT_STAGE_BETA_QUESTION_DEFAULT, _ROLLOUT_STAGE_STABLE}
 
 
 def _parse_provider_kind(raw_value: str) -> LlmProviderKind:

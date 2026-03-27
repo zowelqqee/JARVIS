@@ -11,7 +11,9 @@ from qa.rollout_profiles import (
     manual_beta_checklist_artifact_path,
     resolve_rollout_candidate_settings,
     rollout_compare_command,
+    rollout_launch_command,
     rollout_smoke_command,
+    rollout_stage_preview_command,
     rollout_stability_artifact_path_for_candidate,
     rollout_stability_command,
 )
@@ -45,6 +47,13 @@ class RolloutProfilesTests(unittest.TestCase):
         self.assertEqual(rollout_smoke_command("llm_env_strict"), "scripts/run_openai_live_smoke.sh llm_env_strict")
         self.assertEqual(rollout_compare_command("llm_env"), "scripts/run_qa_rollout_gate.sh llm_env")
         self.assertEqual(rollout_compare_command("llm_env_strict"), "scripts/run_qa_rollout_gate.sh llm_env_strict")
+        self.assertEqual(rollout_launch_command("llm_env"), "scripts/run_qa_question_beta.sh llm_env")
+        self.assertEqual(rollout_launch_command("llm_env_strict"), "scripts/run_qa_question_beta.sh llm_env_strict")
+        self.assertEqual(
+            rollout_stage_preview_command("beta_question_default"),
+            "scripts/run_qa_question_stage_preview.sh beta_question_default",
+        )
+        self.assertEqual(rollout_stage_preview_command("stable"), "scripts/run_qa_question_stage_preview.sh stable")
         self.assertEqual(rollout_stability_command("llm_env"), "scripts/run_qa_rollout_stability.sh llm_env 3")
         self.assertEqual(
             rollout_stability_command("llm_env_strict", runs=5),
@@ -71,6 +80,7 @@ class RolloutProfilesTests(unittest.TestCase):
         self.assertTrue(settings.open_domain_enabled)
         self.assertEqual(settings.api_key_env, "CUSTOM_OPENAI_KEY")
         self.assertTrue(settings.fallback_enabled)
+        self.assertEqual(settings.launch_command, "scripts/run_qa_question_beta.sh llm_env")
 
     def test_strict_candidate_forces_no_fallback(self) -> None:
         settings = resolve_rollout_candidate_settings(
@@ -84,6 +94,7 @@ class RolloutProfilesTests(unittest.TestCase):
 
         self.assertEqual(settings.candidate_profile, "llm_env_strict")
         self.assertFalse(settings.fallback_enabled)
+        self.assertEqual(settings.launch_command, "scripts/run_qa_question_beta.sh llm_env_strict")
 
 
 if __name__ == "__main__":

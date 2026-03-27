@@ -200,9 +200,38 @@ class AnswerEngineTests(unittest.TestCase):
         self.assertEqual(question.scope, "open_domain")
         self.assertFalse(question.requires_grounding)
 
+    def test_open_domain_question_routes_to_general_family_in_hybrid_mode_without_backend_override(self) -> None:
+        question = classify_question(
+            "Who is the president of France?",
+            backend_config=AnswerBackendConfig(
+                backend_kind=AnswerBackendKind.DETERMINISTIC,
+                llm=LlmBackendConfig(enabled=True, open_domain_enabled=True),
+            ),
+        )
+
+        self.assertEqual(getattr(question.question_type, "value", ""), "open_domain_general")
+        self.assertEqual(question.scope, "open_domain")
+        self.assertFalse(question.requires_grounding)
+
     def test_open_domain_question_fails_honestly_when_provider_is_unavailable(self) -> None:
         config = AnswerBackendConfig(
             backend_kind=AnswerBackendKind.LLM,
+            llm=LlmBackendConfig(
+                enabled=True,
+                open_domain_enabled=True,
+                api_key_env="MISSING_KEY",
+                fallback_enabled=True,
+            ),
+        )
+
+        with patch.dict(os.environ, {}, clear=False), self.assertRaises(JarvisError) as captured:
+            answer_question("Who is the president of France?", backend_config=config)
+
+        self.assertEqual(getattr(captured.exception.code, "value", ""), ErrorCode.MODEL_BACKEND_UNAVAILABLE.value)
+
+    def test_open_domain_question_fails_honestly_in_hybrid_mode_when_provider_is_unavailable(self) -> None:
+        config = AnswerBackendConfig(
+            backend_kind=AnswerBackendKind.DETERMINISTIC,
             llm=LlmBackendConfig(
                 enabled=True,
                 open_domain_enabled=True,

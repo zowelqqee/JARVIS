@@ -36,6 +36,7 @@ class RolloutCandidateSettings:
     api_key_env: str
     smoke_command: str
     compare_command: str
+    launch_command: str
 
 
 def live_smoke_artifact_path_for_candidate(candidate_profile: str | None = None) -> Path:
@@ -82,6 +83,22 @@ def rollout_compare_command(candidate_profile: str) -> str:
     return f"scripts/run_qa_rollout_gate.sh {candidate}"
 
 
+def rollout_launch_command(candidate_profile: str) -> str:
+    """Return the recommended opt-in question-mode launch command for one rollout candidate."""
+    candidate = str(candidate_profile or "").strip()
+    if not candidate:
+        raise ValueError("candidate_profile must be non-empty.")
+    return f"scripts/run_qa_question_beta.sh {candidate}"
+
+
+def rollout_stage_preview_command(stage: str) -> str:
+    """Return the recommended preview launcher for one rollout stage."""
+    normalized_stage = str(stage or "").strip()
+    if not normalized_stage:
+        raise ValueError("stage must be non-empty.")
+    return f"scripts/run_qa_question_stage_preview.sh {normalized_stage}"
+
+
 def rollout_stability_command(candidate_profile: str, runs: int = 3) -> str:
     """Return the recommended repeated-gate stability command for one rollout candidate."""
     candidate = str(candidate_profile or "").strip()
@@ -114,4 +131,5 @@ def resolve_rollout_candidate_settings(
         api_key_env=str(config.llm.api_key_env or "").strip() or "OPENAI_API_KEY",
         smoke_command=rollout_smoke_command(candidate),
         compare_command=rollout_compare_command(candidate),
+        launch_command=rollout_launch_command(candidate),
     )

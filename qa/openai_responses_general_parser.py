@@ -73,6 +73,7 @@ class OpenAIResponsesGeneralParser(LlmResponseParser):
             )
 
         output_text, refusal_chunks = extract_response_output(response_payload)
+        policy = inspect_general_qa_safety(getattr(question, "raw_input", "")) if question is not None else None
         if not output_text and refusal_chunks:
             refusal_text = " ".join(refusal_chunks).strip()
             update_debug_payload(
@@ -254,9 +255,28 @@ class OpenAIResponsesGeneralParser(LlmResponseParser):
                 blocking=False,
                 terminal=True,
             )
+        normalized_to_refusal = False
+        if answer_kind != AnswerKind.REFUSAL and str(getattr(policy, "response_mode", "") or "").strip() == "refusal":
+            if _looks_like_refusal_text(answer_text):
+                answer_kind = AnswerKind.REFUSAL
+                normalized_to_refusal = True
+            else:
+                raise JarvisError(
+                    category=ErrorCategory.ANSWER_ERROR,
+                    code=ErrorCode.ANSWER_GENERATION_FAILED,
+                    message="Structured open-domain answer did not honor the refusal policy boundary.",
+                    details={
+                        "answer_kind": raw_answer_kind or None,
+                        "response_mode": str(getattr(policy, "response_mode", "") or "").strip() or None,
+                        "answer_text": answer_text,
+                        **debug_details,
+                    },
+                    blocking=False,
+                    terminal=True,
+                )
 
         warning = str(structured_output.get("warning", "") or "").strip() or None
-        policy_warning_hint = inspect_general_qa_safety(getattr(question, "raw_input", "")).warning_hint if question is not None else None
+        policy_warning_hint = getattr(policy, "warning_hint", None)
         warning_filled_from_policy = False
         if answer_kind == AnswerKind.OPEN_DOMAIN_MODEL and not warning and policy_warning_hint:
             warning = str(policy_warning_hint).strip() or None
@@ -270,6 +290,7 @@ class OpenAIResponsesGeneralParser(LlmResponseParser):
                 "answer_kind": answer_kind.value,
                 "parsed_source_count": 0,
                 "warning_filled_from_policy": warning_filled_from_policy,
+                "answer_kind_normalized_to_refusal": normalized_to_refusal,
             },
         )
         return AnswerResult(
@@ -279,3 +300,23 @@ class OpenAIResponsesGeneralParser(LlmResponseParser):
             answer_kind=answer_kind,
             provenance=AnswerProvenance.MODEL_KNOWLEDGE,
         )
+
+
+def _looks_like_refusal_text(answer_text: str) -> bool:
+    lowered = str(answer_text or "").strip().lower()
+    if not lowered:
+        return False
+    refusal_markers = (
+        "can't help",
+        "cannot help",
+        "can't assist",
+        "cannot assist",
+        "can't provide",
+        "cannot provide",
+        "self-harm",
+        "stay safe",
+        "deserve support",
+        "988",
+        "crisis",
+    )
+    return any(marker in lowered for marker in refusal_markers)

@@ -111,12 +111,19 @@ If repeated stability sweeps oscillate between green and blocked:
 - model-backed path: opt-in only until `beta_question_default` is explicitly approved
 - latest env-backed gate signal on `2026-03-27`: fresh smoke artifacts are green for both `llm_env` and `llm_env_strict`, but the latest candidate-specific repeated stability artifact is green only for `llm_env_strict` (`3/3`) while `llm_env` remains non-green
 - latest offline beta recommendation: `qa beta` currently prefers `llm_env_strict` on the `2026-03-27` artifacts because it keeps fallback disabled and is the only candidate with fresh green smoke plus stability
+- release-decision evidence on `2026-03-27`: `manual_beta_checklist.json`, `beta_release_review.json`, and `beta_readiness.json` are now all recorded for `llm_env_strict`, and `qa beta` sees the final readiness artifact as fresh/consistent
+- recommended opt-in usage path while default stays held: `scripts/run_qa_question_beta.sh llm_env_strict`
+- both question-mode launchers now pin their intended `JARVIS_QA_*` env, so parent-shell overrides do not silently drift the opt-in beta path or the stage-preview path
+- lower-friction question routing is also available now: with `JARVIS_QA_LLM_ENABLED=true` and `JARVIS_QA_LLM_OPEN_DOMAIN_ENABLED=true`, open-domain questions can use the model path without forcing `JARVIS_QA_BACKEND=llm`, while grounded questions remain local
+- latest post-hardening env-backed signal on `2026-03-27`: `llm_env_strict` is back to fresh green smoke, green one-off gate, and green repeated stability `3/3`
 - default switch: still held at product/stage level because the project remains `alpha_opt_in`
 
 ## After The Gate Turns Green
 - A green comparative gate plus a green repeated stability sweep means the rollout plumbing is no longer the blocker.
-- On `2026-03-27` that condition is currently true for `llm_env_strict`, and the manual verification checklist is already recorded as complete.
-- The next step is now release decisioning for that strict candidate: record latency/cost review, operator sign-off, and explicit product approval for `beta_question_default`.
+- On `2026-03-27` that condition is currently true for `llm_env_strict`, and the manual verification checklist, beta release review, and beta readiness artifacts are already recorded.
+- The next step is no longer more stage-8 evidence writing; it is a separate explicit product decision about rollout stage / `beta_question_default` / any later default-path discussion.
+- Until that product decision is made, use the explicit launcher `scripts/run_qa_question_beta.sh llm_env_strict` for real opt-in question-mode usage instead of pretending the product default already switched.
+- If you want to exercise the future question-default behavior itself before that decision, use `scripts/run_qa_question_stage_preview.sh beta_question_default`; this previews the stage-aware selector without changing the actual rollout stage.
 - `qa beta` is the offline CLI helper for this stage; it does not rerun smoke/gate/stability, but it reads the latest candidate-specific stability artifacts so neither a stale red rerun nor a stale green rerun masquerades as current rollout evidence.
 - `python3 -m qa.manual_beta_checklist` is the machine-readable manual checklist helper for this stage; it writes `tmp/qa/manual_beta_checklist.json` after the real scripted pass.
 - `python3 -m qa.beta_release_review` is the matching machine-readable release-review helper; it writes `tmp/qa/beta_release_review.json` after latency/cost review, operator sign-off, and product approval are explicitly recorded for one candidate profile, and it binds that review to the exact manual-checklist snapshot used during sign-off.
@@ -134,6 +141,7 @@ If repeated stability sweeps oscillate between green and blocked:
 - `qa beta` also prints `manual checklist pending items` and `release review pending checks`, so the remaining manual/review work is visible in the same offline summary that selects the recommended candidate.
 - `python3 -m qa.beta_readiness` mirrors those pending summaries in its own output and artifact, so the final release-decision record remains explicit about the unfinished manual/review work instead of collapsing everything into generic blockers.
 - Recorded beta readiness is freshness-aware on supporting evidence too: even if `tmp/qa/beta_readiness.json` itself is fresh, `qa beta` now rejects it once the latest manual checklist or release-review artifact has aged out of the freshness window.
+- `python3 -m qa.beta_readiness` now also notices when the current readiness artifact is already recorded and still consistent, so the read path stops suggesting a redundant `--write-artifact` while evidence remains current.
 - For incomplete supporting artifacts, `qa beta` now proposes incremental completion commands rather than always forcing a full rerun, so the operator can close only the remaining manual scenarios or review checks when the existing artifact is still fresh.
 - Freshness still gates that shortcut: once a partial supporting artifact is stale, `qa beta` deliberately falls back to the full rerun command because the old partial evidence is no longer valid to extend.
 - After a beta-readiness artifact exists, `qa beta` must still show it as fresh and consistent with the latest smoke/stability evidence; otherwise release decisioning has drifted and must be repeated before any `beta_question_default` discussion.

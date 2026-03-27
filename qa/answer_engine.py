@@ -146,7 +146,7 @@ def answer_question(
         runtime_snapshot=runtime_snapshot,
         debug_trace=debug_trace,
     )
-    backend = _resolve_backend(resolved_config.backend_kind)
+    backend = _resolve_backend(_backend_kind_for_question(question, resolved_config))
     answer_result = backend.answer(
         question,
         session_context=session_context,
@@ -181,6 +181,15 @@ def _resolve_answer_backend_config(
 ) -> AnswerBackendConfig:
     resolved_config = backend_config or load_answer_backend_config()
     return resolved_config.with_backend_kind(backend_kind)
+
+
+def _backend_kind_for_question(question: QuestionRequest, config: AnswerBackendConfig) -> AnswerBackendKind | str:
+    configured_backend = getattr(getattr(config, "backend_kind", None), "value", getattr(config, "backend_kind", None))
+    if str(configured_backend or "").strip() == AnswerBackendKind.LLM.value:
+        return config.backend_kind
+    if getattr(question, "question_type", None) == QuestionType.OPEN_DOMAIN_GENERAL and open_domain_general_enabled(config):
+        return AnswerBackendKind.LLM
+    return config.backend_kind
 
 
 def _looks_like_runtime_status_question(text: str) -> bool:

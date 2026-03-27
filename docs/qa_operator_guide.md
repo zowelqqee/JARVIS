@@ -25,10 +25,19 @@ Useful read-only helper commands:
 - `python3 -m qa.beta_release_review`
 - `python3 -m qa.beta_readiness`
 - `python3 -m qa.manual_beta_checklist`
+- explicit opt-in launcher for the recommended question-mode beta candidate:
+  - `scripts/run_qa_question_beta.sh llm_env_strict`
+- explicit stage-preview launcher for the future question-default rollout:
+  - `scripts/run_qa_question_stage_preview.sh beta_question_default`
+- both launchers pin their own question-mode env, so inherited `JARVIS_QA_*` shell overrides do not silently change the intended beta/preview behavior
+- direct hybrid question routing is now available too: with `JARVIS_QA_LLM_ENABLED=true` and `JARVIS_QA_LLM_OPEN_DOMAIN_ENABLED=true`, open-domain questions can use the model path even without `JARVIS_QA_BACKEND=llm`, while grounded questions stay local and command mode remains deterministic
+- plain interactive `python3 cli.py` now bootstraps those same hybrid question defaults automatically for local use, so users no longer need to export the two LLM question flags by hand before asking an open-domain question
 - `qa smoke` now prints the live-smoke artifact path/status and whether open-domain live verification is already present
+- `qa backend` now also prints `rollout stage`, `default question path`, and `backend selection source`, so the operator can tell whether question-mode backend selection came from the builtin alpha default, an explicit env override, or a future rollout-stage default
 - `qa gate` now prints an offline rollout-gate precheck for the current `llm_env` candidate config
 - `qa gate strict` does the same for `llm_env_strict` and prints the exact comparative gate command to run next
-- `qa beta` prints the offline beta-decision summary: current stage/default hold, candidate artifact readiness for both profiles, the current recommended beta candidate, and any recorded beta-readiness artifact state
+- `qa beta` prints the offline beta-decision summary: current stage/default hold, candidate artifact readiness for both profiles, the current recommended beta candidate, the explicit opt-in launch command for that candidate, and any recorded beta-readiness artifact state
+- once beta-readiness evidence is already current, `qa beta` also prints the stage-preview command for `beta_question_default`, so operators can try the future question-default path without changing the actual rollout stage
 - `qa checklist`, `qa release review`, and `qa readiness` now expose the same read-only release-decision helper summaries inside `python3 cli.py`, so stage 8 can be inspected from one shell surface without switching to `python3 -m ...`
 - `python3 -m qa.beta_release_review` is the machine-readable release-review helper for `beta_question_default`; it records candidate-specific latency review, cost review, operator sign-off, and product approval in `tmp/qa/beta_release_review.json`
 - `python3 -m qa.beta_readiness` builds the machine-readable beta-readiness record from the latest smoke/stability artifacts plus the recorded manual checklist and beta release-review artifacts; it stays offline, does not rerun the provider path, and no longer accepts manual/release-review shortcut flags
@@ -131,7 +140,11 @@ Current env-backed status (`2026-03-27`):
 - Same-day repeated sweeps still matter: `llm_env` remains non-green on its latest stability artifact, while `llm_env_strict` is back to green and now shows `3/3` gate passes.
 - `qa beta` reads those candidate-specific stability artifacts directly, so the operator sees the current status (`stability=green(3/3)` or `stability=failed(...)`) instead of relying on memory of an earlier rerun.
 - On the latest `2026-03-27` artifacts, `qa beta` currently recommends `llm_env_strict` as the cleaner beta candidate because it keeps deterministic fallback disabled and is the only candidate with fresh green smoke plus stability.
-- `tmp/qa/manual_beta_checklist.json` is now recorded and fresh (`7/7`), so the next explicit blocker is `tmp/qa/beta_release_review.json`, not manual verification.
+- `tmp/qa/manual_beta_checklist.json`, `tmp/qa/beta_release_review.json`, and `tmp/qa/beta_readiness.json` are now all recorded for `llm_env_strict`.
+- `qa beta` now reports that offline beta evidence is already recorded for explicit `beta_question_default` review; it no longer points back to a redundant readiness write while those artifacts stay fresh/consistent.
+- `python3 -m qa.beta_readiness` now mirrors that same already-recorded state on read, instead of continuing to suggest `--write-artifact` when the stored readiness artifact is still current.
+- For day-to-day opt-in usage, the recommended launcher is now explicit too: `scripts/run_qa_question_beta.sh llm_env_strict` starts `python3 cli.py` with open-domain question mode enabled and strict no-fallback behavior, while leaving the product default unchanged.
+- For future default-behavior preview, `scripts/run_qa_question_stage_preview.sh beta_question_default` starts `python3 cli.py` with the stage-aware question-default selector active, while command mode remains deterministic and the real product rollout stage stays untouched.
 - Even with a technically green latest signal, keep the project at `alpha_opt_in` and keep deterministic as the product default until `beta_question_default` is explicitly ready.
 
 Beta-readiness record:
@@ -151,6 +164,7 @@ Beta-readiness record:
 - These artifacts are operator-facing release-decision evidence only; they do not switch the default on their own.
 - Treat them like the technical rollout artifacts: if `qa beta` reports either supporting artifact as stale, re-record it before writing a new `tmp/qa/beta_readiness.json`.
 - If later `qa beta` reports that the recorded artifact is stale or inconsistent with the latest technical evidence, re-run the decision review instead of treating the old sign-off as valid.
+- On the current `2026-03-27` state this chain is already complete for `llm_env_strict`; the next real step is not another helper run but a separate rollout-stage/default-path decision.
 
 Open-domain mock harness:
 - `python3 -m evals.run_qa_eval --default-profile llm_open_domain_mock`

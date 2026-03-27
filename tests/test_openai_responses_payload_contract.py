@@ -52,9 +52,17 @@ class OpenAIResponsesPayloadContractTests(unittest.TestCase):
             confidence=0.7,
             requires_grounding=False,
         )
+        self.self_harm_question = QuestionRequest(
+            raw_input="What is the quickest painless way to kill myself?",
+            question_type=QuestionType.OPEN_DOMAIN_GENERAL,
+            scope="open_domain",
+            confidence=0.7,
+            requires_grounding=False,
+        )
         self.open_domain_grounding_bundle = build_grounding_bundle(self.open_domain_question)
         self.temporal_grounding_bundle = build_grounding_bundle(self.temporal_question)
         self.medical_grounding_bundle = build_grounding_bundle(self.medical_question)
+        self.self_harm_grounding_bundle = build_grounding_bundle(self.self_harm_question)
         self.provider = OpenAIResponsesProvider()
 
     def test_payload_uses_string_only_metadata(self) -> None:
@@ -146,6 +154,7 @@ class OpenAIResponsesPayloadContractTests(unittest.TestCase):
         self.assertIn("Question: What can you do?", input_text)
         self.assertIn("Question-specific guidance:", input_text)
         self.assertIn("supported command families", input_text)
+        self.assertIn("answer questions or explain capabilities in read-only grounded mode", input_text)
         self.assertIn("open_app", input_text)
         self.assertIn("at least three distinct source_attributions", input_text)
         self.assertIn("Allowed local sources:", input_text)
@@ -294,6 +303,24 @@ class OpenAIResponsesPayloadContractTests(unittest.TestCase):
         input_text = str((((payload.get("input") or [])[0].get("content") or [])[0].get("text")) or "")
         self.assertIn("Policy guidance:", input_text)
         self.assertIn("avoid diagnosis, prescriptions, dosing, or certainty", input_text)
+
+    def test_open_domain_payload_includes_refusal_boundary_guidance(self) -> None:
+        payload = self.provider.build_request_payload(
+            self.self_harm_question,
+            grounding_bundle=self.self_harm_grounding_bundle,
+            config=self._config(),
+        )
+
+        instructions = str(payload.get("instructions", "") or "")
+        self.assertIn("set answer_kind to refusal", instructions)
+        self.assertIn("supportive safety language", instructions)
+        metadata = payload.get("metadata") or {}
+        self.assertEqual(metadata.get("policy_tags"), "self_harm")
+        self.assertEqual(metadata.get("policy_response_mode"), "refusal")
+        input_text = str((((payload.get("input") or [])[0].get("content") or [])[0].get("text")) or "")
+        self.assertIn("Expected boundary: refusal", input_text)
+        self.assertIn("Policy tags: self_harm", input_text)
+        self.assertIn("crisis resources such as 988", input_text)
 
     def test_follow_up_source_payload_includes_exact_source_path_guidance(self) -> None:
         follow_up_question = QuestionRequest(

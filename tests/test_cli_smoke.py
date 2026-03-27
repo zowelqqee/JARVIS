@@ -23,6 +23,33 @@ class CliSmokeTests(unittest.TestCase):
         self.runtime_manager = MagicMock()
         self.session_context = MagicMock()
 
+    def test_cli_question_defaults_enable_hybrid_open_domain_when_unset(self) -> None:
+        env: dict[str, str] = {}
+
+        cli._apply_cli_question_defaults(env)
+        config = cli.load_answer_backend_config(environ=env)
+
+        self.assertEqual(getattr(config.backend_kind, "value", ""), "deterministic")
+        self.assertTrue(config.llm.enabled)
+        self.assertTrue(config.llm.open_domain_enabled)
+        self.assertEqual(getattr(config.llm.provider, "value", ""), "openai_responses")
+        self.assertTrue(config.llm.strict_mode)
+
+    def test_cli_question_defaults_preserve_explicit_user_overrides(self) -> None:
+        env = {
+            "JARVIS_QA_LLM_ENABLED": "false",
+            "JARVIS_QA_LLM_OPEN_DOMAIN_ENABLED": "false",
+            "JARVIS_QA_LLM_PROVIDER": "openai_responses",
+            "JARVIS_QA_LLM_STRICT_MODE": "false",
+        }
+
+        cli._apply_cli_question_defaults(env)
+        config = cli.load_answer_backend_config(environ=env)
+
+        self.assertFalse(config.llm.enabled)
+        self.assertFalse(config.llm.open_domain_enabled)
+        self.assertFalse(config.llm.strict_mode)
+
     def test_voice_aliases_capture_speech_before_runtime_dispatch(self) -> None:
         for command in ("voice", "/voice"):
             with self.subTest(command=command):
@@ -206,10 +233,15 @@ class CliSmokeTests(unittest.TestCase):
     def test_qa_helper_commands_are_intercepted_before_runtime(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             missing_artifact = str(Path(tmpdir) / "missing_live_smoke_artifact.json")
+            manual_artifact = Path(tmpdir) / "manual_beta_checklist.json"
+            release_review_artifact = Path(tmpdir) / "beta_release_review.json"
+            beta_readiness_artifact = Path(tmpdir) / "beta_readiness.json"
             with patch("cli._handle_runtime_input") as runtime_mock, patch(
                 "cli.load_answer_backend_config",
                 return_value=SimpleNamespace(
                     backend_kind="deterministic",
+                    rollout_stage="alpha_opt_in",
+                    backend_selection_source="builtin_default",
                     llm=SimpleNamespace(
                         provider="openai_responses",
                         enabled=False,
@@ -229,11 +261,23 @@ class CliSmokeTests(unittest.TestCase):
                     "JARVIS_QA_OPENAI_LIVE_ARTIFACT": missing_artifact,
                 },
                 clear=False,
+            ), patch(
+                "cli.manual_beta_checklist_artifact_path",
+                return_value=manual_artifact,
+            ), patch(
+                "cli.beta_release_review_artifact_path",
+                return_value=release_review_artifact,
+            ), patch(
+                "cli.beta_readiness_artifact_path",
+                return_value=beta_readiness_artifact,
             ):
                 should_exit, speak_enabled, backend_output = self._run_command("qa backend", speak_enabled=False)
                 self.assertFalse(should_exit)
                 self.assertFalse(speak_enabled)
                 self.assertIn("qa backend: deterministic", backend_output)
+                self.assertIn("rollout stage: alpha_opt_in", backend_output)
+                self.assertIn("default question path: deterministic", backend_output)
+                self.assertIn("backend selection source: builtin_default", backend_output)
                 self.assertIn("llm provider: openai_responses", backend_output)
 
                 should_exit, speak_enabled, model_output = self._run_command("qa model", speak_enabled=False)
@@ -605,6 +649,9 @@ class CliSmokeTests(unittest.TestCase):
                 ),
                 encoding="utf-8",
             )
+            manual_artifact = Path(tmpdir) / "manual_beta_checklist.json"
+            release_review_artifact = Path(tmpdir) / "beta_release_review.json"
+            beta_readiness_artifact = Path(tmpdir) / "beta_readiness.json"
 
             def _artifact_for_candidate(candidate_profile: str | None) -> Path:
                 if candidate_profile == "llm_env_strict":
@@ -625,6 +672,15 @@ class CliSmokeTests(unittest.TestCase):
             ), patch(
                 "cli.rollout_stability_artifact_path_for_candidate",
                 side_effect=_stability_for_candidate,
+            ), patch(
+                "cli.manual_beta_checklist_artifact_path",
+                return_value=manual_artifact,
+            ), patch(
+                "cli.beta_release_review_artifact_path",
+                return_value=release_review_artifact,
+            ), patch(
+                "cli.beta_readiness_artifact_path",
+                return_value=beta_readiness_artifact,
             ), patch(
                 "cli.load_answer_backend_config",
                 return_value=SimpleNamespace(
@@ -656,6 +712,7 @@ class CliSmokeTests(unittest.TestCase):
         self.assertIn("qa beta technical precheck: ready (llm_env, llm_env_strict)", beta_output)
         self.assertIn("qa beta latest stability evidence: clean (llm_env, llm_env_strict)", beta_output)
         self.assertIn("qa beta recommended candidate: llm_env_strict", beta_output)
+        self.assertIn("qa beta launch command: scripts/run_qa_question_beta.sh llm_env_strict", beta_output)
         self.assertIn("qa beta manual checklist artifact:", beta_output)
         self.assertIn("qa beta manual checklist pending items:", beta_output)
         self.assertIn("qa beta manual checklist helper command: qa checklist", beta_output)
@@ -2036,8 +2093,13 @@ class CliSmokeTests(unittest.TestCase):
             "qa beta recorded checks: manual=yes, review=yes, latency=yes, cost=yes, signoff=yes, approval=yes",
             beta_output,
         )
+        self.assertIn("qa beta launch command: scripts/run_qa_question_beta.sh llm_env_strict", beta_output)
         self.assertIn(
             "qa beta decision: recorded as ready for explicit beta_question_default review; default remains unchanged",
+            beta_output,
+        )
+        self.assertIn(
+            "qa beta stage preview command: scripts/run_qa_question_stage_preview.sh beta_question_default",
             beta_output,
         )
         self.assertIn(

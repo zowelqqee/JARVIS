@@ -6,12 +6,12 @@ import argparse
 import hashlib
 import json
 import os
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Mapping
 
-from qa.answer_config import load_answer_backend_config
+from qa.answer_config import load_answer_backend_config, rollout_default_path_label
 from qa.beta_release_review import (
     beta_release_review_artifact_consistency,
     beta_release_review_pending_checks,
@@ -40,10 +40,6 @@ from qa.rollout_profiles import (
 
 _ARTIFACT_MAX_AGE_HOURS = 24.0
 _CANDIDATE_PROFILES = ("llm_env", "llm_env_strict")
-_STAGE = "alpha_opt_in"
-_DEFAULT_PATH = "deterministic"
-
-
 @dataclass(slots=True, frozen=True)
 class BetaCandidateState:
     """Offline readiness state for one beta-candidate profile."""
@@ -224,6 +220,8 @@ def build_beta_readiness_record(
     if chosen_candidate is not None and chosen_candidate not in _CANDIDATE_PROFILES:
         raise ValueError(f"Unsupported beta candidate profile: {candidate_profile!r}.")
     env = dict(os.environ if environ is None else environ)
+    config = load_answer_backend_config(environ=env)
+    rollout_stage = str(getattr(config, "rollout_stage", "alpha_opt_in") or "alpha_opt_in")
     candidate_states = [build_beta_candidate_state(candidate, environ=env) for candidate in _CANDIDATE_PROFILES]
     (
         manual_artifact_path,
@@ -378,8 +376,8 @@ def build_beta_readiness_record(
         release_review_command=release_review_command,
     )
     return BetaReadinessRecord(
-        stage=_STAGE,
-        default_path=_DEFAULT_PATH,
+        stage=rollout_stage,
+        default_path=rollout_default_path_label(rollout_stage),
         recommended_candidate=recommended_candidate,
         chosen_candidate=effective_candidate,
         candidate_selection_source=candidate_selection_source,
@@ -634,6 +632,8 @@ def main(argv: list[str] | None = None) -> int:
         candidate_profile=args.candidate_profile,
         notes=str(args.notes or "").strip() or None,
     )
+    if not args.write_artifact:
+        record = _with_current_beta_readiness_artifact_status(record)
     if args.write_artifact:
         if not record.beta_ready:
             print(format_beta_readiness_record(record))
@@ -772,6 +772,32 @@ def _beta_release_review_check_completed(
     return bool(check_state.get("completed", False))
 
 
+def _with_current_beta_readiness_artifact_status(record: BetaReadinessRecord) -> BetaReadinessRecord:
+    if record.next_step_kind != "write_beta_readiness_artifact" or not record.beta_ready or not record.chosen_candidate:
+        return record
+    artifact_path = beta_readiness_artifact_path()
+    artifact_payload, artifact_error = _load_json_artifact(artifact_path)
+    if _beta_readiness_artifact_status(artifact_payload=artifact_payload, artifact_error=artifact_error) != "ready":
+        return record
+    _artifact_age_hours, artifact_fresh, _artifact_reason = _artifact_freshness(artifact_payload)
+    if artifact_fresh is not True:
+        return record
+    if not _beta_readiness_artifact_matches_record(
+        artifact_payload=artifact_payload,
+        record=record,
+    ):
+        return record
+    return replace(
+        record,
+        next_step_kind="beta_readiness_artifact_already_recorded",
+        next_step_reason=(
+            f"current beta readiness artifact is already recorded at {artifact_path} "
+            "and remains consistent with the latest evidence"
+        ),
+        next_step_command=None,
+    )
+
+
 def _load_json_artifact(artifact_path: Path) -> tuple[dict[str, Any] | None, str | None]:
     if not artifact_path.exists():
         return None, None
@@ -782,6 +808,84 @@ def _load_json_artifact(artifact_path: Path) -> tuple[dict[str, Any] | None, str
     if not isinstance(payload, dict):
         return None, "ValueError: artifact must be a JSON object."
     return payload, None
+
+
+def _beta_readiness_artifact_status(
+    *,
+    artifact_payload: dict[str, object] | None,
+    artifact_error: str | None,
+) -> str:
+    if artifact_error is not None:
+        return "invalid"
+    if artifact_payload is None:
+        return "missing"
+    report = artifact_payload.get("report")
+    if not isinstance(report, dict):
+        return "invalid"
+    if bool(report.get("beta_ready")):
+        return "ready"
+    return "blocked"
+
+
+def _beta_readiness_artifact_matches_record(
+    *,
+    artifact_payload: dict[str, object] | None,
+    record: BetaReadinessRecord,
+) -> bool:
+    if artifact_payload is None or not record.chosen_candidate:
+        return False
+    report = dict(artifact_payload.get("report", {}) or {})
+    if str(report.get("candidate_selection_source", "") or "").strip() != "explicit":
+        return False
+    if str(report.get("chosen_candidate", "") or "").strip() != record.chosen_candidate:
+        return False
+    if str(report.get("manual_checklist_artifact_sha256", "") or "").strip() != str(
+        record.manual_checklist_artifact_sha256 or ""
+    ):
+        return False
+    if str(report.get("manual_checklist_artifact_created_at", "") or "").strip() != str(
+        record.manual_checklist_artifact_created_at or ""
+    ):
+        return False
+    if str(report.get("release_review_artifact_sha256", "") or "").strip() != str(
+        record.release_review_artifact_sha256 or ""
+    ):
+        return False
+    if str(report.get("release_review_artifact_created_at", "") or "").strip() != str(
+        record.release_review_artifact_created_at or ""
+    ):
+        return False
+    current_candidate_state = next(
+        (
+            candidate_state
+            for candidate_state in record.candidate_states
+            if candidate_state.candidate_profile == record.chosen_candidate
+        ),
+        None,
+    )
+    if current_candidate_state is None:
+        return False
+    recorded_candidate_states = dict(report.get("candidate_states", {}) or {})
+    recorded_candidate_state = dict(recorded_candidate_states.get(record.chosen_candidate, {}) or {})
+    if not recorded_candidate_state:
+        return False
+    if str(recorded_candidate_state.get("smoke_artifact_sha256", "") or "").strip() != str(
+        current_candidate_state.smoke_artifact_sha256 or ""
+    ):
+        return False
+    if str(recorded_candidate_state.get("smoke_artifact_created_at", "") or "").strip() != str(
+        current_candidate_state.smoke_artifact_created_at or ""
+    ):
+        return False
+    if str(recorded_candidate_state.get("stability_artifact_sha256", "") or "").strip() != str(
+        current_candidate_state.stability_artifact_sha256 or ""
+    ):
+        return False
+    if str(recorded_candidate_state.get("stability_artifact_created_at", "") or "").strip() != str(
+        current_candidate_state.stability_artifact_created_at or ""
+    ):
+        return False
+    return True
 
 
 def _artifact_freshness(artifact_payload: dict[str, object] | None) -> tuple[float | None, bool | None, str | None]:

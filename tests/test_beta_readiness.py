@@ -6,7 +6,8 @@ import json
 import tempfile
 import unittest
 import io
-from contextlib import redirect_stderr
+import os
+from contextlib import redirect_stderr, redirect_stdout
 from datetime import datetime, timezone
 from pathlib import Path
 from unittest.mock import patch
@@ -316,6 +317,33 @@ class BetaReadinessTests(unittest.TestCase):
 
         self.assertEqual(raised.exception.code, 2)
 
+    def test_main_reports_current_recorded_beta_readiness_artifact(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            self._write_candidate_artifacts(tmpdir, "llm_env", fallback_enabled=True)
+            self._write_candidate_artifacts(tmpdir, "llm_env_strict", fallback_enabled=False)
+            self._write_manual_artifact(tmpdir, all_passed=True)
+            self._write_release_review_artifact(tmpdir, candidate_profile="llm_env_strict", all_completed=True)
+            artifact_path = Path(tmpdir) / "beta_readiness.json"
+            with self._patch_candidate_paths(tmpdir):
+                record = build_beta_readiness_record(
+                    candidate_profile="llm_env_strict",
+                    environ=self._env(),
+                )
+                write_beta_readiness_artifact(record, artifact_path=artifact_path)
+                stdout = io.StringIO()
+                with patch.dict(os.environ, self._env(), clear=False):
+                    with redirect_stdout(stdout):
+                        exit_code = main([])
+
+        text = stdout.getvalue()
+        self.assertEqual(exit_code, 0)
+        self.assertIn("next step: beta_readiness_artifact_already_recorded", text)
+        self.assertIn(
+            f"next step reason: current beta readiness artifact is already recorded at {artifact_path} and remains consistent with the latest evidence",
+            text,
+        )
+        self.assertIn("next step command: n/a", text)
+
     def test_write_beta_readiness_artifact_rejects_blocked_record(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             self._write_candidate_artifacts(tmpdir, "llm_env", fallback_enabled=True)
@@ -436,6 +464,7 @@ class BetaReadinessTests(unittest.TestCase):
             rollout_stability_artifact_path_for_candidate=lambda candidate_profile: stability_paths[candidate_profile],
             manual_beta_checklist_artifact_path=lambda: manual_path,
             beta_release_review_artifact_path=lambda: release_review_path,
+            beta_readiness_artifact_path=lambda: Path(tmpdir) / "beta_readiness.json",
         )
 
 

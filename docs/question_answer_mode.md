@@ -3,13 +3,13 @@
 ## Purpose
 Define the read-only question-answer mode that lets JARVIS answer user questions without executing desktop actions.
 
-Current shipped/default state:
-- grounded local answers only
-- explicit local sources for docs/runtime/session/repo questions
-- no open-domain GPT answering as the default product path yet
+Current interactive CLI state:
+- grounded local answers remain the default path for docs/runtime/session/repo questions
+- plain `python3 cli.py` now bootstraps hybrid question defaults, so open-domain questions can use the model path when the provider is available
+- command mode remains separate and deterministic
 
 Planned expansion direction:
-- broader GPT-backed answers under the same top-level `question` mode
+- broader GPT-backed answers under the same top-level `question` mode across wider rollout stages, not only the local interactive CLI bootstrap
 - still read-only
 - still separate from `command`
 - still subject to explicit provenance and safety boundaries

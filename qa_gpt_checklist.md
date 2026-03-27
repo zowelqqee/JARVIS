@@ -21,7 +21,7 @@
 - recommended beta candidate: `llm_env_strict`
 - technical env-backed evidence: есть и снова fresh для `llm_env_strict`
 - manual beta checklist evidence: есть
-- final release evidence: ещё нет
+- final release evidence: есть
 
 Что уже закрыто:
 - open-domain / grounded / safety / eval / rollout gate слой реализован
@@ -35,19 +35,31 @@
   - final artifacts требуют explicit candidate choice
   - stale / drifted artifacts честно блокируются
 - real scripted manual beta pass уже записан в `tmp/qa/manual_beta_checklist.json` (`7/7`, fresh)
+- real `beta_release_review.json` уже записан для `llm_env_strict`
+- real `beta_readiness.json` уже записан для `llm_env_strict`
+- `qa beta` уже видит recorded readiness как fresh/consistent и больше не ведёт в фиктивный повторный write
+- для реального opt-in использования теперь есть явный launcher `scripts/run_qa_question_beta.sh llm_env_strict`, так что question-mode beta можно запускать без ручного набора env и без fake default switch
+- для preview будущего `beta_question_default` теперь есть отдельный launcher `scripts/run_qa_question_stage_preview.sh beta_question_default`, который включает stage-aware question default без реального rollout switch
+- оба launcher'а теперь пинят свой `JARVIS_QA_*` env, так что inherited shell overrides больше не могут тихо изменить intended beta/preview path
+- direct hybrid question routing тоже работает: при `JARVIS_QA_LLM_ENABLED=true` и `JARVIS_QA_LLM_OPEN_DOMAIN_ENABLED=true` open-domain вопросы уже идут в model path даже без явного `JARVIS_QA_BACKEND=llm`, а grounded questions остаются локальными
+- после refusal/capabilities hardening `llm_env_strict` снова имеет fresh green smoke + gate + repeated stability `3/3`
+- обычный `python3 cli.py` теперь bootstrap'ит hybrid question defaults сам, так что open-domain вопрос в interactive CLI больше не требует ручных LLM env exports
 
-Главный остаток сейчас не инженерный, а операционный.
+Главный остаток сейчас не инженерный и уже не внутри stage 8: это отдельное rollout/product decision по `beta_question_default`.
 
 ## Что Осталось
 
-### 1. Подтвердить, что technical evidence всё ещё актуален
+### 1. Подтвердить, что recorded evidence всё ещё актуален
 
-Перед release sign-off нужно проверить, что `qa beta` всё ещё показывает:
+Перед любым отдельным rollout/default discussion нужно проверить, что `qa beta` всё ещё показывает:
 - `qa beta technical precheck: ready`
 - `qa beta recommended candidate: llm_env_strict`
 - `candidate llm_env_strict: ... stability=green(3/3) ...`
 - `qa beta manual checklist artifact: ... complete(7/7) ...`
-- `qa beta release review artifact: ... missing`
+- `qa beta release review artifact: ... complete(4/4) ...`
+- `qa beta decision artifact: ... ready`
+- `qa beta decision artifact consistent with latest evidence: yes`
+- `qa beta decision: recorded as ready for explicit beta_question_default review; default remains unchanged`
 
 Команда:
 
@@ -58,12 +70,10 @@ JARVIS_QA_LLM_OPEN_DOMAIN_ENABLED=true \
 python3 -c "import cli; cli._print_qa_beta()"
 ```
 
-Если technical artifacts уже stale/missing/red, это не release-review step, а возврат к rollout verification:
+Если supporting artifacts уже stale/missing/red, это не product-decision step, а возврат к rollout verification:
 - rerun live smoke
 - rerun gate
 - rerun stability
-
-До этого manual/release sign-off записывать нельзя.
 
 ### 2. Реально пройти manual beta checklist
 
@@ -90,22 +100,18 @@ python3 -m qa.manual_beta_checklist --all-passed --write-artifact
 
 ### 3. Реально записать beta release review
 
-Нужно реально подтвердить:
+Статус на `2026-03-27`: `done`.
+
+Были реально подтверждены:
 - latency review
 - cost review
 - operator sign-off
 - product approval
 
-После реального подтверждения записать artifact:
+Записанный artifact:
 
-```bash
-python3 -m qa.beta_release_review \
-  --candidate-profile llm_env_strict \
-  --latency-reviewed \
-  --cost-reviewed \
-  --operator-signoff \
-  --product-approval \
-  --write-artifact
+```text
+tmp/qa/beta_release_review.json
 ```
 
 Что это означает по факту:
@@ -114,29 +120,21 @@ python3 -m qa.beta_release_review \
 - это уже не transient state, а recorded evidence
 - helper `python3 -m qa.beta_release_review` теперь тоже показывает checklist guide command / verification doc / pending scenario guide, если релиз-review упирается в незакрытый manual checklist
 
-Ожидаемый artifact:
-
-```text
-tmp/qa/beta_release_review.json
-```
-
 ### 4. Записать финальный beta readiness artifact
 
-Только после двух предыдущих шагов:
+Статус на `2026-03-27`: `done`.
 
-```bash
-python3 -m qa.beta_readiness --candidate-profile llm_env_strict --write-artifact
+Записанный artifact:
+
+```text
+tmp/qa/beta_readiness.json
 ```
 
 Что это означает:
 - выбран beta candidate
 - technical evidence, manual checklist и release review сведены в единый decision record
-
-Ожидаемый artifact:
-
-```text
-tmp/qa/beta_readiness.json
-```
+- `qa beta` уже видит этот record как fresh/consistent
+- `python3 -m qa.beta_readiness` теперь тоже не предлагает лишний rewrite, если current readiness artifact уже записан и остаётся актуальным
 
 ### 5. Принять решение по `beta_question_default`
 
@@ -153,14 +151,14 @@ tmp/qa/beta_readiness.json
 
 `qa_gpt` можно считать release-ready только если одновременно выполнено всё ниже:
 
-- [ ] `qa beta` показывает актуальный technical-ready signal
+- [x] `qa beta` показывает актуальный technical-ready signal
 - [x] recommended candidate остаётся `llm_env_strict`
 - [x] `tmp/qa/manual_beta_checklist.json` существует и fresh
-- [ ] `tmp/qa/beta_release_review.json` существует и fresh
-- [ ] `tmp/qa/beta_readiness.json` существует
-- [ ] `qa beta` не считает recorded artifacts stale/inconsistent
-- [ ] есть реальный operator sign-off
-- [ ] есть реальный product approval для `beta_question_default`
+- [x] `tmp/qa/beta_release_review.json` существует и fresh
+- [x] `tmp/qa/beta_readiness.json` существует
+- [x] `qa beta` не считает recorded artifacts stale/inconsistent
+- [x] есть реальный operator sign-off
+- [x] есть реальный product approval для `beta_question_default`
 
 ## Что Не Делать
 
@@ -181,34 +179,15 @@ JARVIS_QA_LLM_OPEN_DOMAIN_ENABLED=true \
 python3 -c "import cli; cli._print_qa_beta()"
 ```
 
-2. Если technical evidence всё ещё green, пройти manual checklist:
+2. Убедиться, что recorded artifacts всё ещё fresh/consistent:
+   - `tmp/qa/manual_beta_checklist.json`
+   - `tmp/qa/beta_release_review.json`
+   - `tmp/qa/beta_readiness.json`
 
-```bash
-python3 -m qa.manual_beta_checklist --all-passed --write-artifact
-```
+3. Если один из artifacts уже stale/red, сначала освежить evidence, а не спорить про rollout.
 
-Статус: уже сделано на `2026-03-27`, повторять не нужно, пока artifact остаётся fresh.
-
-3. После реального review записать release review:
-
-```bash
-python3 -m qa.beta_release_review \
-  --candidate-profile llm_env_strict \
-  --latency-reviewed \
-  --cost-reviewed \
-  --operator-signoff \
-  --product-approval \
-  --write-artifact
-```
-
-4. Затем записать финальный readiness artifact:
-
-```bash
-python3 -m qa.beta_readiness --candidate-profile llm_env_strict --write-artifact
-```
-
-5. После этого отдельно принять решение по `beta_question_default`.
+4. После этого отдельно принять решение по `beta_question_default`.
 
 ## Итог В Одной Фразе
 
-До полноценного `qa_gpt` осталось не дописывать систему, а честно закрыть recorded release review / beta readiness evidence и явное beta approval для `llm_env_strict`.
+До полноценного `qa_gpt` осталось не дописывать систему и уже не добивать stage-8 artifacts, а отдельно решить rollout/stage/default conversation поверх уже записанного beta-ready evidence для `llm_env_strict`.

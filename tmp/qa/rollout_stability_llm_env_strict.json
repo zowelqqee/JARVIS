@@ -1,10 +1,12 @@
 {
-  "created_at": "2026-03-27T16:35:10.021716+00:00",
+  "created_at": "2026-03-27T20:00:43.971006+00:00",
   "report": {
     "baseline_profile": "deterministic",
     "blocker_counts": {},
     "candidate_profile": "llm_env_strict",
-    "failed_case_counts": {},
+    "failed_case_counts": {
+      "route_safety_question": 1
+    },
     "fallback_case_counts": {},
     "gate_passes": 3,
     "runs": [
@@ -28,7 +30,9 @@
         "answer_total": 19,
         "blockers": [],
         "default_switch_allowed": true,
-        "failed_case_ids": [],
+        "failed_case_ids": [
+          "route_safety_question"
+        ],
         "fallback_case_ids": [],
         "fallback_total": 0,
         "grounding_passed": 12,

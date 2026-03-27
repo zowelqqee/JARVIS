@@ -94,8 +94,10 @@ def _question_guidance_section(question: QuestionRequest, *, grounding_bundle: G
         guidance_lines.extend(
             [
                 "Answer broad capability questions with enough grounded coverage to mention supported command families, question scope, and major limits.",
+                "Include the exact phrase supported command families when the capability bundle covers broad command coverage.",
                 "Name concrete command intent identifiers such as open_app, open_file, search_local, or prepare_workspace when the capability catalog is available in the bundle.",
                 "Make it explicit that question-answer mode is read-only, grounded, and separate from command execution.",
+                "Explicitly mention that you answer questions or explain capabilities in read-only grounded mode, not by executing tasks.",
                 "When multiple allowed sources each support a different capability claim, cite each materially relevant source instead of collapsing to one or two citations.",
                 "If the allowed bundle spans capability metadata, product rules, question-mode docs, and command-model docs, broad capability answers should usually cite each of those source families.",
                 "When that broad capabilities bundle is present, keep at least three distinct source_attributions in the grounded answer.",

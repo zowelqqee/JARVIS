@@ -7,6 +7,7 @@ import os
 import re
 import subprocess
 import hashlib
+from collections.abc import MutableMapping
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -34,14 +35,16 @@ from qa.manual_beta_checklist import (
     manual_beta_checklist_suggested_args,
     manual_beta_checklist_status,
 )
-from qa.answer_config import load_answer_backend_config
+from qa.answer_config import load_answer_backend_config, rollout_default_path_label
 from qa.rollout_profiles import (
     beta_release_review_artifact_path,
     beta_readiness_artifact_path,
     live_smoke_artifact_path_for_candidate,
     manual_beta_checklist_artifact_path,
     rollout_compare_command,
+    rollout_launch_command,
     rollout_smoke_command,
+    rollout_stage_preview_command,
     rollout_stability_artifact_path_for_candidate,
 )
 from runtime.runtime_manager import RuntimeManager
@@ -87,7 +90,7 @@ _LIVE_SMOKE_ARTIFACT_MAX_AGE_HOURS = 24.0
 def main() -> int:
     """Run a small REPL over the current supervised runtime."""
     runtime_manager = RuntimeManager()
-    interaction_manager = InteractionManager(runtime_manager=runtime_manager)
+    interaction_manager = _build_default_interaction_manager(runtime_manager)
     session_context = SessionContext()
     speak_enabled = False
 
@@ -279,12 +282,31 @@ def _handle_runtime_input(
     interaction_manager: InteractionManager | None = None,
 ) -> None:
     """Run one text input through the dual-mode interaction layer and print the visible result."""
-    active_interaction_manager = interaction_manager or InteractionManager(runtime_manager=runtime_manager)
+    active_interaction_manager = interaction_manager or _build_default_interaction_manager(runtime_manager)
     result = active_interaction_manager.handle_input(raw_input, session_context=session_context)
     for line in interaction_output_lines(result):
         print(line)
     if speak_enabled:
         _speak_message(interaction_speech_message(result))
+
+
+def _apply_cli_question_defaults(environ: MutableMapping[str, str] | None = None) -> MutableMapping[str, str]:
+    """Enable the plain CLI question-mode defaults unless the user already overrode them."""
+    env = os.environ if environ is None else environ
+    env.setdefault("JARVIS_QA_LLM_ENABLED", "true")
+    env.setdefault("JARVIS_QA_LLM_OPEN_DOMAIN_ENABLED", "true")
+    env.setdefault("JARVIS_QA_LLM_PROVIDER", "openai_responses")
+    env.setdefault("JARVIS_QA_LLM_STRICT_MODE", "true")
+    return env
+
+
+def _build_default_interaction_manager(runtime_manager: RuntimeManager) -> InteractionManager:
+    """Build the default interactive CLI manager with question-mode defaults applied."""
+    env = _apply_cli_question_defaults()
+    return InteractionManager(
+        runtime_manager=runtime_manager,
+        answer_backend_config=load_answer_backend_config(environ=env),
+    )
 
 
 def _speak_message(message: str | None) -> None:
@@ -304,7 +326,14 @@ def _speak_message(message: str | None) -> None:
 def _print_qa_backend() -> None:
     """Print the current QA backend selection without mutating runtime state."""
     config = load_answer_backend_config()
+    rollout_stage = str(getattr(config, "rollout_stage", "alpha_opt_in") or "alpha_opt_in")
     print(f"qa backend: {getattr(config.backend_kind, 'value', config.backend_kind)}")
+    print(f"rollout stage: {rollout_stage}")
+    print(f"default question path: {rollout_default_path_label(rollout_stage)}")
+    print(
+        "backend selection source: "
+        f"{getattr(config, 'backend_selection_source', 'builtin_default')}"
+    )
     print(f"llm provider: {getattr(config.llm.provider, 'value', config.llm.provider)}")
     print(f"llm enabled: {'on' if config.llm.enabled else 'off'}")
     print(f"llm fallback: {'on' if config.llm.fallback_enabled else 'off'}")
@@ -377,6 +406,7 @@ def _print_qa_gate(*, strict_candidate: bool = False) -> None:
 def _print_qa_beta() -> None:
     """Print an offline beta-decision summary without triggering networked evals."""
     config = load_answer_backend_config()
+    rollout_stage = str(getattr(config, "rollout_stage", "alpha_opt_in") or "alpha_opt_in")
     candidate_profiles = ("llm_env", "llm_env_strict")
     candidate_prechecks = [_candidate_gate_precheck(candidate, config=config) for candidate in candidate_profiles]
     ready_candidates = [str(precheck["candidate_profile"]) for precheck in candidate_prechecks if not precheck["blockers"]]
@@ -442,8 +472,8 @@ def _print_qa_beta() -> None:
         beta_artifact_payload
     )
     recommended_candidate: str | None = None
-    print("qa beta stage: alpha_opt_in")
-    print("qa beta default path: deterministic")
+    print(f"qa beta stage: {rollout_stage}")
+    print(f"qa beta default path: {rollout_default_path_label(rollout_stage)}")
     if len(ready_candidates) == len(candidate_prechecks):
         print(f"qa beta technical precheck: ready ({', '.join(ready_candidates)})")
     else:
@@ -544,6 +574,8 @@ def _print_qa_beta() -> None:
         recommended_candidate=recommended_candidate,
     )
     print(f"qa beta recommended candidate: {recommended_candidate or 'none'}")
+    if recommended_candidate is not None:
+        print(f"qa beta launch command: {rollout_launch_command(recommended_candidate)}")
     print(
         "qa beta manual checklist artifact: "
         f"{manual_checklist_artifact_path} "
@@ -613,6 +645,7 @@ def _print_qa_beta() -> None:
     )
     if beta_artifact_ready_current:
         print("qa beta decision: recorded as ready for explicit beta_question_default review; default remains unchanged")
+        print(f"qa beta stage preview command: {rollout_stage_preview_command('beta_question_default')}")
     elif beta_artifact_status == "ready":
         print("qa beta decision: recorded beta readiness is stale against latest evidence; review must be repeated")
     else:

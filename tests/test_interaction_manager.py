@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import unittest
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -222,6 +223,48 @@ class InteractionManagerTests(unittest.TestCase):
         self.assertEqual((recent_answer_context or {}).get("topic"), "open_domain_general")
         self.assertEqual((recent_answer_context or {}).get("scope"), "open_domain")
         self.assertEqual((recent_answer_context or {}).get("sources"), [])
+
+    def test_beta_question_default_stage_can_answer_open_domain_without_explicit_backend_override(self) -> None:
+        with patch.dict(
+            os.environ,
+            {
+                "JARVIS_QA_ROLLOUT_STAGE": "beta_question_default",
+                "OPENAI_API_KEY": "test-key",
+            },
+            clear=False,
+        ), patch.dict(
+            "qa.llm_backend._PROVIDERS",
+            {LlmProviderKind.OPENAI_RESPONSES: _FakeOpenDomainProvider()},
+            clear=False,
+        ):
+            manager = InteractionManager()
+            result = manager.handle_input("Who is Ada Lovelace?", session_context=self.session_context)
+
+        self.assertEqual(getattr(result.interaction_mode, "value", ""), "question")
+        self.assertIsNotNone(result.answer_result)
+        self.assertEqual(getattr(result.answer_result, "answer_kind", ""), "open_domain_model")
+        self.assertEqual((result.metadata or {}).get("answer_backend"), "llm")
+
+    def test_hybrid_open_domain_flags_can_answer_without_explicit_backend_override(self) -> None:
+        manager = InteractionManager(
+            answer_backend_config=AnswerBackendConfig(
+                backend_kind=AnswerBackendKind.DETERMINISTIC,
+                llm=LlmBackendConfig(
+                    enabled=True,
+                    provider=LlmProviderKind.OPENAI_RESPONSES,
+                    open_domain_enabled=True,
+                    fallback_enabled=True,
+                ),
+            )
+        )
+
+        with patch.dict("qa.llm_backend._PROVIDERS", {LlmProviderKind.OPENAI_RESPONSES: _FakeOpenDomainProvider()}, clear=False):
+            result = manager.handle_input("Who is Ada Lovelace?", session_context=self.session_context)
+
+        self.assertEqual(getattr(result.interaction_mode, "value", ""), "question")
+        self.assertIsNotNone(result.answer_result)
+        self.assertEqual(getattr(result.answer_result, "answer_kind", ""), "open_domain_model")
+        self.assertEqual((result.metadata or {}).get("answer_backend"), "llm")
 
 
 if __name__ == "__main__":
