@@ -224,6 +224,27 @@ class InteractionManagerTests(unittest.TestCase):
         self.assertEqual((recent_answer_context or {}).get("scope"), "open_domain")
         self.assertEqual((recent_answer_context or {}).get("sources"), [])
 
+    def test_russian_quantitative_open_domain_question_routes_to_model_answer(self) -> None:
+        manager = InteractionManager(
+            answer_backend_config=AnswerBackendConfig(
+                backend_kind=AnswerBackendKind.LLM,
+                llm=LlmBackendConfig(
+                    enabled=True,
+                    provider=LlmProviderKind.OPENAI_RESPONSES,
+                    open_domain_enabled=True,
+                    fallback_enabled=False,
+                ),
+            )
+        )
+
+        with patch.dict("qa.llm_backend._PROVIDERS", {LlmProviderKind.OPENAI_RESPONSES: _FakeOpenDomainProvider()}, clear=False):
+            result = manager.handle_input("Сколько планет во вселенной", session_context=self.session_context)
+
+        self.assertEqual(getattr(result.interaction_mode, "value", ""), "question")
+        self.assertIsNotNone(result.answer_result)
+        self.assertIsNone(result.error)
+        self.assertEqual(getattr(result.answer_result, "answer_kind", ""), "open_domain_model")
+
     def test_beta_question_default_stage_can_answer_open_domain_without_explicit_backend_override(self) -> None:
         with patch.dict(
             os.environ,

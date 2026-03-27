@@ -33,6 +33,12 @@ class AnswerEngineTests(unittest.TestCase):
         self.assertEqual(getattr(question.question_type, "value", ""), "capabilities")
         self.assertEqual(question.scope, "capabilities")
 
+    def test_russian_capability_question_routes_to_capabilities_family(self) -> None:
+        question = classify_question("Что ты умеешь?")
+
+        self.assertEqual(getattr(question.question_type, "value", ""), "capabilities")
+        self.assertEqual(question.scope, "capabilities")
+
     def test_capability_answer_mentions_command_support(self) -> None:
         result = answer_question("What can you do?")
 
@@ -51,6 +57,11 @@ class AnswerEngineTests(unittest.TestCase):
 
     def test_blocked_state_question_routes_to_blocked_state_family(self) -> None:
         question = classify_question("What exactly do you need me to confirm?")
+
+        self.assertEqual(getattr(question.question_type, "value", ""), "blocked_state")
+
+    def test_russian_blocked_state_question_routes_to_blocked_state_family(self) -> None:
+        question = classify_question("Что именно тебе нужно подтвердить?")
 
         self.assertEqual(getattr(question.question_type, "value", ""), "blocked_state")
 
@@ -180,6 +191,12 @@ class AnswerEngineTests(unittest.TestCase):
         self.assertIn("Clarification", result.answer_text)
         self.assertGreaterEqual(len(result.sources), 2)
         self.assertIn("Clarification rules define", result.source_attributions[0].support)
+
+    def test_russian_docs_rule_question_is_grounded(self) -> None:
+        question = classify_question("Как работает уточнение?")
+
+        self.assertEqual(getattr(question.question_type, "value", ""), "docs_rules")
+        self.assertEqual(question.scope, "docs")
 
     def test_repo_structure_answer_points_to_planner_file(self) -> None:
         result = answer_question("Where is the planner?")

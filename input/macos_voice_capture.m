@@ -162,16 +162,50 @@ static BOOL request_microphone_authorization(NSTimeInterval timeout, NSString **
     return NO;
 }
 
-static SFSpeechRecognizer *build_command_recognizer(void) {
-    NSLocale *english_locale = [NSLocale localeWithLocaleIdentifier:@"en-US"];
-    SFSpeechRecognizer *english_recognizer = [[SFSpeechRecognizer alloc] initWithLocale:english_locale];
-    if (english_recognizer != nil && english_recognizer.available) {
-        return english_recognizer;
+static NSArray<NSString *> *parse_preferred_locale_identifiers(NSString *raw_value) {
+    if (raw_value.length == 0) {
+        return @[];
     }
 
-    NSLocale *current_locale = [NSLocale currentLocale];
-    SFSpeechRecognizer *current_recognizer = [[SFSpeechRecognizer alloc] initWithLocale:current_locale];
-    if (current_recognizer != nil && current_recognizer.available) {
+    NSMutableArray<NSString *> *identifiers = [NSMutableArray array];
+    NSMutableSet<NSString *> *seen = [NSMutableSet set];
+    NSCharacterSet *whitespace = [NSCharacterSet whitespaceAndNewlineCharacterSet];
+
+    for (NSString *component in [raw_value componentsSeparatedByString:@","]) {
+        NSString *identifier = [component stringByTrimmingCharactersInSet:whitespace];
+        if (identifier.length == 0 || [seen containsObject:identifier]) {
+            continue;
+        }
+        [seen addObject:identifier];
+        [identifiers addObject:identifier];
+    }
+    return identifiers;
+}
+
+static SFSpeechRecognizer *recognizer_for_locale_identifier(NSString *identifier) {
+    if (identifier.length == 0) {
+        return nil;
+    }
+
+    NSLocale *locale = [NSLocale localeWithLocaleIdentifier:identifier];
+    SFSpeechRecognizer *recognizer = [[SFSpeechRecognizer alloc] initWithLocale:locale];
+    if (recognizer != nil && recognizer.available) {
+        return recognizer;
+    }
+    return nil;
+}
+
+static SFSpeechRecognizer *build_command_recognizer(NSArray<NSString *> *preferred_locale_identifiers) {
+    for (NSString *identifier in preferred_locale_identifiers) {
+        SFSpeechRecognizer *preferred_recognizer = recognizer_for_locale_identifier(identifier);
+        if (preferred_recognizer != nil) {
+            return preferred_recognizer;
+        }
+    }
+
+    NSString *current_locale_identifier = [[NSLocale currentLocale] localeIdentifier];
+    SFSpeechRecognizer *current_recognizer = recognizer_for_locale_identifier(current_locale_identifier);
+    if (current_recognizer != nil) {
         return current_recognizer;
     }
 
@@ -217,14 +251,18 @@ int main(int argc, const char *argv[]) {
         [NSApp setActivationPolicy:NSApplicationActivationPolicyProhibited];
 
         NSTimeInterval timeout = 8.0;
+        NSString *preferred_locales_argument = nil;
         if (argc > 1) {
             timeout = MAX(2.0, atof(argv[1]));
         }
         if (argc > 2) {
-            g_output_path = [NSString stringWithUTF8String:argv[2]];
+            preferred_locales_argument = [NSString stringWithUTF8String:argv[2]];
         }
         if (argc > 3) {
-            g_error_path = [NSString stringWithUTF8String:argv[3]];
+            g_output_path = [NSString stringWithUTF8String:argv[3]];
+        }
+        if (argc > 4) {
+            g_error_path = [NSString stringWithUTF8String:argv[4]];
         }
 
         NSString *privacy_message = nil;
@@ -241,7 +279,8 @@ int main(int argc, const char *argv[]) {
             return fail_with_message(@"MICROPHONE_UNAVAILABLE", authorization_message ?: @"Microphone access is unavailable.");
         }
 
-        SFSpeechRecognizer *recognizer = build_command_recognizer();
+        NSArray<NSString *> *preferred_locale_identifiers = parse_preferred_locale_identifiers(preferred_locales_argument);
+        SFSpeechRecognizer *recognizer = build_command_recognizer(preferred_locale_identifiers);
         if (recognizer == nil) {
             return fail_with_message(@"RECOGNITION_FAILED", @"Speech recognition is not available right now.");
         }

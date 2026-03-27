@@ -212,6 +212,11 @@ def _looks_like_blocked_state_question(text: str) -> bool:
         "what do you need from me",
         "what exactly do you need me to confirm",
         "what do you need me to confirm",
+        "что ты ждешь",
+        "что тебе нужно",
+        "что тебе нужно от меня",
+        "что именно тебе нужно подтвердить",
+        "что тебе нужно подтвердить",
     )
     return any(phrase in text for phrase in phrases)
 
@@ -241,6 +246,9 @@ def _looks_like_capabilities_question(text: str) -> bool:
         "what do you support",
         "supported commands",
         "capabilities",
+        "что ты умеешь",
+        "какие команды ты поддерживаешь",
+        "что ты поддерживаешь",
     )
     return any(phrase in text for phrase in phrases)
 
@@ -264,6 +272,8 @@ def _looks_like_safety_question(text: str) -> bool:
         "why didn't you execute",
         "why do you need approval",
         "why won't you execute",
+        "почему тебе нужно подтверждение",
+        "почему ты не выполнил команду",
     )
     return any(phrase in text for phrase in phrases)
 
@@ -279,6 +289,10 @@ def _looks_like_docs_rules_question(text: str) -> bool:
         "how does runtime work",
         "what is clarification",
         "what is confirmation",
+        "как работает уточнение",
+        "как работает подтверждение",
+        "что такое session context",
+        "как работает runtime",
     )
     return any(phrase in text for phrase in phrases)
 

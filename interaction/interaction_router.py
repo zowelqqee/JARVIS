@@ -92,7 +92,31 @@ _POLITE_COMMAND_PREFIXES = (
     "please start ",
     "please close ",
 )
-_QUESTION_STARTERS = ("what ", "how ", "why ", "which ", "where ", "when ", "who ", "explain ", "help ")
+_QUESTION_STARTERS = (
+    "what ",
+    "how ",
+    "why ",
+    "which ",
+    "where ",
+    "when ",
+    "who ",
+    "explain ",
+    "help ",
+    "что ",
+    "как ",
+    "почему ",
+    "зачем ",
+    "где ",
+    "когда ",
+    "кто ",
+    "сколько ",
+    "какой ",
+    "какая ",
+    "какое ",
+    "какие ",
+    "объясни ",
+    "помоги ",
+)
 _QUESTION_MARKERS = (
     "what can you do",
     "which commands do you support",
@@ -100,6 +124,9 @@ _QUESTION_MARKERS = (
     "how does ",
     "what is ",
     "why do you ",
+    "что ты умеешь",
+    "что такое ",
+    "как работает ",
 )
 _MIXED_COMMAND_MARKERS = (
     " and open ",
@@ -123,6 +150,11 @@ _BLOCKED_STATE_QUESTION_MARKERS = (
     "what do you need from me",
     "what exactly do you need me to confirm",
     "what do you need me to confirm",
+    "что ты ждешь",
+    "что тебе нужно",
+    "что тебе нужно от меня",
+    "что именно тебе нужно подтвердить",
+    "что тебе нужно подтвердить",
 )
 _CHOICE_FILLER_PREFIXES = ("please ", "just ", "then ", "okay ", "ok ")
 _ANSWER_CHOICE_PATTERNS = (

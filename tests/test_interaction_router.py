@@ -41,6 +41,16 @@ class InteractionRouterTests(unittest.TestCase):
 
         self.assertEqual(decision.kind, InteractionKind.QUESTION)
 
+    def test_russian_open_domain_question_routes_to_question(self) -> None:
+        decision = route_interaction("Кто президент Франции")
+
+        self.assertEqual(decision.kind, InteractionKind.QUESTION)
+
+    def test_russian_quantitative_question_routes_to_question(self) -> None:
+        decision = route_interaction("Сколько планет во вселенной")
+
+        self.assertEqual(decision.kind, InteractionKind.QUESTION)
+
     def test_mixed_question_and_command_routes_to_clarification(self) -> None:
         decision = route_interaction("What can you do and open Safari")
 
@@ -50,6 +60,13 @@ class InteractionRouterTests(unittest.TestCase):
             "Do you want an answer first or should I open Safari?",
         )
         self.assertEqual(decision.question_input, "What can you do")
+        self.assertEqual(decision.command_input, "open Safari")
+
+    def test_russian_question_with_normalized_embedded_command_routes_to_clarification(self) -> None:
+        decision = route_interaction("Что ты умеешь and open Safari")
+
+        self.assertEqual(decision.kind, InteractionKind.CLARIFICATION)
+        self.assertEqual(decision.question_input, "Что ты умеешь")
         self.assertEqual(decision.command_input, "open Safari")
 
     def test_split_mixed_interaction_input_extracts_question_and_command(self) -> None:
@@ -67,6 +84,12 @@ class InteractionRouterTests(unittest.TestCase):
 
     def test_blocked_state_question_routes_to_question_path(self) -> None:
         decision = route_interaction("What exactly do you need me to confirm?", runtime_state="awaiting_confirmation")
+
+        self.assertEqual(decision.kind, InteractionKind.QUESTION)
+        self.assertEqual(decision.reason, "blocked_state_question")
+
+    def test_russian_blocked_state_question_routes_to_question_path(self) -> None:
+        decision = route_interaction("Что именно тебе нужно подтвердить?", runtime_state="awaiting_confirmation")
 
         self.assertEqual(decision.kind, InteractionKind.QUESTION)
         self.assertEqual(decision.reason, "blocked_state_question")

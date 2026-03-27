@@ -138,6 +138,74 @@ class CliSmokeTests(unittest.TestCase):
             speak_enabled=False,
         )
 
+    def test_voice_command_strips_russian_wake_prefix_and_normalizes_command(self) -> None:
+        with patch("cli.capture_voice_input", return_value="Джарвис, открой телеграм") as capture_mock, patch(
+            "cli._handle_runtime_input"
+        ) as runtime_mock:
+            should_exit, speak_enabled, output = self._run_command("voice", speak_enabled=False)
+
+        self.assertFalse(should_exit)
+        self.assertFalse(speak_enabled)
+        self.assertIn('recognized: "open telegram"', output)
+        capture_mock.assert_called_once_with(timeout_seconds=cli._VOICE_CAPTURE_TIMEOUT_SECONDS)
+        runtime_mock.assert_called_once_with(
+            "open telegram",
+            runtime_manager=self.runtime_manager,
+            session_context=self.session_context,
+            speak_enabled=False,
+        )
+
+    def test_voice_question_normalizes_russian_fixed_capabilities_prompt(self) -> None:
+        with patch("cli.capture_voice_input", return_value="Что ты умеешь что ты умеешь") as capture_mock, patch(
+            "cli._handle_runtime_input"
+        ) as runtime_mock:
+            should_exit, speak_enabled, output = self._run_command("voice", speak_enabled=False)
+
+        self.assertFalse(should_exit)
+        self.assertFalse(speak_enabled)
+        self.assertIn('recognized: "what can you do"', output)
+        capture_mock.assert_called_once_with(timeout_seconds=cli._VOICE_CAPTURE_TIMEOUT_SECONDS)
+        runtime_mock.assert_called_once_with(
+            "what can you do",
+            runtime_manager=self.runtime_manager,
+            session_context=self.session_context,
+            speak_enabled=False,
+        )
+
+    def test_voice_question_keeps_general_russian_open_domain_prompt(self) -> None:
+        with patch("cli.capture_voice_input", return_value="Кто президент Франции") as capture_mock, patch(
+            "cli._handle_runtime_input"
+        ) as runtime_mock:
+            should_exit, speak_enabled, output = self._run_command("voice", speak_enabled=False)
+
+        self.assertFalse(should_exit)
+        self.assertFalse(speak_enabled)
+        self.assertIn('recognized: "Кто президент Франции"', output)
+        capture_mock.assert_called_once_with(timeout_seconds=cli._VOICE_CAPTURE_TIMEOUT_SECONDS)
+        runtime_mock.assert_called_once_with(
+            "Кто президент Франции",
+            runtime_manager=self.runtime_manager,
+            session_context=self.session_context,
+            speak_enabled=False,
+        )
+
+    def test_voice_question_normalizes_russian_mixed_question_and_command(self) -> None:
+        with patch("cli.capture_voice_input", return_value="Что ты умеешь и открой сафари") as capture_mock, patch(
+            "cli._handle_runtime_input"
+        ) as runtime_mock:
+            should_exit, speak_enabled, output = self._run_command("voice", speak_enabled=False)
+
+        self.assertFalse(should_exit)
+        self.assertFalse(speak_enabled)
+        self.assertIn('recognized: "Что ты умеешь and open safari"', output)
+        capture_mock.assert_called_once_with(timeout_seconds=cli._VOICE_CAPTURE_TIMEOUT_SECONDS)
+        runtime_mock.assert_called_once_with(
+            "Что ты умеешь and open safari",
+            runtime_manager=self.runtime_manager,
+            session_context=self.session_context,
+            speak_enabled=False,
+        )
+
     def test_voice_question_normalizes_repeated_question_phrase(self) -> None:
         with patch("cli.capture_voice_input", return_value="What can you do what can you do") as capture_mock, patch(
             "cli._handle_runtime_input"

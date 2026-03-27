@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 import os
-import re
 import subprocess
 import hashlib
 from collections.abc import MutableMapping
@@ -12,6 +11,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from context.session_context import SessionContext
+from input import voice_normalization
 from input.voice_input import VoiceInputError, capture_voice_input
 from interaction.interaction_manager import InteractionManager
 from qa.beta_release_review import (
@@ -51,40 +51,10 @@ from runtime.runtime_manager import RuntimeManager
 from ui.interaction_presenter import interaction_output_lines, interaction_speech_message
 
 _VOICE_CAPTURE_TIMEOUT_SECONDS = 7.0
-_VOICE_COMMAND_STARTERS = {
-    "open",
-    "run",
-    "launch",
-    "start",
-    "close",
-    "list",
-    "show",
-    "find",
-    "search",
-    "prepare",
-    "set",
-    "use",
-    "focus",
-    "confirm",
-    "cancel",
-    "yes",
-    "no",
-    "what",
-    "how",
-    "why",
-    "which",
-    "where",
-    "when",
-    "who",
-    "explain",
-    "help",
-}
-_VOICE_WAKE_PREFIX_RE = re.compile(
-    r"^\s*(?:(?:hey|ok|okay)\s+)?jarvis(?:\s*[,:;.!-]\s*|\s+)",
-    flags=re.IGNORECASE,
-)
 _LIVE_SMOKE_ARTIFACT_ENV = "JARVIS_QA_OPENAI_LIVE_ARTIFACT"
 _LIVE_SMOKE_ARTIFACT_MAX_AGE_HOURS = 24.0
+_normalize_voice_command = voice_normalization.normalize_voice_command
+_strip_voice_wake_prefix = voice_normalization.strip_voice_wake_prefix
 
 
 def main() -> int:
@@ -1202,41 +1172,6 @@ def _artifact_sha256(artifact_path: Path | None, *, artifact_error: str | None) 
         return hashlib.sha256(artifact_path.read_bytes()).hexdigest()
     except OSError:
         return None
-
-
-def _normalize_voice_command(recognized_text: str) -> str:
-    """Keep one deterministic interaction from a noisy voice transcription."""
-    compact = " ".join(recognized_text.strip().split())
-    compact = _strip_voice_wake_prefix(compact)
-    if not compact:
-        return compact
-
-    tokens = compact.split(" ")
-    lowered = [token.lower() for token in tokens]
-
-    for index in range(1, len(tokens)):
-        if lowered[index] not in _VOICE_COMMAND_STARTERS:
-            continue
-
-        head = " ".join(tokens[:index]).strip()
-        tail = " ".join(tokens[index:]).strip()
-        if not head or not tail:
-            continue
-
-        if head.lower() == tail.lower():
-            return head
-
-        if lowered[index] == lowered[0]:
-            return head
-
-    return compact
-
-
-def _strip_voice_wake_prefix(text: str) -> str:
-    """Strip a small fixed wake-word prefix used in spoken commands."""
-    candidate = text.strip()
-    stripped = _VOICE_WAKE_PREFIX_RE.sub("", candidate, count=1).strip()
-    return stripped or candidate
 
 
 if __name__ == "__main__":

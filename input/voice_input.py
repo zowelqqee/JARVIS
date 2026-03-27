@@ -9,6 +9,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+from collections.abc import Iterable, Sequence
 from pathlib import Path
 
 
@@ -29,12 +30,17 @@ _HELPER_APP_CONTENTS = _HELPER_APP_BUNDLE / "Contents"
 _HELPER_APP_BINARY = _HELPER_APP_CONTENTS / "MacOS" / "jarvis_macos_voice_capture"
 _HELPER_APP_INFO_PLIST = _HELPER_APP_CONTENTS / "Info.plist"
 _DEFAULT_TIMEOUT_SECONDS = 8.0
+_DEFAULT_PREFERRED_LOCALES = ("ru-RU", "en-US")
+_VOICE_LOCALES_ENV = "JARVIS_VOICE_LOCALES"
 _PRIVACY_HINT = "Check macOS Settings -> Privacy & Security -> Microphone / Speech Recognition."
 _VOICE_CRASH_HINT = "Try again. If it keeps failing, check macOS Settings -> Privacy & Security -> Microphone / Speech Recognition."
 _VOICE_EMPTY_HINT = "Speak right after 'voice: listening...' and verify the active input device in macOS Sound settings."
 
 
-def capture_voice_input(timeout_seconds: float = _DEFAULT_TIMEOUT_SECONDS) -> str:
+def capture_voice_input(
+    timeout_seconds: float = _DEFAULT_TIMEOUT_SECONDS,
+    preferred_locales: Sequence[str] | None = None,
+) -> str:
     """Capture one spoken utterance on macOS and return recognized text."""
     if sys.platform != "darwin":
         raise VoiceInputError("UNSUPPORTED_PLATFORM", "Voice input is available only on macOS.")
@@ -42,12 +48,13 @@ def capture_voice_input(timeout_seconds: float = _DEFAULT_TIMEOUT_SECONDS) -> st
     _ensure_helper_binary()
 
     effective_timeout = max(2.0, float(timeout_seconds))
-    result = _run_helper(effective_timeout)
+    effective_locales = _resolve_preferred_locales(preferred_locales)
+    result = _run_helper(effective_timeout, effective_locales)
     if result.returncode != 0 and _should_rebuild_after_helper_failure(result):
         _ensure_helper_binary(force_rebuild=True)
-        result = _run_helper(effective_timeout)
+        result = _run_helper(effective_timeout, effective_locales)
     if result.returncode != 0 and _should_retry_with_open(result):
-        fallback_result = _run_helper_via_open_bundle(effective_timeout)
+        fallback_result = _run_helper_via_open_bundle(effective_timeout, effective_locales)
         if fallback_result is not None and (fallback_result.returncode == 0 or "|" in (fallback_result.stderr or "")):
             result = fallback_result
 
@@ -165,10 +172,36 @@ def _prepare_helper_app_bundle() -> None:
         raise VoiceInputError("VOICE_SETUP_FAILED", summary)
 
 
-def _run_helper(timeout_seconds: float) -> subprocess.CompletedProcess[str]:
+def _resolve_preferred_locales(preferred_locales: Sequence[str] | None) -> tuple[str, ...]:
+    raw_locales: Sequence[str] | str | None = preferred_locales
+    if raw_locales is None:
+        raw_locales = os.environ.get(_VOICE_LOCALES_ENV, "")
+
+    if isinstance(raw_locales, str):
+        candidates = raw_locales.split(",")
+    else:
+        candidates = list(raw_locales)
+
+    resolved = tuple(_dedupe_locales(candidates))
+    return resolved or _DEFAULT_PREFERRED_LOCALES
+
+
+def _dedupe_locales(candidates: Iterable[str]) -> list[str]:
+    seen: set[str] = set()
+    resolved: list[str] = []
+    for candidate in candidates:
+        locale = str(candidate or "").strip()
+        if not locale or locale in seen:
+            continue
+        seen.add(locale)
+        resolved.append(locale)
+    return resolved
+
+
+def _run_helper(timeout_seconds: float, preferred_locales: Sequence[str]) -> subprocess.CompletedProcess[str]:
     try:
         return subprocess.run(
-            [str(_HELPER_BINARY), str(timeout_seconds)],
+            [str(_HELPER_BINARY), str(timeout_seconds), ",".join(preferred_locales)],
             capture_output=True,
             text=True,
             check=False,
@@ -180,7 +213,10 @@ def _run_helper(timeout_seconds: float) -> subprocess.CompletedProcess[str]:
         raise VoiceInputError("VOICE_SETUP_FAILED", f"Voice helper failed to start: {exc}.") from exc
 
 
-def _run_helper_via_open_bundle(timeout_seconds: float) -> subprocess.CompletedProcess[str] | None:
+def _run_helper_via_open_bundle(
+    timeout_seconds: float,
+    preferred_locales: Sequence[str],
+) -> subprocess.CompletedProcess[str] | None:
     if not _HELPER_APP_BUNDLE.exists() or not _HELPER_APP_BINARY.exists():
         return None
 
@@ -198,6 +234,7 @@ def _run_helper_via_open_bundle(timeout_seconds: float) -> subprocess.CompletedP
                 str(_HELPER_APP_BUNDLE),
                 "--args",
                 str(timeout_seconds),
+                ",".join(preferred_locales),
                 output_path,
                 error_path,
             ],

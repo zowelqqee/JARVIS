@@ -71,6 +71,42 @@ class VoiceInputContractTests(unittest.TestCase):
         self.assertEqual(ensure_mock.call_args_list[0].kwargs, {})
         self.assertEqual(ensure_mock.call_args_list[1].kwargs, {"force_rebuild": True})
 
+    def test_capture_voice_input_uses_russian_then_english_locale_chain_by_default(self) -> None:
+        with patch.object(voice_input.sys, "platform", "darwin"), patch(
+            "input.voice_input._ensure_helper_binary"
+        ), patch(
+            "input.voice_input.subprocess.run",
+            return_value=CompletedProcess(
+                args=["/tmp/jarvis_macos_voice_capture", "2.0", "ru-RU,en-US"],
+                returncode=0,
+                stdout="привет\n",
+                stderr="",
+            ),
+        ) as run_mock:
+            text = voice_input.capture_voice_input(timeout_seconds=2.0)
+
+        self.assertEqual(text, "привет")
+        command = run_mock.call_args.args[0]
+        self.assertEqual(command[:3], [str(voice_input._HELPER_BINARY), "2.0", "ru-RU,en-US"])
+
+    def test_capture_voice_input_respects_locale_override_env(self) -> None:
+        with patch.object(voice_input.sys, "platform", "darwin"), patch(
+            "input.voice_input._ensure_helper_binary"
+        ), patch.dict("os.environ", {voice_input._VOICE_LOCALES_ENV: "en-US,ru-RU"}, clear=False), patch(
+            "input.voice_input.subprocess.run",
+            return_value=CompletedProcess(
+                args=["/tmp/jarvis_macos_voice_capture", "2.0", "en-US,ru-RU"],
+                returncode=0,
+                stdout="hello\n",
+                stderr="",
+            ),
+        ) as run_mock:
+            text = voice_input.capture_voice_input(timeout_seconds=2.0)
+
+        self.assertEqual(text, "hello")
+        command = run_mock.call_args.args[0]
+        self.assertEqual(command[:3], [str(voice_input._HELPER_BINARY), "2.0", "en-US,ru-RU"])
+
     def test_capture_voice_input_does_not_retry_on_structured_permission_denied(self) -> None:
         with patch.object(voice_input.sys, "platform", "darwin"), patch(
             "input.voice_input._ensure_helper_binary"
