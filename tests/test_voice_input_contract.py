@@ -41,6 +41,14 @@ class VoiceInputContractTests(unittest.TestCase):
         self.assertIn("denied", str(error).lower())
         self.assertIsNotNone(error.hint)
 
+    def test_microphone_unavailable_keeps_structured_hint(self) -> None:
+        error = voice_input._voice_error_from_result(1, "MICROPHONE_UNAVAILABLE|Microphone access is unavailable.")
+
+        self.assertEqual(error.code, "MICROPHONE_UNAVAILABLE")
+        self.assertIn("microphone", str(error).lower())
+        self.assertIsNotNone(error.hint)
+        self.assertIn("Privacy & Security", error.hint or "")
+
     def test_unknown_positive_exit_without_detail_reports_exit_code(self) -> None:
         error = voice_input._voice_error_from_result(7, "")
 

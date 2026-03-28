@@ -8,18 +8,28 @@
 ## Current Scope
 - Voice entry point is `voice` or `/voice` inside `python3 cli.py`.
 - Voice capture is macOS-only and depends on the local helper in `input/macos_voice_capture.m`.
-- The current mode is single-turn capture, not a continuous conversation loop.
+- The current mode is still not a continuous conversation loop.
+- CLI may open one immediate blocking follow-up reply after a voice clarification or confirmation prompt only when `JARVIS_VOICE_CONTINUOUS_MODE=1`.
 - Spoken output is optional and controlled by `speak on` / `speak off`.
 - Russian and English are both expected to work for the MVP voice surface.
 
 ## Current Limitations
 - No managed continuous listening session yet.
-- No automatic return to listening after a spoken reply.
+- Advanced voice follow-up mode is disabled by default until manual QA is complete.
+- No automatic multi-turn loop beyond one blocking follow-up reply even when the flag is enabled.
+- Short-answer follow-up metadata exists, but CLI does not auto-open a second capture after ordinary question answers yet.
 - No live microphone smoke is implied by unit tests; this checklist must be run manually.
 - Spoken output is summary-oriented and may differ from terminal output by design.
 
 ## Setup
 - Run: `python3 cli.py`
+- To verify automatic blocking follow-up, run: `JARVIS_VOICE_CONTINUOUS_MODE=1 python3 cli.py`
+- Optional offline rollout helpers:
+  - `voice readiness` inside CLI or `python3 -m voice.readiness`
+  - `voice gate` inside CLI or `python3 -m voice.gate`
+  - shell wrapper: `scripts/run_voice_readiness_gate.sh`
+- Optional session metrics helper inside CLI: `voice telemetry`
+- To persist the current session snapshot to `tmp/qa`, run: `voice telemetry write`
 - Confirm the shell banner includes `voice` and `speak on`.
 - On first use, allow macOS `Microphone` and `Speech Recognition` permissions if prompted.
 - If capture fails immediately, verify macOS Settings -> Privacy & Security -> Microphone / Speech Recognition.
@@ -28,6 +38,7 @@
 ## Expected General Behavior
 - `voice` prints `voice: listening... speak now.`
 - After capture, CLI prints one normalized `recognized: "..."` line.
+- If `JARVIS_VOICE_CONTINUOUS_MODE=1` and the first voice turn ends in blocking clarification or confirmation, CLI should print `voice: follow-up... speak now.` once and capture one more reply.
 - The normalized line may be English even for Russian fixed phrases and follow-ups.
 - Runtime behavior must stay deterministic after normalization.
 - Spoken output should be shorter and friendlier than terminal output.
@@ -66,33 +77,46 @@
 - Expected result: routing clarification only; no silent answer-plus-execute behavior.
 
 ### 6) Russian clarification follow-up by voice
-- Precondition: trigger the mixed interaction scenario above.
+- Precondition: run CLI with `JARVIS_VOICE_CONTINUOUS_MODE=1`.
+- Precondition: trigger the mixed interaction scenario above from one `voice` command.
 - Shell input: `voice`
-- Spoken input: `ответить`
+- Spoken input sequence:
+  - first turn: `Что ты умеешь и открой сафари`
+  - follow-up turn after `voice: follow-up... speak now.`: `ответить`
 - Expected result: question branch executes and the pending mixed clarification clears.
-- Repeat:
-  - Shell input: `voice`
-  - Spoken input: `выполнить`
-  - Expected result: command branch executes and the pending mixed clarification clears.
+- Repeat with:
+  - first turn: `Что ты умеешь и открой сафари`
+  - follow-up turn: `выполнить`
+- Expected result: command branch executes and the pending mixed clarification clears.
+- If the follow-up window is missed, restart with a fresh `voice` command.
 
 ### 7) Confirmation approve by voice
-- Precondition: reach `awaiting_confirmation`, for example with `close Telegram` or a voice close command.
+- Precondition: run CLI with `JARVIS_VOICE_CONTINUOUS_MODE=1`.
+- Precondition: use a voice command that reaches `awaiting_confirmation`, for example `Джарвис, закрой телеграм`.
 - Shell input: `voice`
-- Spoken input: `да`
+- Spoken input sequence:
+  - first turn: close command
+  - follow-up turn after `voice: follow-up... speak now.`: `да`
 - Expected recognized text: canonical approval reply such as `yes`
 - Expected result: blocked command resumes and executes from the confirmation boundary.
 
 ### 8) Confirmation deny by voice
-- Precondition: reach `awaiting_confirmation`.
+- Precondition: run CLI with `JARVIS_VOICE_CONTINUOUS_MODE=1`.
+- Precondition: use a voice command that reaches `awaiting_confirmation`.
 - Shell input: `voice`
-- Spoken input: `нет` or `отмена`
+- Spoken input sequence:
+  - first turn: close command
+  - follow-up turn: `нет` or `отмена`
 - Expected recognized text: canonical denial reply such as `no` or `cancel`
 - Expected result: runtime becomes `cancelled`; blocked step does not execute.
 
 ### 9) Repeated follow-up noise
-- Precondition: reach `awaiting_confirmation`.
+- Precondition: run CLI with `JARVIS_VOICE_CONTINUOUS_MODE=1`.
+- Precondition: use a voice command that reaches `awaiting_confirmation`.
 - Shell input: `voice`
-- Spoken input: `да да`
+- Spoken input sequence:
+  - first turn: close command
+  - follow-up turn: `да да`
 - Expected recognized text: canonical single approval reply
 - Expected result: same as one clean approval reply.
 

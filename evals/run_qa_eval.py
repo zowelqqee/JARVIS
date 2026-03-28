@@ -14,8 +14,8 @@ from types import SimpleNamespace
 from typing import Any
 from unittest.mock import patch
 
-import cli
 from context.session_context import SessionContext
+from input.voice_input import VoiceInputError
 from interaction.interaction_manager import InteractionManager
 from parser.command_parser import parse_command
 from qa.answer_backend import AnswerBackendKind
@@ -26,6 +26,7 @@ from qa.grounding_verifier import support_is_meaningful
 from qa.llm_provider import LlmProviderKind
 from qa.rollout_profiles import live_smoke_artifact_path_for_candidate
 from target import Target, TargetType
+from voice import asr_service
 
 _REPO_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_CORPUS_PATH = _REPO_ROOT / "evals" / "qa_cases.json"
@@ -92,9 +93,12 @@ class QaEvalCase:
     expected_answer_contains: str | None = None
     expected_answer_contains_any: list[str] = field(default_factory=list)
     expected_clarification_contains: str | None = None
+    expected_error_contains: str | None = None
+    expected_error_hint_contains: str | None = None
     mock_answer_result: dict[str, Any] = field(default_factory=dict)
     voice_input: str | None = None
     expected_normalized_input: str | None = None
+    mock_voice_capture_error: dict[str, Any] = field(default_factory=dict)
     env: dict[str, str] = field(default_factory=dict)
     expected_enabled: bool | None = None
     expected_skip_reason_contains: str | None = None
@@ -448,7 +452,7 @@ def run_eval_cases(cases: list[QaEvalCase], *, default_profile: str = "determini
             results.append(_run_interaction_case(case, default_profile=default_profile))
             continue
         if case.case_type == "voice":
-            results.append(_run_voice_case(case))
+            results.append(_run_voice_case(case, default_profile=default_profile))
             continue
         if case.case_type == "live_smoke":
             results.append(_run_live_smoke_case(case))
@@ -689,17 +693,98 @@ def _run_interaction_case(case: QaEvalCase, *, default_profile: str) -> QaEvalCa
     )
 
 
-def _run_voice_case(case: QaEvalCase) -> QaEvalCaseResult:
+def _run_voice_case(case: QaEvalCase, *, default_profile: str) -> QaEvalCaseResult:
     started_at = time.perf_counter()
-    actual_normalized = cli._normalize_voice_command(case.voice_input or "")  # noqa: SLF001
-    checks = {"normalized_input": actual_normalized == (case.expected_normalized_input or "")}
+    checks: dict[str, bool] = {}
+    capture_error = dict(case.mock_voice_capture_error or {})
+    capture_patch = (
+        patch(
+            "voice.asr_service.capture_voice_input",
+            side_effect=VoiceInputError(
+                str(capture_error.get("code", "") or "RECOGNITION_FAILED"),
+                str(capture_error.get("message", "") or "Voice capture failed."),
+                hint=str(capture_error.get("hint", "") or "").strip() or None,
+            ),
+        )
+        if capture_error
+        else patch("voice.asr_service.capture_voice_input", return_value=case.voice_input or "")
+    )
+
+    try:
+        with capture_patch:
+            captured_turn = asr_service.capture_voice_turn(timeout_seconds=7.0)
+    except VoiceInputError as exc:
+        actual_error_code = getattr(exc, "code", "")
+        actual_error_message = str(exc)
+        actual_error_hint = getattr(exc, "hint", None)
+        details = {
+            "actual_error_code": actual_error_code or None,
+            "actual_error_message": actual_error_message or None,
+            "actual_error_hint": actual_error_hint or None,
+            "latency_ms": round((time.perf_counter() - started_at) * 1000.0, 3),
+        }
+        if case.expected_error_code is not None:
+            checks["error_code"] = actual_error_code == case.expected_error_code
+        if case.expected_error_contains is not None:
+            checks["error_message"] = _text_contains_fragment(actual_error_message, case.expected_error_contains)
+        if case.expected_error_hint_contains is not None:
+            checks["error_hint"] = _text_contains_fragment(actual_error_hint, case.expected_error_hint_contains)
+        return QaEvalCaseResult(
+            case_id=case.id,
+            case_type=case.case_type,
+            category=case.category,
+            passed=all(checks.values()) if checks else False,
+            checks=checks,
+            details=details,
+        )
+
+    actual_normalized = captured_turn.normalized_text
+    details = {
+        "actual_raw_transcript": captured_turn.raw_transcript,
+        "actual_normalized_input": actual_normalized,
+        "actual_locale_hint": captured_turn.locale_hint,
+    }
+    if case.expected_normalized_input is not None:
+        checks["normalized_input"] = actual_normalized == case.expected_normalized_input
+
+    interaction_case = QaEvalCase(
+        id=f"{case.id}__normalized_route",
+        case_type="interaction",
+        category=case.category,
+        profiles=list(case.profiles),
+        raw_input=actual_normalized,
+        runtime_state=case.runtime_state,
+        session_context=dict(case.session_context),
+        backend_profile=case.backend_profile,
+        expected_interaction_kind=case.expected_interaction_kind,
+        expected_question_type=case.expected_question_type,
+        expected_command_intent=case.expected_command_intent,
+        should_call_runtime=case.should_call_runtime,
+        should_call_answer_engine=case.should_call_answer_engine,
+        expected_answer_kind=case.expected_answer_kind,
+        expected_answer_provenance=case.expected_answer_provenance,
+        expected_sources_count_min=case.expected_sources_count_min,
+        expected_sources_count_max=case.expected_sources_count_max,
+        expected_warning_contains=case.expected_warning_contains,
+        expected_error_code=case.expected_error_code,
+        expected_answer_contains=case.expected_answer_contains,
+        expected_answer_contains_any=list(case.expected_answer_contains_any),
+        expected_clarification_contains=case.expected_clarification_contains,
+        mock_answer_result=dict(case.mock_answer_result),
+        requires_open_domain_enabled=case.requires_open_domain_enabled,
+        requires_open_domain_disabled=case.requires_open_domain_disabled,
+    )
+    interaction_result = _run_interaction_case(interaction_case, default_profile=default_profile)
+    checks.update(interaction_result.checks)
+    details.update(interaction_result.details)
+    details["latency_ms"] = round((time.perf_counter() - started_at) * 1000.0, 3)
     return QaEvalCaseResult(
         case_id=case.id,
         case_type=case.case_type,
         category=case.category,
         passed=all(checks.values()),
         checks=checks,
-        details={"actual_normalized_input": actual_normalized, "latency_ms": round((time.perf_counter() - started_at) * 1000.0, 3)},
+        details=details,
     )
 
 
@@ -923,8 +1008,10 @@ def _validate_case(case: QaEvalCase) -> None:
         raise ValueError(f"QA eval case {case.id} references unsupported profile scoping.")
     if case.case_type == "interaction" and not str(case.raw_input or "").strip():
         raise ValueError(f"Interaction eval case {case.id} must define raw_input.")
-    if case.case_type == "voice" and not str(case.voice_input or "").strip():
+    if case.case_type == "voice" and not str(case.voice_input or "").strip() and not case.mock_voice_capture_error:
         raise ValueError(f"Voice eval case {case.id} must define voice_input.")
+    if case.case_type == "voice" and not isinstance(case.mock_voice_capture_error, dict):
+        raise ValueError(f"Voice eval case {case.id} must define mock_voice_capture_error as an object.")
     if case.case_type == "live_smoke" and not isinstance(case.env, dict):
         raise ValueError(f"Live smoke eval case {case.id} must define env as an object.")
     if case.expected_sources_count_min is not None and case.expected_sources_count_min < 0:

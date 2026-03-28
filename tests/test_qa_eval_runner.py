@@ -61,6 +61,98 @@ class QaEvalRunnerTests(unittest.TestCase):
         self.assertEqual(report.total_cases, 2)
         self.assertEqual(report.failed_cases, 0)
 
+    def test_voice_eval_case_can_validate_routing_after_normalization(self) -> None:
+        cases = load_qa_eval_cases(DEFAULT_CORPUS_PATH)
+        selected = select_eval_cases(cases, ["voice_ru_capabilities_question"])
+
+        report = run_eval_cases(selected)
+
+        self.assertEqual(report.total_cases, 1)
+        self.assertEqual(report.failed_cases, 0)
+        result = report.results[0]
+        self.assertEqual(result.case_type, "voice")
+        self.assertTrue(result.checks["normalized_input"])
+        self.assertTrue(result.checks["interaction_kind"])
+        self.assertTrue(result.checks["question_type"])
+        self.assertEqual(result.details.get("actual_normalized_input"), "what can you do")
+        self.assertEqual(result.details.get("actual_interaction_kind"), "question")
+
+    def test_voice_eval_case_can_cover_open_domain_mock_path(self) -> None:
+        cases = load_qa_eval_cases(DEFAULT_CORPUS_PATH)
+        selected = select_eval_cases(cases, ["voice_ru_open_domain_question"])
+
+        report = run_eval_cases(selected, default_profile="llm_open_domain_mock")
+
+        self.assertEqual(report.total_cases, 1)
+        self.assertEqual(report.failed_cases, 0)
+        result = report.results[0]
+        self.assertEqual(result.case_type, "voice")
+        self.assertTrue(result.checks["normalized_input"])
+        self.assertTrue(result.checks["question_type"])
+        self.assertTrue(result.checks["answer_kind"])
+        self.assertEqual(result.details.get("profile"), "llm_open_domain_mock")
+        self.assertEqual(result.details.get("actual_question_type"), "open_domain_general")
+
+    def test_voice_eval_case_can_cover_permission_denied_capture_error(self) -> None:
+        cases = load_qa_eval_cases(DEFAULT_CORPUS_PATH)
+        selected = select_eval_cases(cases, ["voice_permission_denied_error"])
+
+        report = run_eval_cases(selected)
+
+        self.assertEqual(report.total_cases, 1)
+        self.assertEqual(report.failed_cases, 0)
+        result = report.results[0]
+        self.assertEqual(result.case_type, "voice")
+        self.assertTrue(result.checks["error_code"])
+        self.assertTrue(result.checks["error_message"])
+        self.assertTrue(result.checks["error_hint"])
+        self.assertEqual(result.details.get("actual_error_code"), "PERMISSION_DENIED")
+
+    def test_voice_eval_case_can_cover_empty_recognition_capture_error(self) -> None:
+        cases = load_qa_eval_cases(DEFAULT_CORPUS_PATH)
+        selected = select_eval_cases(cases, ["voice_empty_recognition_error"])
+
+        report = run_eval_cases(selected)
+
+        self.assertEqual(report.total_cases, 1)
+        self.assertEqual(report.failed_cases, 0)
+        result = report.results[0]
+        self.assertEqual(result.case_type, "voice")
+        self.assertTrue(result.checks["error_code"])
+        self.assertTrue(result.checks["error_message"])
+        self.assertTrue(result.checks["error_hint"])
+        self.assertEqual(result.details.get("actual_error_code"), "EMPTY_RECOGNITION")
+
+    def test_voice_eval_case_can_cover_microphone_unavailable_capture_error(self) -> None:
+        cases = load_qa_eval_cases(DEFAULT_CORPUS_PATH)
+        selected = select_eval_cases(cases, ["voice_microphone_unavailable_error"])
+
+        report = run_eval_cases(selected)
+
+        self.assertEqual(report.total_cases, 1)
+        self.assertEqual(report.failed_cases, 0)
+        result = report.results[0]
+        self.assertEqual(result.case_type, "voice")
+        self.assertTrue(result.checks["error_code"])
+        self.assertTrue(result.checks["error_message"])
+        self.assertTrue(result.checks["error_hint"])
+        self.assertEqual(result.details.get("actual_error_code"), "MICROPHONE_UNAVAILABLE")
+
+    def test_voice_eval_case_can_cover_voice_helper_crash_error(self) -> None:
+        cases = load_qa_eval_cases(DEFAULT_CORPUS_PATH)
+        selected = select_eval_cases(cases, ["voice_helper_crash_error"])
+
+        report = run_eval_cases(selected)
+
+        self.assertEqual(report.total_cases, 1)
+        self.assertEqual(report.failed_cases, 0)
+        result = report.results[0]
+        self.assertEqual(result.case_type, "voice")
+        self.assertTrue(result.checks["error_code"])
+        self.assertTrue(result.checks["error_message"])
+        self.assertTrue(result.checks["error_hint"])
+        self.assertEqual(result.details.get("actual_error_code"), "VOICE_HELPER_CRASH")
+
     def test_default_profile_can_force_llm_fallback_path(self) -> None:
         cases = load_qa_eval_cases(DEFAULT_CORPUS_PATH)
         selected = select_eval_cases(cases, ["route_capabilities_question"])

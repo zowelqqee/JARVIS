@@ -595,6 +595,166 @@
     "expected_normalized_input": "What can you do"
   },
   {
+    "id": "voice_ru_open_app_command",
+    "case_type": "voice",
+    "category": "voice_routing_cases",
+    "voice_input": "Джарвис, открой телеграм",
+    "expected_normalized_input": "open telegram",
+    "expected_interaction_kind": "command",
+    "expected_command_intent": "open_app",
+    "should_call_runtime": true,
+    "should_call_answer_engine": false
+  },
+  {
+    "id": "voice_ru_capabilities_question",
+    "case_type": "voice",
+    "category": "voice_routing_cases",
+    "voice_input": "Что ты умеешь что ты умеешь",
+    "expected_normalized_input": "what can you do",
+    "expected_interaction_kind": "question",
+    "expected_question_type": "capabilities",
+    "should_call_runtime": false,
+    "should_call_answer_engine": true,
+    "expected_sources_count_min": 3,
+    "expected_answer_contains_any": [
+      "I support command intents",
+      "respond to questions",
+      "provide explanations",
+      "supported question families",
+      "broad range of questions"
+    ]
+  },
+  {
+    "id": "voice_ru_open_domain_question",
+    "case_type": "voice",
+    "category": "voice_routing_cases",
+    "profiles": [
+      "llm_open_domain_mock",
+      "llm_env",
+      "llm_env_strict"
+    ],
+    "requires_open_domain_enabled": true,
+    "backend_profile": "llm_open_domain_mock",
+    "voice_input": "Почему небо голубое",
+    "expected_normalized_input": "Почему небо голубое",
+    "expected_interaction_kind": "question",
+    "expected_question_type": "open_domain_general",
+    "should_call_runtime": false,
+    "should_call_answer_engine": true,
+    "expected_answer_kind": "open_domain_model",
+    "expected_answer_provenance": "model_knowledge",
+    "expected_sources_count_max": 0,
+    "expected_answer_contains_any": [
+      "shorter blue wavelengths",
+      "scatters",
+      "longer red wavelengths"
+    ],
+    "mock_answer_result": {
+      "answer_text": "The sky looks blue because air scatters shorter blue wavelengths more strongly than longer red wavelengths.",
+      "answer_kind": "open_domain_model",
+      "provenance": "model_knowledge",
+      "warning": ""
+    }
+  },
+  {
+    "id": "voice_ru_mixed_question_command_clarification",
+    "case_type": "voice",
+    "category": "voice_follow_up_cases",
+    "voice_input": "Что ты умеешь и открой сафари",
+    "expected_normalized_input": "Что ты умеешь and open safari",
+    "expected_interaction_kind": "clarification",
+    "should_call_runtime": false,
+    "should_call_answer_engine": false,
+    "expected_clarification_contains": "answer first or should i open safari"
+  },
+  {
+    "id": "voice_ru_mixed_answer_reply",
+    "case_type": "voice",
+    "category": "voice_follow_up_cases",
+    "voice_input": "ответить",
+    "session_context": {
+      "pending_interaction_question_input": "What can you do",
+      "pending_interaction_command_input": "open Safari"
+    },
+    "expected_normalized_input": "ответить",
+    "expected_interaction_kind": "question",
+    "expected_question_type": "capabilities",
+    "should_call_runtime": false,
+    "should_call_answer_engine": true,
+    "expected_sources_count_min": 3,
+    "expected_answer_contains_any": [
+      "I support command intents",
+      "open_app",
+      "respond to questions",
+      "provide explanations",
+      "supported question families",
+      "broad range of questions"
+    ]
+  },
+  {
+    "id": "voice_ru_confirmation_approve_reply",
+    "case_type": "voice",
+    "category": "voice_follow_up_cases",
+    "voice_input": "да, подтверждаю",
+    "runtime_state": "awaiting_confirmation",
+    "expected_normalized_input": "confirm",
+    "expected_interaction_kind": "command",
+    "should_call_runtime": true,
+    "should_call_answer_engine": false
+  },
+  {
+    "id": "voice_permission_denied_error",
+    "case_type": "voice",
+    "category": "voice_failure_cases",
+    "mock_voice_capture_error": {
+      "code": "PERMISSION_DENIED",
+      "message": "Speech recognition access was denied.",
+      "hint": "Check macOS Settings -> Privacy & Security -> Microphone / Speech Recognition."
+    },
+    "expected_error_code": "PERMISSION_DENIED",
+    "expected_error_contains": "denied",
+    "expected_error_hint_contains": "Privacy & Security"
+  },
+  {
+    "id": "voice_empty_recognition_error",
+    "case_type": "voice",
+    "category": "voice_failure_cases",
+    "mock_voice_capture_error": {
+      "code": "EMPTY_RECOGNITION",
+      "message": "No speech was recognized. Try again.",
+      "hint": "Speak right after 'voice: listening...' and verify the active input device in macOS Sound settings."
+    },
+    "expected_error_code": "EMPTY_RECOGNITION",
+    "expected_error_contains": "No speech was recognized",
+    "expected_error_hint_contains": "active input device"
+  },
+  {
+    "id": "voice_microphone_unavailable_error",
+    "case_type": "voice",
+    "category": "voice_failure_cases",
+    "mock_voice_capture_error": {
+      "code": "MICROPHONE_UNAVAILABLE",
+      "message": "Microphone access is unavailable.",
+      "hint": "Check macOS Settings -> Privacy & Security -> Microphone / Speech Recognition."
+    },
+    "expected_error_code": "MICROPHONE_UNAVAILABLE",
+    "expected_error_contains": "Microphone access is unavailable",
+    "expected_error_hint_contains": "Privacy & Security"
+  },
+  {
+    "id": "voice_helper_crash_error",
+    "case_type": "voice",
+    "category": "voice_failure_cases",
+    "mock_voice_capture_error": {
+      "code": "VOICE_HELPER_CRASH",
+      "message": "Voice helper crashed with SIGABRT. Try again.",
+      "hint": "Try again. If it keeps failing, check macOS Settings -> Privacy & Security -> Microphone / Speech Recognition."
+    },
+    "expected_error_code": "VOICE_HELPER_CRASH",
+    "expected_error_contains": "SIGABRT",
+    "expected_error_hint_contains": "Try again"
+  },
+  {
     "id": "live_smoke_disabled_default",
     "case_type": "live_smoke",
     "category": "live_smoke_gating",
