@@ -89,6 +89,8 @@ _APP_ALIASES = {
     "browser": "Safari",
     "web browser": "Safari",
     "safari": "Safari",
+    "notes": "Notes",
+    "заметки": "Notes",
     "code": "Visual Studio Code",
     "vs code": "Visual Studio Code",
     "vscode": "Visual Studio Code",

@@ -124,6 +124,13 @@ class RuntimeSmokeTests(unittest.TestCase):
         self.assertEqual(result.runtime_state, "completed")
         self.assertEqual(result.command_summary, "open_app: Telegram")
 
+    def test_russian_notes_alias_opens_notes_application(self) -> None:
+        with patch("runtime.runtime_manager.execute_step", side_effect=_successful_action_result):
+            result = self.runtime_manager.handle_input("open заметки", self.session_context)
+
+        self.assertEqual(result.runtime_state, "completed")
+        self.assertEqual(result.command_summary, "open_app: Notes")
+
     def test_confirmation_approval_executes_only_after_approval(self) -> None:
         executed_actions: list[str] = []
 

@@ -25,6 +25,19 @@ class ASRServiceTests(unittest.TestCase):
         )
         capture_mock.assert_called_once_with(timeout_seconds=7.0, preferred_locales=None)
 
+    def test_capture_voice_turn_normalizes_russian_notes_command(self) -> None:
+        with patch("voice.asr_service.capture_voice_input", return_value="Джарвис, открой заметки"):
+            turn = asr_service.capture_voice_turn(timeout_seconds=7.0)
+
+        self.assertEqual(
+            turn,
+            asr_service.VoiceCaptureTurn(
+                raw_transcript="Джарвис, открой заметки",
+                normalized_text="open notes",
+                locale_hint="ru-RU",
+            ),
+        )
+
     def test_capture_voice_turn_keeps_english_default_without_locale_hint(self) -> None:
         with patch("voice.asr_service.capture_voice_input", return_value="What can you do what can you do"):
             turn = asr_service.capture_voice_turn(timeout_seconds=5.0)
@@ -56,6 +69,19 @@ class ASRServiceTests(unittest.TestCase):
             asr_service.VoiceCaptureTurn(
                 raw_transcript="да, подтверждаю",
                 normalized_text="confirm",
+                locale_hint="ru-RU",
+            ),
+        )
+
+    def test_capture_voice_turn_strips_greeting_before_russian_question(self) -> None:
+        with patch("voice.asr_service.capture_voice_input", return_value="привет почему небо зелёное"):
+            turn = asr_service.capture_voice_turn(timeout_seconds=4.0)
+
+        self.assertEqual(
+            turn,
+            asr_service.VoiceCaptureTurn(
+                raw_transcript="привет почему небо зелёное",
+                normalized_text="почему небо зелёное",
                 locale_hint="ru-RU",
             ),
         )

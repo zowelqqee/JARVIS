@@ -66,7 +66,11 @@ _VOICE_STARTERS = {
     "помоги",
 }
 _VOICE_WAKE_PREFIX_RE = re.compile(
-    r"^\s*(?:(?:hey|ok|okay|эй|окей)\s+)?(?:jarvis|джарвис)(?:\s*[,:;.!?-]\s*|\s+)",
+    r"^\s*(?:(?:hello|hi|hey|ok|okay|привет|эй|окей)(?:\s*[,:;.!?-]\s*|\s+))?(?:jarvis|джарвис)(?:\s*[,:;.!?-]\s*|\s+)",
+    flags=re.IGNORECASE,
+)
+_LEADING_VOICE_FILLER_RE = re.compile(
+    r"^\s*(?P<filler>hello|hi|привет)(?:\s*[,:;.!?-]\s*|\s+)(?P<rest>.+)$",
     flags=re.IGNORECASE,
 )
 _RUSSIAN_COMMAND_TRANSLATIONS = {
@@ -81,6 +85,7 @@ _RUSSIAN_COMMAND_TRANSLATIONS = {
 _RUSSIAN_COMMAND_TARGET_ALIASES = {
     "телеграм": "telegram",
     "сафари": "safari",
+    "заметки": "notes",
 }
 _RUSSIAN_APPROVAL_FOLLOWUP_TOKENS = frozenset({"да", "подтверждаю", "подтвердить"})
 _RUSSIAN_DENIAL_FOLLOWUP_TOKENS = frozenset({"нет", "отмена", "отменить", "отмени", "стоп"})
@@ -103,6 +108,7 @@ def normalize_voice_command(recognized_text: str) -> str:
     if not compact:
         return compact
 
+    compact = _strip_leading_voice_filler(compact)
     compact = _collapse_repeated_voice_phrase(compact)
     compact = _canonicalize_russian_followup(compact)
     compact = _normalize_russian_mixed_interaction(compact)
@@ -116,6 +122,27 @@ def strip_voice_wake_prefix(text: str) -> str:
     candidate = str(text or "").strip()
     stripped = _VOICE_WAKE_PREFIX_RE.sub("", candidate, count=1).strip()
     return stripped or candidate
+
+
+def _strip_leading_voice_filler(text: str) -> str:
+    candidate = str(text or "").strip()
+    while True:
+        match = _LEADING_VOICE_FILLER_RE.match(candidate)
+        if match is None:
+            return candidate
+
+        remainder = str(match.group("rest") or "").strip()
+        if not _starts_with_voice_starter(remainder):
+            return candidate
+        candidate = remainder
+
+
+def _starts_with_voice_starter(text: str) -> bool:
+    tokens = str(text or "").split(" ", maxsplit=1)
+    if not tokens:
+        return False
+    starter = tokens[0].lower().strip(_TERMINAL_PUNCTUATION)
+    return starter in _VOICE_STARTERS
 
 
 def _collapse_repeated_voice_phrase(text: str) -> str:

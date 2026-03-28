@@ -72,6 +72,17 @@ class ParserValidatorContractTests(unittest.TestCase):
             [("application", "Telegram")],
         )
 
+    def test_russian_notes_alias_maps_to_notes_application(self) -> None:
+        command = parse_command("open заметки", self.session_context)
+        validation = validate_command(command)
+
+        self.assertEqual(getattr(command.intent, "value", ""), "open_app")
+        self.assertTrue(validation.valid)
+        self.assertEqual(
+            [(getattr(target.type, "value", ""), target.name) for target in command.targets],
+            [("application", "Notes")],
+        )
+
     def test_ambiguous_open_maps_to_multiple_matches(self) -> None:
         command = parse_command("open telegram or safari", self.session_context)
         validation = validate_command(command)
