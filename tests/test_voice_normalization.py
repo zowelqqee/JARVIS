@@ -40,6 +40,15 @@ class VoiceNormalizationTests(unittest.TestCase):
     def test_leading_greeting_before_russian_question_is_stripped(self) -> None:
         self.assertEqual(normalize_voice_command("привет почему небо зелёное"), "почему небо зелёное")
 
+    def test_conversational_fillers_before_russian_question_are_stripped(self) -> None:
+        self.assertEqual(
+            normalize_voice_command("привет слушай а почему Lego так называется"),
+            "почему Lego так называется",
+        )
+
+    def test_conversational_fillers_before_wake_word_are_stripped(self) -> None:
+        self.assertEqual(normalize_voice_command("ну слушай Джарвис открой заметки"), "open notes")
+
     def test_plain_greeting_is_not_rewritten_when_no_voice_payload_follows(self) -> None:
         self.assertEqual(normalize_voice_command("привет"), "привет")
 

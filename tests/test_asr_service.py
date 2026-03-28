@@ -86,6 +86,19 @@ class ASRServiceTests(unittest.TestCase):
             ),
         )
 
+    def test_capture_voice_turn_strips_conversational_fillers_before_russian_question(self) -> None:
+        with patch("voice.asr_service.capture_voice_input", return_value="привет слушай а почему Lego так называется"):
+            turn = asr_service.capture_voice_turn(timeout_seconds=4.0)
+
+        self.assertEqual(
+            turn,
+            asr_service.VoiceCaptureTurn(
+                raw_transcript="привет слушай а почему Lego так называется",
+                normalized_text="почему Lego так называется",
+                locale_hint="ru-RU",
+            ),
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

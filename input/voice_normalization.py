@@ -69,9 +69,22 @@ _VOICE_WAKE_PREFIX_RE = re.compile(
     r"^\s*(?:(?:hello|hi|hey|ok|okay|привет|эй|окей)(?:\s*[,:;.!?-]\s*|\s+))?(?:jarvis|джарвис)(?:\s*[,:;.!?-]\s*|\s+)",
     flags=re.IGNORECASE,
 )
-_LEADING_VOICE_FILLER_RE = re.compile(
-    r"^\s*(?P<filler>hello|hi|привет)(?:\s*[,:;.!?-]\s*|\s+)(?P<rest>.+)$",
-    flags=re.IGNORECASE,
+_VOICE_WAKE_TOKENS = frozenset({"jarvis", "джарвис"})
+_LEADING_VOICE_FILLER_TOKENS = frozenset(
+    {
+        "hello",
+        "hi",
+        "hey",
+        "ok",
+        "okay",
+        "привет",
+        "эй",
+        "окей",
+        "слушай",
+        "слушай-ка",
+        "ну",
+        "а",
+    }
 )
 _RUSSIAN_COMMAND_TRANSLATIONS = {
     "открой": "open",
@@ -104,11 +117,10 @@ _TERMINAL_PUNCTUATION = " \t\r\n,.;:!?"
 def normalize_voice_command(recognized_text: str) -> str:
     """Keep one deterministic interaction from a noisy voice transcription."""
     compact = " ".join(str(recognized_text or "").strip().split())
-    compact = strip_voice_wake_prefix(compact)
+    compact = _strip_voice_prefix_noise(compact)
     if not compact:
         return compact
 
-    compact = _strip_leading_voice_filler(compact)
     compact = _collapse_repeated_voice_phrase(compact)
     compact = _canonicalize_russian_followup(compact)
     compact = _normalize_russian_mixed_interaction(compact)
@@ -124,24 +136,50 @@ def strip_voice_wake_prefix(text: str) -> str:
     return stripped or candidate
 
 
-def _strip_leading_voice_filler(text: str) -> str:
+def _strip_voice_prefix_noise(text: str) -> str:
     candidate = str(text or "").strip()
-    while True:
-        match = _LEADING_VOICE_FILLER_RE.match(candidate)
-        if match is None:
-            return candidate
+    if not candidate:
+        return candidate
 
-        remainder = str(match.group("rest") or "").strip()
-        if not _starts_with_voice_starter(remainder):
-            return candidate
-        candidate = remainder
+    for _ in range(4):
+        updated = _strip_leading_voice_fillers(candidate)
+        updated = strip_voice_wake_prefix(updated)
+        updated = _strip_leading_voice_fillers(updated)
+        updated = " ".join(updated.split()).strip()
+        if not updated or updated == candidate:
+            return updated or candidate
+        candidate = updated
+    return candidate
+
+
+def _strip_leading_voice_fillers(text: str) -> str:
+    candidate = str(text or "").strip()
+    tokens = candidate.split()
+    if not tokens:
+        return candidate
+
+    index = 0
+    while index < len(tokens) and _normalized_voice_token(tokens[index]) in _LEADING_VOICE_FILLER_TOKENS:
+        index += 1
+
+    if index == 0 or index >= len(tokens):
+        return candidate
+
+    first_payload_token = _normalized_voice_token(tokens[index])
+    if first_payload_token in _VOICE_STARTERS or first_payload_token in _VOICE_WAKE_TOKENS:
+        return " ".join(tokens[index:])
+    return candidate
+
+
+def _normalized_voice_token(token: str) -> str:
+    return str(token or "").lower().strip(_TERMINAL_PUNCTUATION).strip("-")
 
 
 def _starts_with_voice_starter(text: str) -> bool:
     tokens = str(text or "").split(" ", maxsplit=1)
     if not tokens:
         return False
-    starter = tokens[0].lower().strip(_TERMINAL_PUNCTUATION)
+    starter = _normalized_voice_token(tokens[0])
     return starter in _VOICE_STARTERS
 
 
