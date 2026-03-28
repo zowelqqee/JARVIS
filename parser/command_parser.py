@@ -21,8 +21,34 @@ if str(_TYPES_PATH) not in sys.path:
 from command import Command, IntentType  # type: ignore  # noqa: E402
 from target import Target, TargetType  # type: ignore  # noqa: E402
 
-_CONFIRM_APPROVE = {"yes", "y", "yeah", "yep", "ok", "okay", "confirm", "approved", "approve", "continue", "go ahead"}
-_CONFIRM_DENY = {"cancel", "stop", "no", "nope", "deny", "denied"}
+_CONFIRM_APPROVE = {
+    "yes",
+    "y",
+    "yeah",
+    "yep",
+    "ok",
+    "okay",
+    "confirm",
+    "approved",
+    "approve",
+    "continue",
+    "go ahead",
+    "да",
+    "подтвердить",
+    "подтверждаю",
+}
+_CONFIRM_DENY = {
+    "cancel",
+    "stop",
+    "no",
+    "nope",
+    "deny",
+    "denied",
+    "нет",
+    "отмена",
+    "отменить",
+    "отмени",
+}
 _CLARIFY_PHRASES = {"which one", "which one?", "what do you mean", "what?", "which?"}
 _OPEN_VERBS = ("open", "launch", "start", "reopen", "run")
 _FOLLOW_UP_PREFIX = re.compile(r"^(also|now)\s+", flags=re.IGNORECASE)
@@ -293,9 +319,10 @@ def _build_list_windows_filter_target(filter_text: str, session_context: Session
 
 
 def _parse_confirm_intent(lowered_text: str) -> str | None:
-    if lowered_text in _CONFIRM_APPROVE:
+    candidate = lowered_text.strip(" \t\r\n,.!?;:")
+    if candidate in _CONFIRM_APPROVE:
         return "approved"
-    if lowered_text in _CONFIRM_DENY:
+    if candidate in _CONFIRM_DENY:
         return "denied"
     return None
 

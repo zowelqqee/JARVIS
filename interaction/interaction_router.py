@@ -156,15 +156,18 @@ _BLOCKED_STATE_QUESTION_MARKERS = (
     "что именно тебе нужно подтвердить",
     "что тебе нужно подтвердить",
 )
-_CHOICE_FILLER_PREFIXES = ("please ", "just ", "then ", "okay ", "ok ")
+_CHOICE_FILLER_PREFIXES = ("please ", "just ", "then ", "okay ", "ok ", "пожалуйста ", "тогда ", "ладно ")
 _ANSWER_CHOICE_PATTERNS = (
     re.compile(r"^(?:the\s+)?answer(?:\s+first)?$"),
     re.compile(r"^question(?:\s+first)?$"),
     re.compile(r"^explain(?:\s+first)?$"),
+    re.compile(r"^(?:сначала\s+)?(?:ответ|ответь|ответить)$"),
 )
 _EXECUTE_CHOICE_PATTERNS = (
     re.compile(r"^(?:the\s+)?command$"),
     re.compile(r"^(?:execute|run|do)(?:\s+(?:the\s+)?command)?(?:\s+first)?$"),
+    re.compile(r"^(?:сначала\s+)?команд[ау]$"),
+    re.compile(r"^(?:сначала\s+)?(?:выполни|выполнить)(?:\s+команд[ау])?$"),
 )
 _EMBEDDED_COMMAND_PATTERN = re.compile(
     r"\b(?:and|then)\s+(?P<command>(?:open|launch|start|reopen|run|close|list|show|find|search|prepare|focus|switch|use)\b.*)$",

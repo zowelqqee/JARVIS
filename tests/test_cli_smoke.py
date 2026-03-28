@@ -14,6 +14,8 @@ from unittest.mock import MagicMock, patch
 
 import cli
 from input.voice_input import VoiceInputError
+from voice.asr_service import VoiceCaptureTurn
+from voice.tts_provider import SpeechUtterance, TTSResult
 
 
 class CliSmokeTests(unittest.TestCase):
@@ -53,7 +55,14 @@ class CliSmokeTests(unittest.TestCase):
     def test_voice_aliases_capture_speech_before_runtime_dispatch(self) -> None:
         for command in ("voice", "/voice"):
             with self.subTest(command=command):
-                with patch("cli.capture_voice_input", return_value="open browser") as capture_mock, patch(
+                with patch(
+                    "cli.capture_voice_turn",
+                    return_value=VoiceCaptureTurn(
+                        raw_transcript="open browser",
+                        normalized_text="open browser",
+                        locale_hint=None,
+                    ),
+                ) as capture_mock, patch(
                     "cli._handle_runtime_input"
                 ) as runtime_mock:
                     should_exit, speak_enabled, output = self._run_command(command, speak_enabled=False)
@@ -71,7 +80,14 @@ class CliSmokeTests(unittest.TestCase):
                 )
 
     def test_voice_command_normalizes_repeated_open_phrase(self) -> None:
-        with patch("cli.capture_voice_input", return_value="Open Safari open Safari") as capture_mock, patch(
+        with patch(
+            "cli.capture_voice_turn",
+            return_value=VoiceCaptureTurn(
+                raw_transcript="Open Safari open Safari",
+                normalized_text="Open Safari",
+                locale_hint=None,
+            ),
+        ) as capture_mock, patch(
             "cli._handle_runtime_input"
         ) as runtime_mock:
             should_exit, speak_enabled, output = self._run_command("voice", speak_enabled=False)
@@ -88,7 +104,14 @@ class CliSmokeTests(unittest.TestCase):
         )
 
     def test_voice_command_strips_jarvis_wake_prefix(self) -> None:
-        with patch("cli.capture_voice_input", return_value="Jarvis close telegram") as capture_mock, patch(
+        with patch(
+            "cli.capture_voice_turn",
+            return_value=VoiceCaptureTurn(
+                raw_transcript="Jarvis close telegram",
+                normalized_text="close telegram",
+                locale_hint=None,
+            ),
+        ) as capture_mock, patch(
             "cli._handle_runtime_input"
         ) as runtime_mock:
             should_exit, speak_enabled, output = self._run_command("voice", speak_enabled=False)
@@ -105,7 +128,14 @@ class CliSmokeTests(unittest.TestCase):
         )
 
     def test_voice_command_strips_jarvis_wake_prefix_with_punctuation(self) -> None:
-        with patch("cli.capture_voice_input", return_value="Jarvis, open telegram") as capture_mock, patch(
+        with patch(
+            "cli.capture_voice_turn",
+            return_value=VoiceCaptureTurn(
+                raw_transcript="Jarvis, open telegram",
+                normalized_text="open telegram",
+                locale_hint=None,
+            ),
+        ) as capture_mock, patch(
             "cli._handle_runtime_input"
         ) as runtime_mock:
             should_exit, speak_enabled, output = self._run_command("voice", speak_enabled=False)
@@ -122,7 +152,14 @@ class CliSmokeTests(unittest.TestCase):
         )
 
     def test_voice_command_strips_hey_jarvis_prefix(self) -> None:
-        with patch("cli.capture_voice_input", return_value="Hey Jarvis open safari") as capture_mock, patch(
+        with patch(
+            "cli.capture_voice_turn",
+            return_value=VoiceCaptureTurn(
+                raw_transcript="Hey Jarvis open safari",
+                normalized_text="open safari",
+                locale_hint=None,
+            ),
+        ) as capture_mock, patch(
             "cli._handle_runtime_input"
         ) as runtime_mock:
             should_exit, speak_enabled, output = self._run_command("voice", speak_enabled=False)
@@ -139,7 +176,14 @@ class CliSmokeTests(unittest.TestCase):
         )
 
     def test_voice_command_strips_russian_wake_prefix_and_normalizes_command(self) -> None:
-        with patch("cli.capture_voice_input", return_value="Джарвис, открой телеграм") as capture_mock, patch(
+        with patch(
+            "cli.capture_voice_turn",
+            return_value=VoiceCaptureTurn(
+                raw_transcript="Джарвис, открой телеграм",
+                normalized_text="open telegram",
+                locale_hint="ru-RU",
+            ),
+        ) as capture_mock, patch(
             "cli._handle_runtime_input"
         ) as runtime_mock:
             should_exit, speak_enabled, output = self._run_command("voice", speak_enabled=False)
@@ -156,7 +200,14 @@ class CliSmokeTests(unittest.TestCase):
         )
 
     def test_voice_question_normalizes_russian_fixed_capabilities_prompt(self) -> None:
-        with patch("cli.capture_voice_input", return_value="Что ты умеешь что ты умеешь") as capture_mock, patch(
+        with patch(
+            "cli.capture_voice_turn",
+            return_value=VoiceCaptureTurn(
+                raw_transcript="Что ты умеешь что ты умеешь",
+                normalized_text="what can you do",
+                locale_hint="ru-RU",
+            ),
+        ) as capture_mock, patch(
             "cli._handle_runtime_input"
         ) as runtime_mock:
             should_exit, speak_enabled, output = self._run_command("voice", speak_enabled=False)
@@ -173,7 +224,14 @@ class CliSmokeTests(unittest.TestCase):
         )
 
     def test_voice_question_keeps_general_russian_open_domain_prompt(self) -> None:
-        with patch("cli.capture_voice_input", return_value="Кто президент Франции") as capture_mock, patch(
+        with patch(
+            "cli.capture_voice_turn",
+            return_value=VoiceCaptureTurn(
+                raw_transcript="Кто президент Франции",
+                normalized_text="Кто президент Франции",
+                locale_hint="ru-RU",
+            ),
+        ) as capture_mock, patch(
             "cli._handle_runtime_input"
         ) as runtime_mock:
             should_exit, speak_enabled, output = self._run_command("voice", speak_enabled=False)
@@ -190,7 +248,14 @@ class CliSmokeTests(unittest.TestCase):
         )
 
     def test_voice_question_normalizes_russian_mixed_question_and_command(self) -> None:
-        with patch("cli.capture_voice_input", return_value="Что ты умеешь и открой сафари") as capture_mock, patch(
+        with patch(
+            "cli.capture_voice_turn",
+            return_value=VoiceCaptureTurn(
+                raw_transcript="Что ты умеешь и открой сафари",
+                normalized_text="Что ты умеешь and open safari",
+                locale_hint="ru-RU",
+            ),
+        ) as capture_mock, patch(
             "cli._handle_runtime_input"
         ) as runtime_mock:
             should_exit, speak_enabled, output = self._run_command("voice", speak_enabled=False)
@@ -207,7 +272,14 @@ class CliSmokeTests(unittest.TestCase):
         )
 
     def test_voice_question_normalizes_repeated_question_phrase(self) -> None:
-        with patch("cli.capture_voice_input", return_value="What can you do what can you do") as capture_mock, patch(
+        with patch(
+            "cli.capture_voice_turn",
+            return_value=VoiceCaptureTurn(
+                raw_transcript="What can you do what can you do",
+                normalized_text="What can you do",
+                locale_hint=None,
+            ),
+        ) as capture_mock, patch(
             "cli._handle_runtime_input"
         ) as runtime_mock:
             should_exit, speak_enabled, output = self._run_command("voice", speak_enabled=False)
@@ -248,7 +320,7 @@ class CliSmokeTests(unittest.TestCase):
             hint="Check macOS Settings -> Privacy & Security -> Microphone / Speech Recognition.",
         )
 
-        with patch("cli.capture_voice_input", side_effect=error), patch("cli._handle_runtime_input") as runtime_mock:
+        with patch("cli.capture_voice_turn", side_effect=error), patch("cli._handle_runtime_input") as runtime_mock:
             should_exit, speak_enabled, output = self._run_command("/voice", speak_enabled=False)
 
         self.assertFalse(should_exit)
@@ -261,7 +333,7 @@ class CliSmokeTests(unittest.TestCase):
         runtime_mock.assert_not_called()
 
     def test_normal_command_reaches_runtime_path(self) -> None:
-        with patch("cli.capture_voice_input") as capture_mock, patch("cli._handle_runtime_input") as runtime_mock:
+        with patch("cli.capture_voice_turn") as capture_mock, patch("cli._handle_runtime_input") as runtime_mock:
             should_exit, speak_enabled, output = self._run_command("open browser", speak_enabled=True)
 
         self.assertFalse(should_exit)
@@ -3840,22 +3912,72 @@ class CliSmokeTests(unittest.TestCase):
             runtime_result=None,
             error=None,
         )
+        tts_provider = MagicMock()
+        tts_provider.speak.return_value = TTSResult(ok=True)
 
         buffer = io.StringIO()
-        with redirect_stdout(buffer), patch("cli.subprocess.run", return_value=SimpleNamespace(returncode=0)) as speech_mock:
+        with redirect_stdout(buffer):
             cli._handle_runtime_input(
                 "What can you do?",
                 runtime_manager=self.runtime_manager,
                 session_context=self.session_context,
                 speak_enabled=True,
                 interaction_manager=interaction_manager,
+                tts_provider=tts_provider,
             )
 
-        speech_mock.assert_called_once_with(
-            ["say", "I can open apps and answer grounded questions. Warning: Answer is limited to grounded local sources."],
-            capture_output=True,
-            text=True,
-            check=False,
+        tts_provider.speak.assert_called_once_with(
+            SpeechUtterance(
+                text=(
+                    "I can open apps and answer grounded questions. "
+                    "Warning: Answer is limited to grounded local sources."
+                ),
+                locale="en-US",
+            )
+        )
+
+    def test_russian_voice_command_is_spoken_with_russian_locale_hint(self) -> None:
+        interaction_manager = MagicMock()
+        interaction_manager.handle_input.return_value = SimpleNamespace(
+            interaction_mode="command",
+            visibility={
+                "interaction_mode": "command",
+                "runtime_state": "completed",
+                "command_summary": "open_app: Telegram",
+                "completion_result": "Completed open_app with 1 step(s).",
+            },
+            runtime_result=None,
+            clarification_request=None,
+            error=None,
+        )
+        tts_provider = MagicMock()
+        tts_provider.speak.return_value = TTSResult(ok=True)
+
+        buffer = io.StringIO()
+        with redirect_stdout(buffer), patch(
+            "cli.capture_voice_turn",
+            return_value=VoiceCaptureTurn(
+                raw_transcript="Джарвис, открой телеграм",
+                normalized_text="open telegram",
+                locale_hint="ru-RU",
+            ),
+        ):
+            should_exit, speak_enabled = cli._handle_cli_command(
+                "voice",
+                runtime_manager=self.runtime_manager,
+                session_context=self.session_context,
+                speak_enabled=True,
+                interaction_manager=interaction_manager,
+                tts_provider=tts_provider,
+            )
+
+        self.assertFalse(should_exit)
+        self.assertTrue(speak_enabled)
+        tts_provider.speak.assert_called_once_with(
+            SpeechUtterance(
+                text="Открыл Telegram.",
+                locale="ru-RU",
+            )
         )
 
     def _write_complete_manual_beta_checklist(self, tmpdir: str) -> tuple[Path, str, str]:

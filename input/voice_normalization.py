@@ -5,6 +5,8 @@ from __future__ import annotations
 import re
 
 _VOICE_STARTERS = {
+    "answer",
+    "execute",
     "open",
     "run",
     "launch",
@@ -19,7 +21,9 @@ _VOICE_STARTERS = {
     "use",
     "focus",
     "confirm",
+    "continue",
     "cancel",
+    "stop",
     "yes",
     "no",
     "what",
@@ -38,6 +42,14 @@ _VOICE_STARTERS = {
     "найди",
     "подготовь",
     "используй",
+    "да",
+    "нет",
+    "подтверждаю",
+    "подтвердить",
+    "отмена",
+    "отменить",
+    "отмени",
+    "стоп",
     "что",
     "как",
     "почему",
@@ -70,6 +82,8 @@ _RUSSIAN_COMMAND_TARGET_ALIASES = {
     "телеграм": "telegram",
     "сафари": "safari",
 }
+_RUSSIAN_APPROVAL_FOLLOWUP_TOKENS = frozenset({"да", "подтверждаю", "подтвердить"})
+_RUSSIAN_DENIAL_FOLLOWUP_TOKENS = frozenset({"нет", "отмена", "отменить", "отмени", "стоп"})
 _RUSSIAN_EXACT_CANONICAL_MAP = {
     "что ты умеешь": "what can you do",
     "что именно тебе нужно подтвердить": "what exactly do you need me to confirm",
@@ -90,6 +104,7 @@ def normalize_voice_command(recognized_text: str) -> str:
         return compact
 
     compact = _collapse_repeated_voice_phrase(compact)
+    compact = _canonicalize_russian_followup(compact)
     compact = _normalize_russian_mixed_interaction(compact)
     compact = _canonicalize_exact_russian_phrase(compact)
     compact = _canonicalize_russian_command(compact)
@@ -129,6 +144,25 @@ def _canonicalize_exact_russian_phrase(text: str) -> str:
     lookup = text.lower().strip(_TERMINAL_PUNCTUATION)
     mapped = _RUSSIAN_EXACT_CANONICAL_MAP.get(lookup)
     return mapped or text
+
+
+def _canonicalize_russian_followup(text: str) -> str:
+    tokens = [token.lower().strip(_TERMINAL_PUNCTUATION) for token in text.split()]
+    compact_tokens = [token for token in tokens if token]
+    if not compact_tokens:
+        return text
+
+    if all(token in _RUSSIAN_APPROVAL_FOLLOWUP_TOKENS for token in compact_tokens):
+        if any(token.startswith("подт") for token in compact_tokens):
+            return "confirm"
+        return "yes"
+
+    if all(token in _RUSSIAN_DENIAL_FOLLOWUP_TOKENS for token in compact_tokens):
+        if all(token == "нет" for token in compact_tokens):
+            return "no"
+        return "cancel"
+
+    return text
 
 
 def _normalize_russian_mixed_interaction(text: str) -> str:

@@ -156,7 +156,7 @@ class InteractionPresenterTests(unittest.TestCase):
                 "result: Completed open_app with 1 step(s).",
             ],
         )
-        self.assertEqual(interaction_speech_message(result), "Completed open_app with 1 step(s).")
+        self.assertEqual(interaction_speech_message(result), "Opened Telegram.")
 
     def test_command_output_falls_back_to_runtime_visibility_when_needed(self) -> None:
         result = SimpleNamespace(
@@ -165,7 +165,10 @@ class InteractionPresenterTests(unittest.TestCase):
             runtime_result=SimpleNamespace(
                 visibility={
                     "runtime_state": "awaiting_confirmation",
-                    "confirmation_request": {"message": "Approve close_app for Telegram before execution."},
+                    "confirmation_request": {
+                        "message": "Approve close_app for Telegram before execution.",
+                        "affected_targets": ["Telegram"],
+                    },
                 }
             ),
         )
@@ -179,7 +182,7 @@ class InteractionPresenterTests(unittest.TestCase):
         )
         self.assertEqual(
             interaction_speech_message(result),
-            "Approve close_app for Telegram before execution.",
+            "Do you want me to close Telegram?",
         )
 
 

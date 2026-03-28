@@ -6,6 +6,8 @@ import sys
 from pathlib import Path
 from typing import Any
 
+from voice.speech_presenter import interaction_speech_message as voice_interaction_speech_message
+
 _TYPES_PATH = Path(__file__).resolve().parents[1] / "types"
 if str(_TYPES_PATH) not in sys.path:
     sys.path.insert(0, str(_TYPES_PATH))
@@ -31,45 +33,7 @@ def interaction_output_lines(result: object) -> list[str]:
 
 def interaction_speech_message(result: object) -> str | None:
     """Return the single top-level interaction message worth speaking."""
-    mode = _interaction_mode_value(result)
-    visibility = _interaction_visibility(result)
-
-    if mode == InteractionKind.QUESTION.value:
-        summary = _question_summary(result=result, visibility=visibility)
-        if summary:
-            warning = str(visibility.get("answer_warning", "") or "").strip()
-            if not warning:
-                answer_result = getattr(result, "answer_result", None)
-                warning = str(getattr(answer_result, "warning", "") or "").strip()
-            if warning:
-                return f"{summary} Warning: {warning}"
-            return summary
-        answer_text = str(visibility.get("answer_text", "") or "").strip()
-        if not answer_text:
-            answer_result = getattr(result, "answer_result", None)
-            answer_text = str(getattr(answer_result, "answer_text", "") or "").strip()
-        if answer_text:
-            return answer_text
-        failure_message = str(visibility.get("failure_message", "") or "").strip()
-        if not failure_message:
-            error = getattr(result, "error", None)
-            failure_message = _interaction_error_message(error) if error is not None else ""
-        return failure_message or None
-
-    if mode == InteractionKind.CLARIFICATION.value:
-        clarification_question = str(visibility.get("clarification_question", "") or "").strip()
-        if not clarification_question:
-            clarification_request = getattr(result, "clarification_request", None)
-            clarification_question = str(getattr(clarification_request, "message", "") or "").strip()
-        if clarification_question:
-            return clarification_question
-        failure_message = str(visibility.get("failure_message", "") or "").strip()
-        if not failure_message:
-            error = getattr(result, "error", None)
-            failure_message = _interaction_error_message(error) if error is not None else ""
-        return failure_message or None
-
-    return _command_speech_message(visibility)
+    return voice_interaction_speech_message(result)
 
 
 def _question_output_lines(*, result: object, visibility: dict[str, Any]) -> list[str]:
@@ -263,29 +227,6 @@ def _answer_summary(answer_text: str) -> str:
         return normalized
     clipped = normalized[:107].rsplit(" ", 1)[0].strip() or normalized[:107].strip()
     return f"{clipped}..."
-
-
-def _command_speech_message(visibility: dict[str, Any]) -> str | None:
-    clarification_question = visibility.get("clarification_question")
-    if clarification_question:
-        return str(clarification_question)
-
-    confirmation_request = visibility.get("confirmation_request")
-    if isinstance(confirmation_request, dict):
-        message = confirmation_request.get("message")
-        if message:
-            return str(message)
-
-    failure_message = visibility.get("failure_message")
-    if failure_message:
-        return str(failure_message)
-
-    completion_result = visibility.get("completion_result")
-    if completion_result:
-        return str(completion_result)
-
-    return None
-
 
 def _interaction_visibility(result: object) -> dict[str, Any]:
     result_visibility = dict(getattr(result, "visibility", {}) or {})

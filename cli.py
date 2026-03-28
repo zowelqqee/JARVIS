@@ -4,15 +4,13 @@ from __future__ import annotations
 
 import json
 import os
-import subprocess
 import hashlib
 from collections.abc import MutableMapping
 from datetime import datetime, timezone
 from pathlib import Path
 
 from context.session_context import SessionContext
-from input import voice_normalization
-from input.voice_input import VoiceInputError, capture_voice_input
+from input.voice_input import VoiceInputError
 from interaction.interaction_manager import InteractionManager
 from qa.beta_release_review import (
     beta_release_review_artifact_consistency,
@@ -48,13 +46,15 @@ from qa.rollout_profiles import (
     rollout_stability_artifact_path_for_candidate,
 )
 from runtime.runtime_manager import RuntimeManager
-from ui.interaction_presenter import interaction_output_lines, interaction_speech_message
+from ui.interaction_presenter import interaction_output_lines
+from voice.language import detect_spoken_locale
+from voice.session import capture_cli_voice_turn as capture_voice_turn
+from voice.speech_presenter import interaction_speech_utterance
+from voice.tts_provider import TTSProvider, build_default_tts_provider
 
 _VOICE_CAPTURE_TIMEOUT_SECONDS = 7.0
 _LIVE_SMOKE_ARTIFACT_ENV = "JARVIS_QA_OPENAI_LIVE_ARTIFACT"
 _LIVE_SMOKE_ARTIFACT_MAX_AGE_HOURS = 24.0
-_normalize_voice_command = voice_normalization.normalize_voice_command
-_strip_voice_wake_prefix = voice_normalization.strip_voice_wake_prefix
 
 
 def main() -> int:
@@ -62,6 +62,7 @@ def main() -> int:
     runtime_manager = RuntimeManager()
     interaction_manager = _build_default_interaction_manager(runtime_manager)
     session_context = SessionContext()
+    tts_provider = build_default_tts_provider()
     speak_enabled = False
 
     print("JARVIS MVP CLI")
@@ -83,6 +84,7 @@ def main() -> int:
             interaction_manager=interaction_manager,
             session_context=session_context,
             speak_enabled=speak_enabled,
+            tts_provider=tts_provider,
         )
         if should_exit:
             return 0
@@ -94,6 +96,7 @@ def _handle_cli_command(
     session_context: SessionContext,
     speak_enabled: bool,
     interaction_manager: InteractionManager | None = None,
+    tts_provider: TTSProvider | None = None,
 ) -> tuple[bool, bool]:
     """Handle one CLI command and return exit intent plus updated speech mode."""
     try:
@@ -155,24 +158,17 @@ def _handle_cli_command(
 
         if lowered in {"voice", "/voice"}:
             print("voice: listening... speak now.")
-            recognized_text = capture_voice_input(timeout_seconds=_VOICE_CAPTURE_TIMEOUT_SECONDS)
-            normalized_text = _normalize_voice_command(recognized_text)
-            print(f'recognized: "{normalized_text}"')
-            if interaction_manager is None:
-                _handle_runtime_input(
-                    normalized_text,
-                    runtime_manager=runtime_manager,
-                    session_context=session_context,
-                    speak_enabled=speak_enabled,
-                )
-            else:
-                _handle_runtime_input(
-                    normalized_text,
-                    runtime_manager=runtime_manager,
-                    interaction_manager=interaction_manager,
-                    session_context=session_context,
-                    speak_enabled=speak_enabled,
-                )
+            voice_turn = capture_voice_turn(timeout_seconds=_VOICE_CAPTURE_TIMEOUT_SECONDS)
+            print(f'recognized: "{voice_turn.normalized_text}"')
+            _dispatch_runtime_input(
+                voice_turn.normalized_text,
+                runtime_manager=runtime_manager,
+                interaction_manager=interaction_manager,
+                session_context=session_context,
+                speak_enabled=speak_enabled,
+                speech_locale_hint=voice_turn.locale_hint if speak_enabled else None,
+                tts_provider=tts_provider,
+            )
             return False, speak_enabled
 
         if lowered in {"speak on", "/speak on", "speak off", "/speak off"}:
@@ -180,21 +176,15 @@ def _handle_cli_command(
             print(f"Speech output {'enabled' if updated_speak_enabled else 'disabled'}.")
             return False, updated_speak_enabled
 
-        if interaction_manager is None:
-            _handle_runtime_input(
-                raw_input,
-                runtime_manager=runtime_manager,
-                session_context=session_context,
-                speak_enabled=speak_enabled,
-            )
-        else:
-            _handle_runtime_input(
-                raw_input,
-                runtime_manager=runtime_manager,
-                interaction_manager=interaction_manager,
-                session_context=session_context,
-                speak_enabled=speak_enabled,
-            )
+        _dispatch_runtime_input(
+            raw_input,
+            runtime_manager=runtime_manager,
+            interaction_manager=interaction_manager,
+            session_context=session_context,
+            speak_enabled=speak_enabled,
+            speech_locale_hint=_preferred_speech_locale_hint(raw_input) if speak_enabled else None,
+            tts_provider=tts_provider,
+        )
         return False, speak_enabled
     except KeyboardInterrupt:
         print()
@@ -250,6 +240,8 @@ def _handle_runtime_input(
     session_context: SessionContext,
     speak_enabled: bool,
     interaction_manager: InteractionManager | None = None,
+    speech_locale_hint: str | None = None,
+    tts_provider: TTSProvider | None = None,
 ) -> None:
     """Run one text input through the dual-mode interaction layer and print the visible result."""
     active_interaction_manager = interaction_manager or _build_default_interaction_manager(runtime_manager)
@@ -257,7 +249,43 @@ def _handle_runtime_input(
     for line in interaction_output_lines(result):
         print(line)
     if speak_enabled:
-        _speak_message(interaction_speech_message(result))
+        _speak_utterance(
+            interaction_speech_utterance(result, preferred_locale=speech_locale_hint),
+            tts_provider=tts_provider or build_default_tts_provider(),
+        )
+
+
+def _dispatch_runtime_input(
+    raw_input: str,
+    *,
+    runtime_manager: RuntimeManager,
+    session_context: SessionContext,
+    speak_enabled: bool,
+    interaction_manager: InteractionManager | None = None,
+    speech_locale_hint: str | None = None,
+    tts_provider: TTSProvider | None = None,
+) -> None:
+    """Preserve the legacy runtime-call shape unless a TTS provider is supplied."""
+    call_kwargs = {
+        "runtime_manager": runtime_manager,
+        "session_context": session_context,
+        "speak_enabled": speak_enabled,
+    }
+    if interaction_manager is not None:
+        call_kwargs["interaction_manager"] = interaction_manager
+    if speech_locale_hint is not None:
+        call_kwargs["speech_locale_hint"] = speech_locale_hint
+    if tts_provider is not None:
+        call_kwargs["tts_provider"] = tts_provider
+    _handle_runtime_input(raw_input, **call_kwargs)
+
+
+def _preferred_speech_locale_hint(text: str) -> str | None:
+    """Only pass a locale hint when it carries signal beyond the default English path."""
+    detected_locale = detect_spoken_locale(text)
+    if detected_locale.startswith("ru"):
+        return detected_locale
+    return None
 
 
 def _apply_cli_question_defaults(environ: MutableMapping[str, str] | None = None) -> MutableMapping[str, str]:
@@ -279,17 +307,10 @@ def _build_default_interaction_manager(runtime_manager: RuntimeManager) -> Inter
     )
 
 
-def _speak_message(message: str | None) -> None:
-    """Speak one short user-facing message when enabled."""
-    if not message:
-        return
-    try:
-        speech_result = subprocess.run(["say", message], capture_output=True, text=True, check=False)
-    except OSError:
-        print("speech: unavailable.")
-        return
-
-    if speech_result.returncode != 0:
+def _speak_utterance(utterance: object, *, tts_provider: TTSProvider) -> None:
+    """Speak one prepared utterance when TTS is available."""
+    speech_result = tts_provider.speak(utterance)
+    if speech_result.attempted and not speech_result.ok:
         print("speech: unavailable.")
 
 

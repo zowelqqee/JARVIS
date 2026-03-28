@@ -144,6 +144,22 @@ class RuntimeSmokeTests(unittest.TestCase):
         self.assertEqual(executed_actions, ["close_app"])
         self.assertEqual(len(approved_result.completed_steps), 1)
 
+    def test_confirmation_approval_executes_only_after_russian_approval(self) -> None:
+        executed_actions: list[str] = []
+
+        def execute_stub(step: object) -> SimpleNamespace:
+            executed_actions.append(getattr(getattr(step, "action", None), "value", ""))
+            return _successful_action_result(step)
+
+        with patch("runtime.runtime_manager.execute_step", side_effect=execute_stub):
+            blocked_result = self.runtime_manager.handle_input("close Telegram", self.session_context)
+            approved_result = self.runtime_manager.handle_input("да", self.session_context)
+
+        self.assertEqual(blocked_result.runtime_state, "awaiting_confirmation")
+        self.assertEqual(approved_result.runtime_state, "completed")
+        self.assertEqual(executed_actions, ["close_app"])
+        self.assertEqual(len(approved_result.completed_steps), 1)
+
     def test_confirmation_block_allows_fresh_command_restart(self) -> None:
         executed_actions: list[str] = []
 
@@ -170,6 +186,22 @@ class RuntimeSmokeTests(unittest.TestCase):
         with patch("runtime.runtime_manager.execute_step", side_effect=execute_stub):
             blocked_result = self.runtime_manager.handle_input("close Telegram", self.session_context)
             denied_result = self.runtime_manager.handle_input("no", self.session_context)
+
+        self.assertEqual(blocked_result.runtime_state, "awaiting_confirmation")
+        self.assertEqual(denied_result.runtime_state, "cancelled")
+        self.assertEqual(executed_actions, [])
+        self.assertEqual(denied_result.completion_summary, "Confirmation denied. Command cancelled.")
+
+    def test_confirmation_denial_cancels_without_executing_blocked_step_for_russian_reply(self) -> None:
+        executed_actions: list[str] = []
+
+        def execute_stub(step: object) -> SimpleNamespace:
+            executed_actions.append(getattr(getattr(step, "action", None), "value", ""))
+            return _successful_action_result(step)
+
+        with patch("runtime.runtime_manager.execute_step", side_effect=execute_stub):
+            blocked_result = self.runtime_manager.handle_input("close Telegram", self.session_context)
+            denied_result = self.runtime_manager.handle_input("нет", self.session_context)
 
         self.assertEqual(blocked_result.runtime_state, "awaiting_confirmation")
         self.assertEqual(denied_result.runtime_state, "cancelled")

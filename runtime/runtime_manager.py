@@ -36,8 +36,8 @@ from jarvis_error import ErrorCategory, ErrorCode, JarvisError  # type: ignore  
 from step import Step, StepStatus  # type: ignore  # noqa: E402
 
 
-_CONFIRM_APPROVAL_WORDS = {"yes", "confirm", "ok", "continue"}
-_CONFIRM_DENIAL_WORDS = {"no", "cancel", "stop"}
+_CONFIRM_APPROVAL_WORDS = {"yes", "confirm", "ok", "continue", "да", "подтвердить", "подтверждаю"}
+_CONFIRM_DENIAL_WORDS = {"no", "cancel", "stop", "нет", "отмена", "отменить", "отмени"}
 _CLARIFICATION_CANCEL_WORDS = {"cancel", "stop"}
 _FRESH_COMMAND_PREFIXES = (
     "open ",
@@ -211,7 +211,7 @@ class RuntimeManager:
 
         reply = self._normalize_optional_input(raw_input)
         if reply is not None and self._should_restart_as_fresh_command(reply):
-            lowered_reply = reply.lower().strip()
+            lowered_reply = self._confirmation_reply_token(reply)
             if lowered_reply not in _CONFIRM_APPROVAL_WORDS and lowered_reply not in _CONFIRM_DENIAL_WORDS:
                 return self._restart_from_blocked_state(reply, session_context)
 
@@ -635,12 +635,15 @@ class RuntimeManager:
         if raw_input is None:
             return "unclear"
 
-        lowered = raw_input.lower()
+        lowered = self._confirmation_reply_token(raw_input)
         if lowered in _CONFIRM_APPROVAL_WORDS:
             return "approve"
         if lowered in _CONFIRM_DENIAL_WORDS:
             return "deny"
         return "unclear"
+
+    def _confirmation_reply_token(self, raw_input: str | None) -> str:
+        return str(raw_input or "").lower().strip(" \t\r\n,.!?;:")
 
     def _clarification_prompt(self) -> str:
         if self.clarification_request is not None:

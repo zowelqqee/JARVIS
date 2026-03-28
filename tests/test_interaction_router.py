@@ -78,8 +78,12 @@ class InteractionRouterTests(unittest.TestCase):
     def test_clarification_choice_resolves_answer_and_execute_replies(self) -> None:
         self.assertEqual(resolve_interaction_clarification_choice("answer"), "answer")
         self.assertEqual(resolve_interaction_clarification_choice("Answer first"), "answer")
+        self.assertEqual(resolve_interaction_clarification_choice("ответить"), "answer")
+        self.assertEqual(resolve_interaction_clarification_choice("сначала ответ"), "answer")
         self.assertEqual(resolve_interaction_clarification_choice("execute the command"), "execute")
         self.assertEqual(resolve_interaction_clarification_choice("please run the command"), "execute")
+        self.assertEqual(resolve_interaction_clarification_choice("выполнить"), "execute")
+        self.assertEqual(resolve_interaction_clarification_choice("команду"), "execute")
         self.assertIsNone(resolve_interaction_clarification_choice("yes"))
 
     def test_blocked_state_question_routes_to_question_path(self) -> None:
@@ -96,6 +100,12 @@ class InteractionRouterTests(unittest.TestCase):
 
     def test_blocked_state_priority_for_confirmation_reply_keeps_command_path(self) -> None:
         decision = route_interaction("yes", runtime_state="awaiting_confirmation")
+
+        self.assertEqual(decision.kind, InteractionKind.COMMAND)
+        self.assertEqual(decision.reason, "blocked_state_priority")
+
+    def test_blocked_state_priority_for_russian_confirmation_reply_keeps_command_path(self) -> None:
+        decision = route_interaction("да", runtime_state="awaiting_confirmation")
 
         self.assertEqual(decision.kind, InteractionKind.COMMAND)
         self.assertEqual(decision.reason, "blocked_state_priority")
