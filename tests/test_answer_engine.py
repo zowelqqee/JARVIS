@@ -39,6 +39,12 @@ class AnswerEngineTests(unittest.TestCase):
         self.assertEqual(getattr(question.question_type, "value", ""), "capabilities")
         self.assertEqual(question.scope, "capabilities")
 
+    def test_greeting_routes_to_capabilities_family(self) -> None:
+        question = classify_question("hello jarvis")
+
+        self.assertEqual(getattr(question.question_type, "value", ""), "capabilities")
+        self.assertEqual(question.scope, "capabilities")
+
     def test_capability_answer_mentions_command_support(self) -> None:
         result = answer_question("What can you do?")
 
@@ -197,6 +203,18 @@ class AnswerEngineTests(unittest.TestCase):
 
         self.assertEqual(getattr(question.question_type, "value", ""), "docs_rules")
         self.assertEqual(question.scope, "docs")
+
+    def test_where_is_country_routes_to_open_domain_family_when_enabled(self) -> None:
+        question = classify_question(
+            "Where is Oman?",
+            backend_config=AnswerBackendConfig(
+                backend_kind=AnswerBackendKind.DETERMINISTIC,
+                llm=LlmBackendConfig(enabled=True, open_domain_enabled=True),
+            ),
+        )
+
+        self.assertEqual(getattr(question.question_type, "value", ""), "open_domain_general")
+        self.assertEqual(question.scope, "open_domain")
 
     def test_repo_structure_answer_points_to_planner_file(self) -> None:
         result = answer_question("Where is the planner?")

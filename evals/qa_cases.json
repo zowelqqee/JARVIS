@@ -703,6 +703,230 @@
     "should_call_answer_engine": false
   },
   {
+    "id": "voice_en_open_app_command",
+    "case_type": "voice",
+    "category": "voice_routing_cases",
+    "voice_input": "Jarvis, open Safari",
+    "expected_normalized_input": "open Safari",
+    "expected_interaction_kind": "command",
+    "expected_command_intent": "open_app",
+    "should_call_runtime": true,
+    "should_call_answer_engine": false
+  },
+  {
+    "id": "voice_en_capabilities_question",
+    "case_type": "voice",
+    "category": "voice_routing_cases",
+    "voice_input": "What can you do",
+    "expected_normalized_input": "What can you do",
+    "expected_interaction_kind": "question",
+    "expected_question_type": "capabilities",
+    "should_call_runtime": false,
+    "should_call_answer_engine": true,
+    "expected_sources_count_min": 3,
+    "expected_answer_contains_any": [
+      "I support command intents",
+      "respond to questions",
+      "provide explanations",
+      "general information across supported areas",
+      "supported question families",
+      "broad range of questions"
+    ]
+  },
+  {
+    "id": "voice_en_open_domain_question",
+    "case_type": "voice",
+    "category": "voice_routing_cases",
+    "profiles": [
+      "llm_open_domain_mock",
+      "llm_env",
+      "llm_env_strict"
+    ],
+    "requires_open_domain_enabled": true,
+    "backend_profile": "llm_open_domain_mock",
+    "voice_input": "Why is the sky blue?",
+    "expected_normalized_input": "Why is the sky blue?",
+    "expected_interaction_kind": "question",
+    "expected_question_type": "open_domain_general",
+    "should_call_runtime": false,
+    "should_call_answer_engine": true,
+    "expected_answer_kind": "open_domain_model",
+    "expected_answer_provenance": "model_knowledge",
+    "expected_sources_count_max": 0,
+    "expected_answer_contains_any": [
+      "shorter blue wavelengths",
+      "scatter",
+      "longer red wavelengths"
+    ],
+    "mock_answer_result": {
+      "answer_text": "The sky looks blue because air scatters shorter blue wavelengths more strongly than longer red wavelengths.",
+      "answer_kind": "open_domain_model",
+      "provenance": "model_knowledge",
+      "warning": ""
+    }
+  },
+  {
+    "id": "voice_en_mixed_question_command_clarification",
+    "case_type": "voice",
+    "category": "voice_follow_up_cases",
+    "voice_input": "What can you do and open Safari",
+    "expected_normalized_input": "What can you do and open Safari",
+    "expected_interaction_kind": "clarification",
+    "should_call_runtime": false,
+    "should_call_answer_engine": false,
+    "expected_clarification_contains": "open Safari"
+  },
+  {
+    "id": "voice_en_mixed_answer_reply",
+    "case_type": "voice",
+    "category": "voice_follow_up_cases",
+    "voice_input": "answer",
+    "session_context": {
+      "pending_interaction_question_input": "What can you do",
+      "pending_interaction_command_input": "open Safari"
+    },
+    "expected_normalized_input": "answer",
+    "expected_interaction_kind": "question",
+    "expected_question_type": "capabilities",
+    "should_call_runtime": false,
+    "should_call_answer_engine": true,
+    "expected_sources_count_min": 3,
+    "expected_answer_contains_any": [
+      "open_app",
+      "supported command families",
+      "broad range of questions",
+      "supported question families"
+    ]
+  },
+  {
+    "id": "voice_en_mixed_execute_reply",
+    "case_type": "voice",
+    "category": "voice_follow_up_cases",
+    "voice_input": "execute the command",
+    "session_context": {
+      "pending_interaction_question_input": "What can you do",
+      "pending_interaction_command_input": "open Safari"
+    },
+    "expected_normalized_input": "execute the command",
+    "expected_interaction_kind": "command",
+    "expected_command_intent": "open_app",
+    "should_call_runtime": true,
+    "should_call_answer_engine": false
+  },
+  {
+    "id": "voice_en_confirmation_deny_reply",
+    "case_type": "voice",
+    "category": "voice_follow_up_cases",
+    "voice_input": "no",
+    "runtime_state": "awaiting_confirmation",
+    "expected_normalized_input": "no",
+    "expected_interaction_kind": "command",
+    "should_call_runtime": true,
+    "should_call_answer_engine": false
+  },
+  {
+    "id": "voice_ru_answer_follow_up_explain_more",
+    "case_type": "voice",
+    "category": "voice_follow_up_cases",
+    "voice_input": "скажи подробнее",
+    "session_context": {
+      "recent_answer_topic": "clarification",
+      "recent_answer_scope": "docs",
+      "recent_answer_sources": [
+        "docs/clarification_rules.md",
+        "docs/runtime_flow.md"
+      ]
+    },
+    "expected_normalized_input": "Explain more",
+    "expected_interaction_kind": "question",
+    "expected_question_type": "answer_follow_up",
+    "should_call_runtime": false,
+    "should_call_answer_engine": true,
+    "expected_sources_count_min": 2,
+    "expected_answer_contains_any": [
+      "clearer explanation",
+      "clarification happens",
+      "more detail",
+      "clarification and runtime flow docs"
+    ]
+  },
+  {
+    "id": "voice_ru_answer_follow_up_sources",
+    "case_type": "voice",
+    "category": "voice_follow_up_cases",
+    "voice_input": "какой источник",
+    "session_context": {
+      "recent_answer_topic": "clarification",
+      "recent_answer_scope": "docs",
+      "recent_answer_sources": [
+        "docs/clarification_rules.md",
+        "docs/runtime_flow.md"
+      ]
+    },
+    "expected_normalized_input": "Which source?",
+    "expected_interaction_kind": "question",
+    "expected_question_type": "answer_follow_up",
+    "should_call_runtime": false,
+    "should_call_answer_engine": true,
+    "expected_sources_count_min": 1,
+    "expected_answer_contains_any": [
+      "docs/clarification_rules.md",
+      "clarification rules",
+      "runtime_flow.md"
+    ]
+  },
+  {
+    "id": "voice_ru_answer_follow_up_where_written",
+    "case_type": "voice",
+    "category": "voice_follow_up_cases",
+    "voice_input": "где это написано",
+    "session_context": {
+      "recent_answer_topic": "clarification",
+      "recent_answer_scope": "docs",
+      "recent_answer_sources": [
+        "docs/clarification_rules.md",
+        "docs/runtime_flow.md"
+      ]
+    },
+    "expected_normalized_input": "Where is that written",
+    "expected_interaction_kind": "question",
+    "expected_question_type": "answer_follow_up",
+    "should_call_runtime": false,
+    "should_call_answer_engine": true,
+    "expected_sources_count_min": 1,
+    "expected_answer_contains_any": [
+      "That is written in",
+      "docs/clarification_rules.md",
+      "runtime_flow.md"
+    ]
+  },
+  {
+    "id": "voice_ru_answer_follow_up_why",
+    "case_type": "voice",
+    "category": "voice_follow_up_cases",
+    "voice_input": "почему",
+    "session_context": {
+      "recent_answer_topic": "clarification",
+      "recent_answer_scope": "docs",
+      "recent_answer_sources": [
+        "docs/clarification_rules.md",
+        "docs/runtime_flow.md"
+      ]
+    },
+    "expected_normalized_input": "Why is that",
+    "expected_interaction_kind": "question",
+    "expected_question_type": "answer_follow_up",
+    "should_call_runtime": false,
+    "should_call_answer_engine": true,
+    "expected_sources_count_min": 2,
+    "expected_answer_contains_any": [
+      "ambiguity",
+      "missing data",
+      "deterministic",
+      "stop execution"
+    ]
+  },
+  {
     "id": "voice_permission_denied_error",
     "case_type": "voice",
     "category": "voice_failure_cases",

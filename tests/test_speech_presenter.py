@@ -86,14 +86,14 @@ class SpeechPresenterTests(unittest.TestCase):
             visibility={
                 "interaction_mode": "command",
                 "runtime_state": "completed",
-                "command_summary": "prepare_workspace: Visual Studio Code, JARVIS, Safari",
+                "command_summary": "prepare_workspace: Visual Studio Code, JARVIS, Google Chrome",
                 "completion_result": "Completed prepare_workspace with 3 step(s).",
             },
         )
 
         self.assertEqual(
             interaction_speech_message(result),
-            "Prepared workspace: Visual Studio Code, JARVIS, Safari.",
+            "Prepared workspace: Visual Studio Code, JARVIS, Google Chrome.",
         )
 
     def test_command_completion_uses_russian_phrase_when_locale_prefers_russian(self) -> None:

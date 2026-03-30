@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import argparse
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 import json
@@ -251,6 +252,50 @@ def load_voice_telemetry_artifact(
     return resolved_artifact_path, payload, None
 
 
+def load_voice_telemetry_snapshot(
+    artifact_path: Path | None = None,
+) -> tuple[Path, str, str | None, VoiceTelemetrySnapshot | None, str | None]:
+    """Load one saved telemetry snapshot plus artifact status metadata."""
+    resolved_artifact_path, payload, artifact_error = load_voice_telemetry_artifact(artifact_path=artifact_path)
+    artifact_status = _voice_telemetry_artifact_status(payload=payload, artifact_error=artifact_error)
+    artifact_created_at = _artifact_created_at(payload)
+    if artifact_status != "ready":
+        return resolved_artifact_path, artifact_status, artifact_created_at, None, artifact_error
+    snapshot_payload = payload.get("snapshot")
+    if not isinstance(snapshot_payload, dict):
+        return (
+            resolved_artifact_path,
+            "invalid",
+            artifact_created_at,
+            None,
+            "ValueError: voice telemetry artifact snapshot must be a JSON object.",
+        )
+    try:
+        snapshot = VoiceTelemetrySnapshot(**snapshot_payload)
+    except TypeError as exc:
+        return resolved_artifact_path, "invalid", artifact_created_at, None, f"TypeError: {exc}"
+    return resolved_artifact_path, artifact_status, artifact_created_at, snapshot, None
+
+
+def voice_telemetry_artifact_summary_payload(
+    *,
+    artifact_path: Path,
+    artifact_status: str,
+    artifact_created_at: str | None,
+    snapshot: VoiceTelemetrySnapshot | None,
+    artifact_error: str | None,
+) -> dict[str, Any]:
+    """Return one machine-readable summary for a saved telemetry artifact."""
+    return {
+        "runner": "voice.telemetry.summary",
+        "artifact_path": str(artifact_path),
+        "artifact_status": artifact_status,
+        "artifact_created_at": artifact_created_at or "",
+        "artifact_error": artifact_error or "",
+        "snapshot": snapshot.to_dict() if snapshot is not None else {},
+    }
+
+
 def format_voice_telemetry_snapshot(snapshot: VoiceTelemetrySnapshot) -> str:
     """Render one compact operator-facing voice telemetry summary."""
     return "\n".join(
@@ -268,6 +313,70 @@ def format_voice_telemetry_snapshot(snapshot: VoiceTelemetrySnapshot) -> str:
             f"average spoken response length: {_metric_value(snapshot.average_spoken_response_length)}",
         ]
     )
+
+
+def format_voice_telemetry_artifact_summary(
+    *,
+    artifact_path: Path,
+    artifact_status: str,
+    artifact_created_at: str | None,
+    snapshot: VoiceTelemetrySnapshot | None,
+    artifact_error: str | None,
+) -> str:
+    """Render one operator-facing summary for the saved telemetry artifact."""
+    lines = [
+        "JARVIS Voice Telemetry Artifact",
+        f"artifact path: {artifact_path}",
+        f"artifact status: {artifact_status}",
+        f"artifact created at: {artifact_created_at or 'n/a'}",
+    ]
+    if artifact_error:
+        lines.append(f"artifact error: {artifact_error}")
+    if snapshot is None:
+        lines.append("snapshot: n/a")
+        return "\n".join(lines)
+    lines.extend(format_voice_telemetry_snapshot(snapshot).splitlines()[1:])
+    return "\n".join(lines)
+
+
+def main() -> int:
+    """Render one saved voice-telemetry artifact summary."""
+    parser = argparse.ArgumentParser(description="Inspect one saved voice-telemetry artifact.")
+    parser.add_argument(
+        "--artifact-path",
+        help="Optional path to a specific voice-telemetry artifact JSON file.",
+    )
+    parser.add_argument("--json", action="store_true", help="Print the telemetry artifact summary as JSON.")
+    args = parser.parse_args()
+    resolved_artifact_path = Path(args.artifact_path).expanduser() if args.artifact_path else None
+    artifact_path, artifact_status, artifact_created_at, snapshot, artifact_error = load_voice_telemetry_snapshot(
+        artifact_path=resolved_artifact_path
+    )
+    if args.json:
+        print(
+            json.dumps(
+                voice_telemetry_artifact_summary_payload(
+                    artifact_path=artifact_path,
+                    artifact_status=artifact_status,
+                    artifact_created_at=artifact_created_at,
+                    snapshot=snapshot,
+                    artifact_error=artifact_error,
+                ),
+                indent=2,
+                sort_keys=True,
+            )
+        )
+    else:
+        print(
+            format_voice_telemetry_artifact_summary(
+                artifact_path=artifact_path,
+                artifact_status=artifact_status,
+                artifact_created_at=artifact_created_at,
+                snapshot=snapshot,
+                artifact_error=artifact_error,
+            )
+        )
+    return 0
 
 
 def _interaction_mode(interaction: object) -> str | None:
@@ -318,6 +427,25 @@ def _rate(numerator: int, denominator: int) -> float:
     return float(numerator) / float(denominator)
 
 
+def _voice_telemetry_artifact_status(
+    *,
+    payload: dict[str, Any] | None,
+    artifact_error: str | None,
+) -> str:
+    if artifact_error:
+        return "invalid"
+    if payload is None:
+        return "missing"
+    if not isinstance(payload.get("snapshot"), dict):
+        return "invalid"
+    return "ready"
+
+
+def _artifact_created_at(payload: dict[str, Any] | None) -> str | None:
+    created_at = str((payload or {}).get("created_at", "") or "").strip()
+    return created_at or None
+
+
 def _percent(value: float) -> str:
     return f"{float(value) * 100.0:.1f}%"
 
@@ -326,3 +454,7 @@ def _metric_value(value: float | None) -> str:
     if value is None:
         return "n/a"
     return f"{float(value):.1f}"
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

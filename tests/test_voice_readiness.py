@@ -13,6 +13,7 @@ from voice.readiness import (
     load_voice_readiness_artifact,
     write_voice_readiness_artifact,
 )
+from voice.telemetry import build_default_voice_telemetry, write_voice_telemetry_artifact
 
 
 class VoiceReadinessTests(unittest.TestCase):
@@ -59,16 +60,60 @@ class VoiceReadinessTests(unittest.TestCase):
         self.assertTrue(reloaded_record.voice_ready)
         self.assertEqual(reloaded_record.next_step_kind, "voice_readiness_artifact_already_recorded")
 
+    def test_ready_record_stays_ready_when_telemetry_artifact_is_missing(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            artifact_path = Path(tmpdir) / "voice_readiness.json"
+            telemetry_artifact_path = Path(tmpdir) / "voice_telemetry.json"
+
+            record = build_voice_readiness_record(
+                manual_verified=True,
+                artifact_path=artifact_path,
+                telemetry_artifact_path=telemetry_artifact_path,
+            )
+
+        self.assertTrue(record.voice_ready)
+        self.assertEqual(record.telemetry_artifact_status, "missing")
+        self.assertEqual(record.telemetry_artifact_command, "voice telemetry write")
+
+    def test_ready_record_reports_telemetry_artifact_when_present(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            artifact_path = Path(tmpdir) / "voice_readiness.json"
+            telemetry_artifact_path = Path(tmpdir) / "voice_telemetry.json"
+            telemetry = build_default_voice_telemetry()
+            written_telemetry_path = write_voice_telemetry_artifact(
+                telemetry.snapshot(),
+                artifact_path=telemetry_artifact_path,
+            )
+
+            record = build_voice_readiness_record(
+                manual_verified=True,
+                artifact_path=artifact_path,
+                telemetry_artifact_path=telemetry_artifact_path,
+            )
+
+        self.assertEqual(written_telemetry_path, telemetry_artifact_path)
+        self.assertEqual(record.telemetry_artifact_path, str(telemetry_artifact_path))
+        self.assertEqual(record.telemetry_artifact_status, "ready")
+        self.assertIsNotNone(record.telemetry_artifact_created_at)
+
     def test_format_mentions_flag_doc_and_next_step(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             artifact_path = Path(tmpdir) / "voice_readiness.json"
-            record = build_voice_readiness_record(artifact_path=artifact_path)
+            telemetry_artifact_path = Path(tmpdir) / "voice_telemetry.json"
+            record = build_voice_readiness_record(
+                artifact_path=artifact_path,
+                telemetry_artifact_path=telemetry_artifact_path,
+            )
 
         rendered = format_voice_readiness_record(record)
 
         self.assertIn("JARVIS Voice Readiness", rendered)
         self.assertIn("advanced follow-up flag: JARVIS_VOICE_CONTINUOUS_MODE", rendered)
         self.assertIn("manual verification doc: docs/manual_voice_verification.md", rendered)
+        self.assertIn(f"telemetry artifact path: {telemetry_artifact_path}", rendered)
+        self.assertIn("telemetry artifact status: missing", rendered)
+        self.assertIn("telemetry artifact command: voice telemetry write", rendered)
+        self.assertIn("telemetry note: advisory only; record a session snapshot before live sign-off with voice telemetry write", rendered)
         self.assertIn("next step: complete_manual_voice_verification", rendered)
 
     def test_module_can_write_artifact_to_explicit_path(self) -> None:
@@ -93,6 +138,30 @@ class VoiceReadinessTests(unittest.TestCase):
             self.assertEqual(completed.returncode, 0)
             self.assertTrue(artifact_path.exists())
             self.assertIn(f"wrote voice readiness artifact: {artifact_path}", completed.stdout)
+
+    def test_module_accepts_explicit_telemetry_artifact_path(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            artifact_path = Path(tmpdir) / "voice_readiness.json"
+            telemetry_artifact_path = Path(tmpdir) / "voice_telemetry.json"
+            completed = subprocess.run(
+                [
+                    "python3",
+                    "-m",
+                    "voice.readiness",
+                    "--artifact-path",
+                    str(artifact_path),
+                    "--telemetry-artifact-path",
+                    str(telemetry_artifact_path),
+                ],
+                cwd=Path(__file__).resolve().parents[1],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+
+        self.assertEqual(completed.returncode, 0)
+        self.assertIn(f"telemetry artifact path: {telemetry_artifact_path}", completed.stdout)
+        self.assertIn("telemetry artifact status: missing", completed.stdout)
 
 
 if __name__ == "__main__":

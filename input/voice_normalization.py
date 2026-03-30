@@ -107,6 +107,19 @@ _RUSSIAN_EXACT_CANONICAL_MAP = {
     "что именно тебе нужно подтвердить": "what exactly do you need me to confirm",
     "что тебе нужно подтвердить": "what do you need me to confirm",
 }
+_RUSSIAN_ANSWER_FOLLOW_UP_MAP = {
+    "скажи подробнее": "Explain more",
+    "объясни подробнее": "Explain more",
+    "расскажи подробнее": "Explain more",
+    "подробнее": "Explain more",
+    "какой источник": "Which source?",
+    "какие источники": "Which sources?",
+    "где это написано": "Where is that written",
+    "где это задокументировано": "Where is that documented",
+    "почему": "Why is that",
+    "почему это так": "Why is that",
+    "почему так": "Why so",
+}
 _RUSSIAN_MIXED_COMMAND_RE = re.compile(
     r"^(?P<head>.+?)\s+(?P<join>и|а потом)\s+(?P<tail>(?:открой|запусти|закрой|покажи|найди|подготовь|используй)\b.+)$",
     flags=re.IGNORECASE,
@@ -124,6 +137,7 @@ def normalize_voice_command(recognized_text: str) -> str:
     compact = _collapse_repeated_voice_phrase(compact)
     compact = _canonicalize_russian_followup(compact)
     compact = _normalize_russian_mixed_interaction(compact)
+    compact = _canonicalize_russian_answer_follow_up(compact)
     compact = _canonicalize_exact_russian_phrase(compact)
     compact = _canonicalize_russian_command(compact)
     return compact
@@ -228,6 +242,12 @@ def _canonicalize_russian_followup(text: str) -> str:
         return "cancel"
 
     return text
+
+
+def _canonicalize_russian_answer_follow_up(text: str) -> str:
+    lookup = text.lower().strip(_TERMINAL_PUNCTUATION)
+    mapped = _RUSSIAN_ANSWER_FOLLOW_UP_MAP.get(lookup)
+    return mapped or text
 
 
 def _normalize_russian_mixed_interaction(text: str) -> str:

@@ -128,6 +128,18 @@ _QUESTION_MARKERS = (
     "что такое ",
     "как работает ",
 )
+_GREETING_QUESTION_MARKERS = (
+    "hello",
+    "hello jarvis",
+    "hi",
+    "hi jarvis",
+    "hey",
+    "hey jarvis",
+    "привет",
+    "привет джарвис",
+    "здравствуй",
+    "здравствуй джарвис",
+)
 _MIXED_COMMAND_MARKERS = (
     " and open ",
     " and launch ",
@@ -322,7 +334,12 @@ def _looks_like_polite_command(text: str) -> bool:
 
 def _looks_like_question(text: str) -> bool:
     lowered = text.lower()
-    return lowered.endswith("?") or lowered.startswith(_QUESTION_STARTERS) or any(marker in lowered for marker in _QUESTION_MARKERS)
+    return (
+        lowered.endswith("?")
+        or lowered.startswith(_QUESTION_STARTERS)
+        or lowered in _GREETING_QUESTION_MARKERS
+        or any(marker in lowered for marker in _QUESTION_MARKERS)
+    )
 
 
 def _contains_embedded_command_request(text: str) -> bool:

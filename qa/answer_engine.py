@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 import sys
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -52,6 +53,10 @@ def classify_question(
 
     if _looks_like_blocked_state_question(lowered):
         question = QuestionRequest(raw_input=normalized, question_type=QuestionType.BLOCKED_STATE, scope="blocked_state", confidence=0.96)
+        _record_question_classification(question, debug_trace=debug_trace)
+        return question
+    if _looks_like_greeting(lowered):
+        question = QuestionRequest(raw_input=normalized, question_type=QuestionType.CAPABILITIES, scope="capabilities", confidence=0.82)
         _record_question_classification(question, debug_trace=debug_trace)
         return question
     if _looks_like_recent_runtime_question(lowered):
@@ -253,17 +258,34 @@ def _looks_like_capabilities_question(text: str) -> bool:
     return any(phrase in text for phrase in phrases)
 
 
+def _looks_like_greeting(text: str) -> bool:
+    normalized = text.strip(" \t\r\n,.;:!?")
+    return normalized in {
+        "hello",
+        "hello jarvis",
+        "hi",
+        "hi jarvis",
+        "hey",
+        "hey jarvis",
+        "привет",
+        "привет джарвис",
+        "здравствуй",
+        "здравствуй джарвис",
+    }
+
+
 def _looks_like_repo_structure_question(text: str) -> bool:
-    phrases = (
-        "where is",
-        "where does",
-        "which file",
-        "which module",
-        "where does runtime state live",
-        "where is the parser",
-        "where is the planner",
+    lowered = text.strip()
+    if any(phrase in lowered for phrase in ("which file", "which module", "where does runtime state live")):
+        return True
+    return any(
+        re.search(pattern, lowered) is not None
+        for pattern in (
+            r"^where is the (?:parser|planner|validator|router|runtime|executor|command model)\b",
+            r"^where does the (?:parser|planner|validator|router|runtime|executor|command model)\b",
+            r"^where is (?:the )?(?:parser|planner|validator|router|runtime|executor)\b",
+        )
     )
-    return any(phrase in text for phrase in phrases)
 
 
 def _looks_like_safety_question(text: str) -> bool:

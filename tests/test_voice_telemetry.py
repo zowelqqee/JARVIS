@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import tempfile
 import unittest
+import subprocess
 from types import SimpleNamespace
 from pathlib import Path
 
@@ -11,8 +12,10 @@ from input.voice_input import VoiceInputError
 from voice.session import VoiceTurn
 from voice.telemetry import (
     VoiceTelemetryCollector,
+    format_voice_telemetry_artifact_summary,
     format_voice_telemetry_snapshot,
     load_voice_telemetry_artifact,
+    load_voice_telemetry_snapshot,
     write_voice_telemetry_artifact,
 )
 from voice.tts_provider import SpeechUtterance, TTSResult
@@ -170,6 +173,65 @@ class VoiceTelemetryTests(unittest.TestCase):
         self.assertEqual(payload["runner"], "voice.telemetry")
         self.assertEqual(payload["snapshot"]["capture_attempts"], 1)
         self.assertEqual(payload["snapshot"]["tts_attempts"], 0)
+
+    def test_saved_artifact_summary_reports_missing_snapshot_cleanly(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            artifact_path = Path(tmpdir) / "voice_telemetry.json"
+            (
+                loaded_path,
+                artifact_status,
+                artifact_created_at,
+                snapshot,
+                artifact_error,
+            ) = load_voice_telemetry_snapshot(artifact_path=artifact_path)
+
+        rendered = format_voice_telemetry_artifact_summary(
+            artifact_path=loaded_path,
+            artifact_status=artifact_status,
+            artifact_created_at=artifact_created_at,
+            snapshot=snapshot,
+            artifact_error=artifact_error,
+        )
+
+        self.assertEqual(loaded_path, artifact_path)
+        self.assertEqual(artifact_status, "missing")
+        self.assertIsNone(snapshot)
+        self.assertIsNone(artifact_error)
+        self.assertIn("JARVIS Voice Telemetry Artifact", rendered)
+        self.assertIn("artifact status: missing", rendered)
+        self.assertIn("snapshot: n/a", rendered)
+
+    def test_module_can_render_explicit_saved_artifact_path(self) -> None:
+        collector = VoiceTelemetryCollector()
+        collector.record_capture(
+            phase="initial",
+            elapsed_seconds=0.25,
+            error=VoiceInputError("EMPTY_RECOGNITION", "No speech was recognized. Try again."),
+        )
+        snapshot = collector.snapshot()
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            artifact_path = Path(tmpdir) / "voice_telemetry.json"
+            write_voice_telemetry_artifact(snapshot, artifact_path=artifact_path)
+            completed = subprocess.run(
+                [
+                    "python3",
+                    "-m",
+                    "voice.telemetry",
+                    "--artifact-path",
+                    str(artifact_path),
+                ],
+                cwd=Path(__file__).resolve().parents[1],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+
+        self.assertEqual(completed.returncode, 0)
+        self.assertIn("JARVIS Voice Telemetry Artifact", completed.stdout)
+        self.assertIn(f"artifact path: {artifact_path}", completed.stdout)
+        self.assertIn("artifact status: ready", completed.stdout)
+        self.assertIn("capture attempts: 1", completed.stdout)
 
 
 if __name__ == "__main__":

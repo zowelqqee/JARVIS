@@ -367,7 +367,7 @@ class RuntimeSmokeTests(unittest.TestCase):
             result = self.runtime_manager.handle_input("prepare workspace for JARVIS", self.session_context)
 
         self.assertEqual(result.runtime_state, "completed")
-        self.assertEqual(result.command_summary, "prepare_workspace: Visual Studio Code, JARVIS, Safari")
+        self.assertEqual(result.command_summary, "prepare_workspace: Visual Studio Code, JARVIS, Google Chrome")
         self.assertEqual(executed_actions, ["open_app", "open_folder", "open_app"])
 
     def test_open_project_name_in_code_normalizes_to_code_plus_folder_workspace_flow(self) -> None:
@@ -410,7 +410,7 @@ class RuntimeSmokeTests(unittest.TestCase):
             )
 
         self.assertEqual(result.runtime_state, "completed")
-        self.assertEqual(result.command_summary, f"prepare_workspace: Visual Studio Code, {repo_name}, Safari")
+        self.assertEqual(result.command_summary, f"prepare_workspace: Visual Studio Code, {repo_name}, Google Chrome")
         self.assertEqual(executed_actions, ["open_folder", "open_app", "open_folder", "open_app"])
         self.assertEqual(executed_actions[1:].count("open_folder"), 1)
         self.assertEqual(open_folder_targets[-1], repo_name)
@@ -442,6 +442,7 @@ class RuntimeSmokeTests(unittest.TestCase):
             )
 
         self.assertEqual(result.runtime_state, "completed")
+        self.assertEqual(result.command_summary, f"prepare_workspace: Google Chrome, {repo_name}")
         self.assertEqual(executed_actions, ["open_folder", "open_app"])
         self.assertEqual(open_folder_parameters[-1], {})
 

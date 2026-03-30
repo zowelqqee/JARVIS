@@ -11,13 +11,14 @@ from typing import Any, Mapping
 
 from voice.flags import continuous_voice_mode_enabled
 from voice.session import build_follow_up_capture_request, capture_follow_up_voice_turn
-from voice.telemetry import build_default_voice_telemetry
+from voice.telemetry import build_default_voice_telemetry, load_voice_telemetry_artifact, voice_telemetry_artifact_path
 
 _REPO_ROOT = Path(__file__).resolve().parents[1]
 _VOICE_READINESS_ARTIFACT = _REPO_ROOT / "tmp" / "qa" / "voice_readiness.json"
 _MANUAL_VERIFICATION_DOC = "docs/manual_voice_verification.md"
 _MANUAL_VERIFICATION_DOC_PATH = _REPO_ROOT / _MANUAL_VERIFICATION_DOC
 _VOICE_READINESS_GUIDE_COMMAND = "python3 -m voice.readiness"
+_VOICE_TELEMETRY_GUIDE_COMMAND = "voice telemetry write"
 
 
 @dataclass(slots=True, frozen=True)
@@ -28,6 +29,10 @@ class VoiceReadinessRecord:
     advanced_follow_up_default_off: bool
     advanced_follow_up_enabled_in_current_env: bool
     telemetry_available: bool
+    telemetry_artifact_path: str
+    telemetry_artifact_status: str
+    telemetry_artifact_created_at: str | None
+    telemetry_artifact_command: str
     follow_up_session_available: bool
     manual_verification_doc: str
     manual_verification_doc_present: bool
@@ -51,6 +56,10 @@ class VoiceReadinessRecord:
             "advanced_follow_up_default_off": self.advanced_follow_up_default_off,
             "advanced_follow_up_enabled_in_current_env": self.advanced_follow_up_enabled_in_current_env,
             "telemetry_available": self.telemetry_available,
+            "telemetry_artifact_path": self.telemetry_artifact_path,
+            "telemetry_artifact_status": self.telemetry_artifact_status,
+            "telemetry_artifact_created_at": self.telemetry_artifact_created_at,
+            "telemetry_artifact_command": self.telemetry_artifact_command,
             "follow_up_session_available": self.follow_up_session_available,
             "manual_verification_doc": self.manual_verification_doc,
             "manual_verification_doc_present": self.manual_verification_doc_present,
@@ -73,12 +82,17 @@ def build_voice_readiness_record(
     notes: str | None = None,
     environ: Mapping[str, str] | None = None,
     artifact_path: Path | None = None,
+    telemetry_artifact_path: Path | None = None,
 ) -> VoiceReadinessRecord:
     """Build the current offline voice-readiness summary."""
     resolved_artifact_path = artifact_path or voice_readiness_artifact_path()
     artifact_path_value, artifact_payload, artifact_error = load_voice_readiness_artifact(resolved_artifact_path)
     artifact_status = _voice_readiness_artifact_status(artifact_payload=artifact_payload, artifact_error=artifact_error)
     artifact_created_at = _artifact_created_at(artifact_payload)
+    resolved_telemetry_artifact_path = telemetry_artifact_path or voice_telemetry_artifact_path()
+    telemetry_artifact_path_value, telemetry_payload, telemetry_error = load_voice_telemetry_artifact(resolved_telemetry_artifact_path)
+    telemetry_artifact_status = _supporting_artifact_status(payload=telemetry_payload, artifact_error=telemetry_error, required_key="snapshot")
+    telemetry_artifact_created_at = _artifact_created_at(telemetry_payload)
     artifact_manual_verified = _artifact_manual_verified(artifact_payload)
     effective_manual_verified = bool(manual_verified or artifact_manual_verified)
     manual_doc_present = _MANUAL_VERIFICATION_DOC_PATH.exists()
@@ -111,6 +125,10 @@ def build_voice_readiness_record(
         advanced_follow_up_default_off=not default_env_continuous_mode,
         advanced_follow_up_enabled_in_current_env=current_env_continuous_mode,
         telemetry_available=telemetry_available,
+        telemetry_artifact_path=str(telemetry_artifact_path_value),
+        telemetry_artifact_status=telemetry_artifact_status,
+        telemetry_artifact_created_at=telemetry_artifact_created_at,
+        telemetry_artifact_command=_VOICE_TELEMETRY_GUIDE_COMMAND,
         follow_up_session_available=follow_up_session_available,
         manual_verification_doc=_MANUAL_VERIFICATION_DOC,
         manual_verification_doc_present=manual_doc_present,
@@ -133,6 +151,10 @@ def format_voice_readiness_record(record: VoiceReadinessRecord) -> str:
         f"artifact path: {record.artifact_path}",
         f"artifact status: {record.artifact_status}",
         f"artifact created at: {record.artifact_created_at or 'n/a'}",
+        f"telemetry artifact path: {record.telemetry_artifact_path}",
+        f"telemetry artifact status: {record.telemetry_artifact_status}",
+        f"telemetry artifact created at: {record.telemetry_artifact_created_at or 'n/a'}",
+        f"telemetry artifact command: {record.telemetry_artifact_command}",
         f"manual verification doc: {record.manual_verification_doc}",
         f"manual verification doc present: {'yes' if record.manual_verification_doc_present else 'no'}",
         f"manual verification recorded: {'yes' if record.manual_verification_recorded else 'no'}",
@@ -147,6 +169,12 @@ def format_voice_readiness_record(record: VoiceReadinessRecord) -> str:
         f"next step command: {record.next_step_command or 'n/a'}",
         f"blockers: {', '.join(record.blockers) if record.blockers else 'none'}",
     ]
+    if record.telemetry_artifact_status == "ready":
+        lines.append("telemetry note: latest session telemetry artifact is recorded")
+    else:
+        lines.append(
+            f"telemetry note: advisory only; record a session snapshot before live sign-off with {record.telemetry_artifact_command}"
+        )
     if record.notes:
         lines.append(f"notes: {record.notes}")
     return "\n".join(lines)
@@ -207,17 +235,23 @@ def main() -> int:
         "--artifact-path",
         help="Optional path to a specific voice-readiness artifact JSON file.",
     )
+    parser.add_argument(
+        "--telemetry-artifact-path",
+        help="Optional path to a specific voice-telemetry artifact JSON file.",
+    )
     parser.add_argument("--manual-verified", action="store_true", help="Record that live manual voice verification was completed.")
     parser.add_argument("--notes", help="Optional operator notes.")
     parser.add_argument("--write-artifact", action="store_true", help="Write the voice-readiness artifact to tmp/qa.")
     parser.add_argument("--json", action="store_true", help="Print the record as JSON.")
     args = parser.parse_args()
     artifact_path = Path(args.artifact_path).expanduser() if args.artifact_path else None
+    telemetry_artifact_path = Path(args.telemetry_artifact_path).expanduser() if args.telemetry_artifact_path else None
 
     record = build_voice_readiness_record(
         manual_verified=bool(args.manual_verified),
         notes=args.notes,
         artifact_path=artifact_path,
+        telemetry_artifact_path=telemetry_artifact_path,
     )
     if args.write_artifact:
         if not record.voice_ready:
@@ -238,13 +272,10 @@ def _voice_readiness_artifact_status(
     artifact_payload: dict[str, Any] | None,
     artifact_error: str | None,
 ) -> str:
-    if artifact_error:
-        return "invalid"
-    if artifact_payload is None:
-        return "missing"
+    report_status = _supporting_artifact_status(payload=artifact_payload, artifact_error=artifact_error, required_key="report")
+    if report_status != "ready":
+        return report_status
     report = artifact_payload.get("report")
-    if not isinstance(report, dict):
-        return "invalid"
     if bool(report.get("manual_verification_recorded")):
         return "ready"
     return "partial"
@@ -280,6 +311,21 @@ def _artifact_matches_current_readiness(artifact_payload: dict[str, Any] | None)
         if report.get(key) != expected_value:
             return False
     return True
+
+
+def _supporting_artifact_status(
+    *,
+    payload: dict[str, Any] | None,
+    artifact_error: str | None,
+    required_key: str,
+) -> str:
+    if artifact_error:
+        return "invalid"
+    if payload is None:
+        return "missing"
+    if not isinstance(payload.get(required_key), dict):
+        return "invalid"
+    return "ready"
 
 
 def _voice_readiness_next_step(

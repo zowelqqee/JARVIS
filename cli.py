@@ -52,7 +52,7 @@ from voice.dispatcher import dispatch_interaction_input, dispatch_voice_turn, re
 from voice.flags import continuous_voice_mode_enabled
 from voice.gate import build_voice_readiness_gate_report, format_voice_readiness_gate_report
 from voice.language import detect_spoken_locale
-from voice.readiness import build_voice_readiness_record, format_voice_readiness_record
+from voice.readiness import build_voice_readiness_record, format_voice_readiness_record, write_voice_readiness_artifact
 from voice.session import (
     VoiceTurn,
     build_follow_up_capture_request,
@@ -62,7 +62,9 @@ from voice.session import (
 from voice.telemetry import (
     VoiceTelemetryCollector,
     build_default_voice_telemetry,
+    format_voice_telemetry_artifact_summary,
     format_voice_telemetry_snapshot,
+    load_voice_telemetry_snapshot,
     write_voice_telemetry_artifact,
 )
 from voice.tts_provider import TTSProvider, build_default_tts_provider
@@ -181,12 +183,20 @@ def _handle_cli_command(
             _print_voice_readiness()
             return False, speak_enabled
 
+        if lowered in {"voice readiness write", "/voice readiness write"}:
+            _write_voice_readiness()
+            return False, speak_enabled
+
         if lowered in {"voice gate", "/voice gate"}:
             _print_voice_gate()
             return False, speak_enabled
 
         if lowered in {"voice telemetry", "/voice telemetry"}:
             _print_voice_telemetry(telemetry)
+            return False, speak_enabled
+
+        if lowered in {"voice telemetry artifact", "/voice telemetry artifact"}:
+            _print_voice_telemetry_artifact()
             return False, speak_enabled
 
         if lowered in {"voice telemetry reset", "/voice telemetry reset"}:
@@ -303,10 +313,14 @@ def _print_help() -> None:
     print("  /qa readiness    Show the beta readiness helper summary.")
     print("  voice readiness  Show the offline voice readiness helper summary.")
     print("  /voice readiness Show the offline voice readiness helper summary.")
+    print("  voice readiness write Write the offline voice readiness artifact when unblocked.")
+    print("  /voice readiness write Write the offline voice readiness artifact when unblocked.")
     print("  voice gate       Show the offline voice rollout gate verdict.")
     print("  /voice gate      Show the offline voice rollout gate verdict.")
     print("  voice telemetry  Show in-memory voice metrics for this CLI session.")
     print("  /voice telemetry Show in-memory voice metrics for this CLI session.")
+    print("  voice telemetry artifact Show the saved voice telemetry artifact summary.")
+    print("  /voice telemetry artifact Show the saved voice telemetry artifact summary.")
     print("  voice telemetry reset Clear in-memory voice metrics for this CLI session.")
     print("  /voice telemetry reset Clear in-memory voice metrics for this CLI session.")
     print("  voice telemetry write Save current voice metrics to tmp/qa.")
@@ -356,8 +370,13 @@ def _auto_follow_up_request(voice_dispatch: object):
     request = build_follow_up_capture_request(voice_turn)
     if request is None:
         return None
-    if request.reason not in {"clarification", "confirmation"}:
+    if request.reason not in {"clarification", "confirmation", "short_answer"}:
         return None
+    if request.reason == "short_answer":
+        interaction = getattr(voice_dispatch, "interaction", None)
+        spoken_text = str(getattr(getattr(interaction, "speech_utterance", None), "text", "") or "").strip()
+        if not spoken_text:
+            return None
     return request
 
 
@@ -883,6 +902,17 @@ def _print_voice_readiness() -> None:
     print(format_voice_readiness_record(record))
 
 
+def _write_voice_readiness() -> None:
+    """Persist the current offline voice-readiness artifact when unblocked."""
+    record = build_voice_readiness_record()
+    if not record.voice_ready:
+        print(format_voice_readiness_record(record))
+        print("voice readiness is still blocked; refusing to write final artifact")
+        return
+    artifact_path = write_voice_readiness_artifact(record)
+    print(f"wrote voice readiness artifact: {artifact_path}")
+
+
 def _print_voice_gate() -> None:
     """Print the current offline voice rollout gate verdict."""
     report = build_voice_readiness_gate_report()
@@ -893,6 +923,20 @@ def _print_voice_telemetry(telemetry: VoiceTelemetryCollector | None) -> None:
     """Print the current in-memory voice telemetry summary."""
     active_telemetry = telemetry or build_default_voice_telemetry()
     print(format_voice_telemetry_snapshot(active_telemetry.snapshot()))
+
+
+def _print_voice_telemetry_artifact() -> None:
+    """Print the saved voice telemetry artifact summary."""
+    artifact_path, artifact_status, artifact_created_at, snapshot, artifact_error = load_voice_telemetry_snapshot()
+    print(
+        format_voice_telemetry_artifact_summary(
+            artifact_path=artifact_path,
+            artifact_status=artifact_status,
+            artifact_created_at=artifact_created_at,
+            snapshot=snapshot,
+            artifact_error=artifact_error,
+        )
+    )
 
 
 def _reset_voice_telemetry(telemetry: VoiceTelemetryCollector | None) -> None:

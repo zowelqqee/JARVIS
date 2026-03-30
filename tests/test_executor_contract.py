@@ -5,6 +5,7 @@ from __future__ import annotations
 import unittest
 from pathlib import Path
 from subprocess import CompletedProcess
+from tempfile import TemporaryDirectory
 from unittest.mock import patch
 
 import executor.desktop_executor as desktop_executor
@@ -277,6 +278,50 @@ class ExecutorContractTests(unittest.TestCase):
         self.assertEqual(result.details.get("app_bundle_path"), "/Applications/Visual Studio Code.app")
         self.assertTrue(bool(result.details.get("fallback_used")))
 
+    def test_open_file_without_explicit_path_uses_named_lookup_fallback(self) -> None:
+        file_path = Path(__file__).resolve()
+        step = Step(
+            id="step_1",
+            action=StepAction.OPEN_FILE,
+            target=Target(type=TargetType.FILE, name=file_path.name),
+        )
+
+        with patch.object(desktop_executor.sys, "platform", "darwin"), patch(
+            "executor.desktop_executor._discover_named_path",
+            return_value=file_path,
+        ), patch(
+            "executor.desktop_executor._run_command",
+            return_value=CompletedProcess(args=["open", str(file_path)], returncode=0, stdout="", stderr=""),
+        ):
+            result = desktop_executor.execute_step(step)
+
+        self.assertTrue(result.success)
+        self.assertIsNone(result.error)
+        self.assertIsNotNone(result.details)
+        self.assertEqual(result.details.get("path"), str(file_path))
+
+    def test_open_folder_without_explicit_path_uses_named_lookup_fallback(self) -> None:
+        folder_path = Path(__file__).resolve().parent
+        step = Step(
+            id="step_1",
+            action=StepAction.OPEN_FOLDER,
+            target=Target(type=TargetType.FOLDER, name=folder_path.name),
+        )
+
+        with patch.object(desktop_executor.sys, "platform", "darwin"), patch(
+            "executor.desktop_executor._discover_named_path",
+            return_value=folder_path,
+        ), patch(
+            "executor.desktop_executor._run_command",
+            return_value=CompletedProcess(args=["open", str(folder_path)], returncode=0, stdout="", stderr=""),
+        ):
+            result = desktop_executor.execute_step(step)
+
+        self.assertTrue(result.success)
+        self.assertIsNone(result.error)
+        self.assertIsNotNone(result.details)
+        self.assertEqual(result.details.get("path"), str(folder_path))
+
     def test_open_app_without_bundle_fallback_remains_app_unavailable(self) -> None:
         step = Step(
             id="step_1",
@@ -335,6 +380,16 @@ class ExecutorContractTests(unittest.TestCase):
         self.assertIsNotNone(result.error)
         self.assertEqual(result.error.code, "APP_UNAVAILABLE")
         self.assertIn("not launchable", result.error.message)
+
+    def test_discover_installed_app_bundle_matches_fuzzy_bundle_name(self) -> None:
+        with TemporaryDirectory() as tmpdir:
+            bundle_path = Path(tmpdir) / "YandexMusic.app"
+            bundle_path.mkdir()
+
+            with patch.object(desktop_executor, "_APP_SEARCH_DIRECTORIES", (Path(tmpdir),)):
+                resolved = desktop_executor._discover_installed_app_bundle("Yandex Music")
+
+        self.assertEqual(resolved, bundle_path)
 
 
 if __name__ == "__main__":

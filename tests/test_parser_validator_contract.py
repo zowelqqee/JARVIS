@@ -72,6 +72,27 @@ class ParserValidatorContractTests(unittest.TestCase):
             [("application", "Telegram")],
         )
 
+    def test_open_dot_net_host_maps_to_open_website(self) -> None:
+        command = parse_command("open example.net", self.session_context)
+        validation = validate_command(command)
+
+        self.assertEqual(getattr(command.intent, "value", ""), "open_website")
+        self.assertTrue(validation.valid)
+        target = list(command.targets or [])[0]
+        self.assertEqual((getattr(target.type, "value", ""), target.name), ("browser", "Safari"))
+        self.assertEqual((target.metadata or {}).get("url"), "https://example.net")
+
+    def test_open_filename_with_extension_maps_to_open_file(self) -> None:
+        command = parse_command("open notes.txt", self.session_context)
+        validation = validate_command(command)
+
+        self.assertEqual(getattr(command.intent, "value", ""), "open_file")
+        self.assertTrue(validation.valid)
+        self.assertEqual(
+            [(getattr(target.type, "value", ""), target.name, target.path) for target in command.targets],
+            [("file", "notes.txt", None)],
+        )
+
     def test_russian_notes_alias_maps_to_notes_application(self) -> None:
         command = parse_command("open заметки", self.session_context)
         validation = validate_command(command)

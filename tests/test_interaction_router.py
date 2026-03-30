@@ -51,6 +51,11 @@ class InteractionRouterTests(unittest.TestCase):
 
         self.assertEqual(decision.kind, InteractionKind.QUESTION)
 
+    def test_greeting_routes_to_question_instead_of_fallback_command(self) -> None:
+        decision = route_interaction("hello jarvis")
+
+        self.assertEqual(decision.kind, InteractionKind.QUESTION)
+
     def test_mixed_question_and_command_routes_to_clarification(self) -> None:
         decision = route_interaction("What can you do and open Safari")
 

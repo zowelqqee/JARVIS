@@ -601,7 +601,7 @@ def _parse_open_command(
     if kind_set == {"file"}:
         return "open_file", targets, {}
     if len(targets) > 1 and _is_workspace_target_group(targets):
-        normalized_targets = _normalize_workspace_targets(targets)
+        normalized_targets = _normalize_workspace_targets(_normalize_workspace_browser_targets(targets))
         parameters = _workspace_parameters_from_targets(normalized_targets)
         return "prepare_workspace", normalized_targets, parameters
 
@@ -797,7 +797,7 @@ def _build_workspace_command(
 def _default_workspace_targets(workspace: str | None, session_context: SessionContext | None) -> list[Target]:
     targets = [
         Target(type=TargetType.APPLICATION, name=_APP_ALIASES["code"]),
-        Target(type=TargetType.APPLICATION, name=_APP_ALIASES["browser"]),
+        Target(type=TargetType.APPLICATION, name=_APP_ALIASES["chrome"]),
     ]
 
     folder_target = _workspace_folder_target(workspace, session_context)
@@ -822,6 +822,8 @@ def _build_workspace_target(
     session_context: SessionContext | None,
     workspace_folder_target: Target | None = None,
 ) -> Target:
+    if _normalize_phrase(segment) in {"browser", "web browser"}:
+        return Target(type=TargetType.APPLICATION, name=_APP_ALIASES["chrome"])
     if workspace_folder_target is not None and _is_generic_workspace_folder_segment(segment):
         return _clone_target(workspace_folder_target)
 
@@ -829,7 +831,7 @@ def _build_workspace_target(
     if workspace_folder_target is not None and _is_workspace_placeholder_target(target):
         return _clone_target(workspace_folder_target)
     if _target_type_value(target.type) == "browser" and not (target.metadata and target.metadata.get("url")):
-        return Target(type=TargetType.APPLICATION, name=_APP_ALIASES["browser"])
+        return Target(type=TargetType.APPLICATION, name=_APP_ALIASES["chrome"])
     return target
 
 
@@ -844,6 +846,10 @@ def _build_target(segment: str, session_context: SessionContext | None) -> Targe
     website_target = _build_website_target(value)
     if website_target is not None:
         return website_target
+
+    existing_path_target = _existing_local_path_target(value)
+    if existing_path_target is not None:
+        return existing_path_target
 
     if _is_path_like(value):
         path = value
@@ -873,7 +879,11 @@ def _build_target(segment: str, session_context: SessionContext | None) -> Targe
 
     application_name = _application_alias(value)
     if application_name is not None:
-        return Target(type=TargetType.APPLICATION, name=application_name)
+        metadata = {"browser_alias": True} if _normalize_phrase(value) in {"browser", "web browser"} else None
+        return Target(type=TargetType.APPLICATION, name=application_name, metadata=metadata)
+
+    if _looks_like_file_reference(value):
+        return Target(type=TargetType.FILE, name=Path(value).name or value)
 
     return Target(type=TargetType.APPLICATION, name=value)
 
@@ -886,6 +896,18 @@ def _build_website_target(value: str) -> Target | None:
     if url is None:
         return None
     return Target(type=TargetType.BROWSER, name=_APP_ALIASES["browser"], metadata={"url": url})
+
+
+def _existing_local_path_target(value: str) -> Target | None:
+    candidate = Path(value).expanduser()
+    try:
+        if candidate.is_dir():
+            return Target(type=TargetType.FOLDER, name=candidate.name or value, path=str(candidate))
+        if candidate.is_file():
+            return Target(type=TargetType.FILE, name=candidate.name or value, path=str(candidate))
+    except OSError:
+        return None
+    return None
 
 
 def _application_alias(value: str) -> str | None:
@@ -1316,6 +1338,20 @@ def _normalize_workspace_targets(targets: list[Target]) -> list[Target]:
         if key in seen:
             continue
         seen.add(key)
+        normalized.append(target)
+    return normalized
+
+
+def _normalize_workspace_browser_targets(targets: list[Target]) -> list[Target]:
+    normalized: list[Target] = []
+    for target in targets:
+        metadata = getattr(target, "metadata", None) or {}
+        if (
+            _target_type_value(getattr(target, "type", "unknown")) == "application"
+            and metadata.get("browser_alias")
+        ):
+            normalized.append(Target(type=TargetType.APPLICATION, name=_APP_ALIASES["chrome"]))
+            continue
         normalized.append(target)
     return normalized
 

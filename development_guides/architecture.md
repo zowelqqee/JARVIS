@@ -132,7 +132,8 @@
          `execute_step()`
                 |
                 v
-      `map_visibility()`
+      `map_visibility()` 
+
                 |
                 v
    `interaction_output_lines()`

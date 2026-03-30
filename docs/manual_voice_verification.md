@@ -17,7 +17,7 @@
 - No managed continuous listening session yet.
 - Advanced voice follow-up mode is disabled by default until manual QA is complete.
 - No automatic multi-turn loop beyond one blocking follow-up reply even when the flag is enabled.
-- Short-answer follow-up metadata exists, but CLI does not auto-open a second capture after ordinary question answers yet.
+- Short-answer follow-up opens at most one extra capture only when `JARVIS_VOICE_CONTINUOUS_MODE=1` and spoken output is enabled via `speak on`.
 - No live microphone smoke is implied by unit tests; this checklist must be run manually.
 - Spoken output is summary-oriented and may differ from terminal output by design.
 
@@ -26,9 +26,12 @@
 - To verify automatic blocking follow-up, run: `JARVIS_VOICE_CONTINUOUS_MODE=1 python3 cli.py`
 - Optional offline rollout helpers:
   - `voice readiness` inside CLI or `python3 -m voice.readiness`
+  - `voice readiness write` inside CLI to persist the final readiness artifact when unblocked
   - `voice gate` inside CLI or `python3 -m voice.gate`
   - shell wrapper: `scripts/run_voice_readiness_gate.sh`
+- For offline QA artifacts outside the default `tmp/qa` location, both Python helpers also accept `--artifact-path` and `--telemetry-artifact-path`.
 - Optional session metrics helper inside CLI: `voice telemetry`
+- To inspect the saved telemetry artifact later, run: `voice telemetry artifact` inside CLI or `python3 -m voice.telemetry`
 - To persist the current session snapshot to `tmp/qa`, run: `voice telemetry write`
 - Confirm the shell banner includes `voice` and `speak on`.
 - On first use, allow macOS `Microphone` and `Speech Recognition` permissions if prompted.
@@ -39,6 +42,7 @@
 - `voice` prints `voice: listening... speak now.`
 - After capture, CLI prints one normalized `recognized: "..."` line.
 - If `JARVIS_VOICE_CONTINUOUS_MODE=1` and the first voice turn ends in blocking clarification or confirmation, CLI should print `voice: follow-up... speak now.` once and capture one more reply.
+- If `JARVIS_VOICE_CONTINUOUS_MODE=1`, `speak on` is enabled, and a question answer is short enough, CLI may open one immediate answer follow-up window after the spoken summary.
 - The normalized line may be English even for Russian fixed phrases and follow-ups.
 - Runtime behavior must stay deterministic after normalization.
 - Spoken output should be shorter and friendlier than terminal output.
@@ -90,7 +94,29 @@
 - Expected result: command branch executes and the pending mixed clarification clears.
 - If the follow-up window is missed, restart with a fresh `voice` command.
 
-### 7) Confirmation approve by voice
+### 7) Russian answer follow-up by voice
+- Precondition: ask any grounded question that leaves recent answer context, for example `Что ты умеешь`.
+- Precondition: if you want the immediate auto-follow-up window, run CLI with `JARVIS_VOICE_CONTINUOUS_MODE=1` and `speak on`.
+- Shell input sequence:
+  - first `voice` turn: ask the grounded question
+  - if the immediate follow-up window opens: say `скажи подробнее`
+  - otherwise start a second fresh `voice` turn and say `скажи подробнее`
+- Expected recognized text for the follow-up reply: `Explain more`
+- Expected result: answer-follow-up path reuses recent answer context and returns a more detailed grounded answer.
+- Repeat with:
+  - follow-up reply or second fresh `voice` turn: `какой источник`
+- Expected recognized text: `Which source?`
+- Expected result: answer-follow-up path points to the recent grounded sources instead of falling back to a generic question.
+- Repeat with:
+  - follow-up reply or second fresh `voice` turn: `где это написано`
+- Expected recognized text: `Where is that written`
+- Expected result: answer-follow-up path points back to the recent grounded sources in a voice-friendly form.
+- Repeat with:
+  - follow-up reply or second fresh `voice` turn: `почему`
+- Expected recognized text: `Why is that`
+- Expected result: answer-follow-up path explains why the previous grounded answer had that boundary or behavior.
+
+### 8) Confirmation approve by voice
 - Precondition: run CLI with `JARVIS_VOICE_CONTINUOUS_MODE=1`.
 - Precondition: use a voice command that reaches `awaiting_confirmation`, for example `Джарвис, закрой телеграм`.
 - Shell input: `voice`
@@ -100,7 +126,7 @@
 - Expected recognized text: canonical approval reply such as `yes`
 - Expected result: blocked command resumes and executes from the confirmation boundary.
 
-### 8) Confirmation deny by voice
+### 9) Confirmation deny by voice
 - Precondition: run CLI with `JARVIS_VOICE_CONTINUOUS_MODE=1`.
 - Precondition: use a voice command that reaches `awaiting_confirmation`.
 - Shell input: `voice`
@@ -110,7 +136,7 @@
 - Expected recognized text: canonical denial reply such as `no` or `cancel`
 - Expected result: runtime becomes `cancelled`; blocked step does not execute.
 
-### 9) Repeated follow-up noise
+### 10) Repeated follow-up noise
 - Precondition: run CLI with `JARVIS_VOICE_CONTINUOUS_MODE=1`.
 - Precondition: use a voice command that reaches `awaiting_confirmation`.
 - Shell input: `voice`

@@ -55,6 +55,19 @@ class VoiceNormalizationTests(unittest.TestCase):
     def test_general_russian_open_domain_question_is_left_as_is(self) -> None:
         self.assertEqual(normalize_voice_command("Кто президент Франции"), "Кто президент Франции")
 
+    def test_russian_answer_follow_up_phrases_map_to_existing_text_surface(self) -> None:
+        cases = {
+            "скажи подробнее": "Explain more",
+            "объясни подробнее": "Explain more",
+            "какой источник": "Which source?",
+            "где это написано": "Where is that written",
+            "почему": "Why is that",
+        }
+
+        for raw_text, expected in cases.items():
+            with self.subTest(raw_text=raw_text):
+                self.assertEqual(normalize_voice_command(raw_text), expected)
+
 
 if __name__ == "__main__":
     unittest.main()

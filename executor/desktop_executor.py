@@ -53,6 +53,22 @@ _APP_BUNDLE_OVERRIDES = {
     "safari": ["/Applications/Safari.app", "/System/Applications/Safari.app"],
     "finder": ["/System/Library/CoreServices/Finder.app", "/Applications/Finder.app", "/System/Applications/Finder.app"],
 }
+_COMMON_PATH_LOOKUP_ROOTS = (
+    Path.cwd(),
+    Path.home() / "Desktop",
+    Path.home() / "Documents",
+    Path.home() / "Downloads",
+    Path.home() / "Music",
+    Path.home() / "Movies",
+    Path.home() / "Pictures",
+)
+_APP_SEARCH_DIRECTORIES = (
+    Path("/Applications"),
+    Path.home() / "Applications",
+    Path("/System/Applications"),
+    Path("/System/Library/CoreServices"),
+)
+_PATH_LOOKUP_MAX_DEPTH = 4
 
 
 def execute_step(step: Step) -> ActionResult:
@@ -533,10 +549,21 @@ def _resolve_existing_path(target: Target, expect_directory: bool) -> Path | Non
         if normalized in seen:
             continue
         seen.add(normalized)
-        if expect_directory and candidate.is_dir():
-            return candidate
-        if not expect_directory and candidate.is_file():
-            return candidate
+        try:
+            if expect_directory and candidate.is_dir():
+                return candidate.resolve()
+            if not expect_directory and candidate.is_file():
+                return candidate.resolve()
+        except OSError:
+            continue
+
+    if raw_name:
+        discovered = _discover_named_path(raw_name, expect_directory=expect_directory)
+        if discovered is not None:
+            try:
+                return discovered.resolve()
+            except OSError:
+                return discovered
     return None
 
 
@@ -636,12 +663,7 @@ def _resolve_app_bundle_path(app_name: str) -> Path | None:
     for override in _APP_BUNDLE_OVERRIDES.get(normalized_key, []):
         candidates.append(Path(override).expanduser())
 
-    for base_directory in (
-        Path("/Applications"),
-        Path.home() / "Applications",
-        Path("/System/Applications"),
-        Path("/System/Library/CoreServices"),
-    ):
+    for base_directory in _APP_SEARCH_DIRECTORIES:
         candidates.append(base_directory / base_bundle_name)
 
     seen: set[str] = set()
@@ -655,11 +677,106 @@ def _resolve_app_bundle_path(app_name: str) -> Path | None:
                 return candidate
         except OSError:
             continue
+    return _discover_installed_app_bundle(normalized_name)
+
+
+def _discover_named_path(raw_name: str, *, expect_directory: bool) -> Path | None:
+    normalized_name = Path(str(raw_name).strip()).name
+    if not normalized_name:
+        return None
+
+    for root in _COMMON_PATH_LOOKUP_ROOTS:
+        discovered = _search_named_path(root, normalized_name, expect_directory=expect_directory)
+        if discovered is not None:
+            return discovered
     return None
 
 
 def _looks_like_app_bundle(value: str) -> bool:
     return value.lower().strip().endswith(".app")
+
+
+def _search_named_path(root: Path, target_name: str, *, expect_directory: bool) -> Path | None:
+    try:
+        if not root.exists() or not root.is_dir():
+            return None
+    except OSError:
+        return None
+
+    try:
+        if root.name == target_name:
+            if expect_directory and root.is_dir():
+                return root
+            if not expect_directory and root.is_file():
+                return root
+    except OSError:
+        return None
+
+    for candidate in _iter_paths_with_depth_limit(root, _PATH_LOOKUP_MAX_DEPTH):
+        if candidate.name != target_name:
+            continue
+        try:
+            if expect_directory and candidate.is_dir():
+                return candidate
+            if not expect_directory and candidate.is_file():
+                return candidate
+        except OSError:
+            continue
+    return None
+
+
+def _iter_paths_with_depth_limit(root: Path, max_depth: int) -> list[Path]:
+    discovered: list[Path] = []
+    stack: list[tuple[Path, int]] = [(root, 0)]
+    while stack:
+        current, depth = stack.pop()
+        if depth >= max_depth:
+            continue
+        try:
+            children = list(current.iterdir())
+        except OSError:
+            continue
+        for child in children:
+            discovered.append(child)
+            if child.is_dir():
+                stack.append((child, depth + 1))
+    return discovered
+
+
+def _discover_installed_app_bundle(app_name: str) -> Path | None:
+    normalized_name = _normalize_app_lookup_key(app_name)
+    if not normalized_name:
+        return None
+
+    exact_matches: list[Path] = []
+    fuzzy_matches: list[Path] = []
+    for directory in _APP_SEARCH_DIRECTORIES:
+        try:
+            bundles = list(directory.glob("*.app"))
+        except OSError:
+            continue
+        for bundle in bundles:
+            bundle_key = _normalize_app_lookup_key(bundle.name)
+            if not bundle_key:
+                continue
+            if bundle_key == normalized_name:
+                exact_matches.append(bundle)
+                continue
+            if normalized_name in bundle_key or bundle_key in normalized_name:
+                fuzzy_matches.append(bundle)
+
+    if exact_matches:
+        return exact_matches[0]
+    if fuzzy_matches:
+        return fuzzy_matches[0]
+    return None
+
+
+def _normalize_app_lookup_key(value: str) -> str:
+    normalized = Path(str(value or "").strip()).name
+    normalized = re.sub(r"\.app$", "", normalized, flags=re.IGNORECASE)
+    normalized = re.sub(r"[^a-z0-9]+", "", normalized.lower())
+    return normalized
 
 
 def _run_command(arguments: list[str]) -> subprocess.CompletedProcess[str]:
