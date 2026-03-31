@@ -365,6 +365,14 @@ def _remember_answer_context(
         topic=topic or None,
         scope=scope or None,
         sources=[str(source).strip() for source in list(sources or []) if str(source).strip()],
+        answer_text=str(getattr(answer_result, "answer_text", "") or "").strip() or None,
+        answer_warning=str(getattr(answer_result, "warning", "") or "").strip() or None,
+        answer_kind=str(getattr(getattr(answer_result, "answer_kind", None), "value", getattr(answer_result, "answer_kind", "")) or "").strip() or None,
+        answer_provenance=str(
+            getattr(getattr(answer_result, "provenance", None), "value", getattr(answer_result, "provenance", "")) or ""
+        ).strip()
+        or None,
+        answer_confidence=float(getattr(answer_result, "confidence", 0.0) or 0.0),
     )
 
 

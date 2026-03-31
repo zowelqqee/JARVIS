@@ -51,6 +51,11 @@ class InteractionRouterTests(unittest.TestCase):
 
         self.assertEqual(decision.kind, InteractionKind.QUESTION)
 
+    def test_repeat_that_routes_to_question(self) -> None:
+        decision = route_interaction("Repeat that")
+
+        self.assertEqual(decision.kind, InteractionKind.QUESTION)
+
     def test_greeting_routes_to_question_instead_of_fallback_command(self) -> None:
         decision = route_interaction("hello jarvis")
 

@@ -7,6 +7,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from voice.session import VoiceTurn
 from voice.readiness import (
     build_voice_readiness_record,
     format_voice_readiness_record,
@@ -80,6 +81,36 @@ class VoiceReadinessTests(unittest.TestCase):
             artifact_path = Path(tmpdir) / "voice_readiness.json"
             telemetry_artifact_path = Path(tmpdir) / "voice_telemetry.json"
             telemetry = build_default_voice_telemetry()
+            prior_turn = VoiceTurn(
+                raw_transcript="Что ты умеешь?",
+                normalized_transcript="what can you do",
+                detected_locale="ru-RU",
+                locale_hint="ru-RU",
+                lifecycle_state="awaiting_follow_up",
+                follow_up_reason="short_answer",
+                follow_up_window_seconds=6.0,
+            )
+            telemetry.record_follow_up_control(
+                prior_turn,
+                VoiceTurn(
+                    raw_transcript="слушай снова",
+                    normalized_transcript="listen again",
+                    detected_locale="ru-RU",
+                    locale_hint="ru-RU",
+                ),
+                action="listen_again",
+            )
+            telemetry.record_follow_up_control(
+                prior_turn,
+                VoiceTurn(
+                    raw_transcript="замолчи",
+                    normalized_transcript="stop speaking",
+                    detected_locale="ru-RU",
+                    locale_hint="ru-RU",
+                ),
+                action="dismiss_follow_up",
+            )
+            telemetry.record_follow_up_loop(completed_turns=2, limit_hit=True)
             written_telemetry_path = write_voice_telemetry_artifact(
                 telemetry.snapshot(),
                 artifact_path=telemetry_artifact_path,
@@ -95,6 +126,10 @@ class VoiceReadinessTests(unittest.TestCase):
         self.assertEqual(record.telemetry_artifact_path, str(telemetry_artifact_path))
         self.assertEqual(record.telemetry_artifact_status, "ready")
         self.assertIsNotNone(record.telemetry_artifact_created_at)
+        self.assertEqual(record.telemetry_follow_up_relisten_count, 1)
+        self.assertEqual(record.telemetry_follow_up_dismiss_count, 1)
+        self.assertEqual(record.telemetry_max_follow_up_chain_length, 2)
+        self.assertEqual(record.telemetry_follow_up_limit_hit_count, 1)
 
     def test_format_mentions_flag_doc_and_next_step(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -113,8 +148,58 @@ class VoiceReadinessTests(unittest.TestCase):
         self.assertIn(f"telemetry artifact path: {telemetry_artifact_path}", rendered)
         self.assertIn("telemetry artifact status: missing", rendered)
         self.assertIn("telemetry artifact command: voice telemetry write", rendered)
+        self.assertIn("telemetry follow-up relisten count: n/a", rendered)
+        self.assertIn("telemetry follow-up dismiss count: n/a", rendered)
+        self.assertIn("telemetry max follow-up chain length: n/a", rendered)
+        self.assertIn("telemetry follow-up limit hit count: n/a", rendered)
         self.assertIn("telemetry note: advisory only; record a session snapshot before live sign-off with voice telemetry write", rendered)
         self.assertIn("next step: complete_manual_voice_verification", rendered)
+
+    def test_format_mentions_telemetry_follow_up_counts_when_artifact_is_present(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            artifact_path = Path(tmpdir) / "voice_readiness.json"
+            telemetry_artifact_path = Path(tmpdir) / "voice_telemetry.json"
+            telemetry = build_default_voice_telemetry()
+            prior_turn = VoiceTurn(
+                raw_transcript="Закрой телеграм",
+                normalized_transcript="close telegram",
+                detected_locale="ru-RU",
+                locale_hint="ru-RU",
+                lifecycle_state="awaiting_follow_up",
+                follow_up_reason="confirmation",
+                follow_up_window_seconds=8.0,
+            )
+            telemetry.record_follow_up_control(
+                prior_turn,
+                VoiceTurn(
+                    raw_transcript="слушай снова",
+                    normalized_transcript="listen again",
+                    detected_locale="ru-RU",
+                    locale_hint="ru-RU",
+                ),
+                action="listen_again",
+            )
+            telemetry.record_follow_up_loop(completed_turns=2, limit_hit=False)
+            write_voice_telemetry_artifact(
+                telemetry.snapshot(),
+                artifact_path=telemetry_artifact_path,
+            )
+            record = build_voice_readiness_record(
+                manual_verified=True,
+                artifact_path=artifact_path,
+                telemetry_artifact_path=telemetry_artifact_path,
+            )
+
+        rendered = format_voice_readiness_record(record)
+
+        self.assertIn("telemetry follow-up relisten count: 1", rendered)
+        self.assertIn("telemetry follow-up dismiss count: 0", rendered)
+        self.assertIn("telemetry max follow-up chain length: 2", rendered)
+        self.assertIn("telemetry follow-up limit hit count: 0", rendered)
+        self.assertIn(
+            "telemetry note: latest session telemetry artifact is recorded (follow-up relisten=1, dismiss=0, max_chain=2, limit_hits=0)",
+            rendered,
+        )
 
     def test_module_can_write_artifact_to_explicit_path(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

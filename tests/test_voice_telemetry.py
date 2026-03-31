@@ -5,6 +5,7 @@ from __future__ import annotations
 import tempfile
 import unittest
 import subprocess
+import json
 from types import SimpleNamespace
 from pathlib import Path
 
@@ -73,7 +74,28 @@ class VoiceTelemetryTests(unittest.TestCase):
             ),
         )
         collector.record_follow_up_opened(first_turn)
+        collector.record_follow_up_control(
+            first_turn,
+            VoiceTurn(
+                raw_transcript="слушай снова",
+                normalized_transcript="listen again",
+                detected_locale="ru-RU",
+                locale_hint="ru-RU",
+            ),
+            action="listen_again",
+        )
+        collector.record_follow_up_control(
+            first_turn,
+            VoiceTurn(
+                raw_transcript="замолчи",
+                normalized_transcript="stop speaking",
+                detected_locale="ru-RU",
+                locale_hint="ru-RU",
+            ),
+            action="dismiss_follow_up",
+        )
         collector.record_follow_up_completed(first_turn, follow_up_turn)
+        collector.record_follow_up_loop(completed_turns=1, limit_hit=False)
         collector.record_tts_result(
             SpeechUtterance(text="Закрыть Telegram?", locale="ru-RU"),
             TTSResult(ok=False, attempted=True, error_code="TTS_FAILED"),
@@ -91,6 +113,10 @@ class VoiceTelemetryTests(unittest.TestCase):
         self.assertAlmostEqual(snapshot.retry_rate, 0.5)
         self.assertAlmostEqual(snapshot.tts_failure_rate, 1.0)
         self.assertAlmostEqual(snapshot.average_spoken_response_length, float(len("Закрыть Telegram?")))
+        self.assertEqual(snapshot.follow_up_relisten_count, 1)
+        self.assertEqual(snapshot.follow_up_dismiss_count, 1)
+        self.assertEqual(snapshot.max_follow_up_chain_length, 1)
+        self.assertEqual(snapshot.follow_up_limit_hit_count, 0)
 
     def test_permission_denied_does_not_count_as_retryable_failure(self) -> None:
         collector = VoiceTelemetryCollector()
@@ -151,6 +177,21 @@ class VoiceTelemetryTests(unittest.TestCase):
         self.assertIn("capture attempts: 1", rendered)
         self.assertIn("empty recognition rate: 100.0%", rendered)
         self.assertIn("tts attempts: 0", rendered)
+        self.assertIn("follow-up relisten count: 0", rendered)
+        self.assertIn("follow-up dismiss count: 0", rendered)
+        self.assertIn("max follow-up chain length: 0", rendered)
+        self.assertIn("follow-up limit hit count: 0", rendered)
+
+    def test_snapshot_tracks_follow_up_limit_hit_metric(self) -> None:
+        collector = VoiceTelemetryCollector()
+
+        collector.record_follow_up_loop(completed_turns=2, limit_hit=True)
+        collector.record_follow_up_loop(completed_turns=1, limit_hit=False)
+
+        snapshot = collector.snapshot()
+
+        self.assertEqual(snapshot.max_follow_up_chain_length, 2)
+        self.assertEqual(snapshot.follow_up_limit_hit_count, 1)
 
     def test_snapshot_can_be_written_and_reloaded_as_artifact(self) -> None:
         collector = VoiceTelemetryCollector()
@@ -200,6 +241,48 @@ class VoiceTelemetryTests(unittest.TestCase):
         self.assertIn("JARVIS Voice Telemetry Artifact", rendered)
         self.assertIn("artifact status: missing", rendered)
         self.assertIn("snapshot: n/a", rendered)
+
+    def test_saved_artifact_without_control_fields_remains_loadable(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            artifact_path = Path(tmpdir) / "voice_telemetry.json"
+            artifact_path.write_text(
+                json.dumps(
+                    {
+                        "schema_version": 1,
+                        "runner": "voice.telemetry",
+                        "created_at": "2026-03-30T00:00:00+00:00",
+                        "snapshot": {
+                            "capture_attempts": 1,
+                            "dispatch_count": 1,
+                            "tts_attempts": 0,
+                            "recognition_latency_ms": 250.0,
+                            "empty_recognition_rate": 0.0,
+                            "clarification_rate": 0.0,
+                            "confirmation_completion_rate": 0.0,
+                            "retry_rate": 0.0,
+                            "tts_failure_rate": 0.0,
+                            "average_spoken_response_length": 0.0,
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+            (
+                loaded_path,
+                artifact_status,
+                artifact_created_at,
+                snapshot,
+                artifact_error,
+            ) = load_voice_telemetry_snapshot(artifact_path=artifact_path)
+
+        self.assertEqual(loaded_path, artifact_path)
+        self.assertEqual(artifact_status, "ready")
+        self.assertEqual(artifact_created_at, "2026-03-30T00:00:00+00:00")
+        self.assertIsNone(artifact_error)
+        self.assertIsNotNone(snapshot)
+        assert snapshot is not None
+        self.assertEqual(snapshot.follow_up_relisten_count, 0)
+        self.assertEqual(snapshot.follow_up_dismiss_count, 0)
 
     def test_module_can_render_explicit_saved_artifact_path(self) -> None:
         collector = VoiceTelemetryCollector()

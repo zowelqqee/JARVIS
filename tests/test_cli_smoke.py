@@ -602,6 +602,255 @@ class CliSmokeTests(unittest.TestCase):
         )
         render_mock.assert_called()
 
+    def test_voice_command_auto_captures_second_follow_up_reply_when_conversation_stays_active(self) -> None:
+        interaction_manager = MagicMock()
+        telemetry = MagicMock()
+        tts_provider = MagicMock()
+        first_dispatch = SimpleNamespace(
+            voice_turn=cli.VoiceTurn(
+                raw_transcript="Что ты умеешь и открой сафари",
+                normalized_transcript="what can you do and open safari",
+                detected_locale="ru-RU",
+                locale_hint="ru-RU",
+                lifecycle_state="awaiting_follow_up",
+                spoken_response="Ответить или выполнить команду?",
+                follow_up_reason="clarification",
+                follow_up_window_seconds=8.0,
+            ),
+            interaction=SimpleNamespace(
+                visible_lines=(),
+                speech_utterance=SpeechUtterance(
+                    text="Ответить или выполнить команду?",
+                    locale="ru-RU",
+                ),
+            ),
+        )
+        second_dispatch = SimpleNamespace(
+            voice_turn=cli.VoiceTurn(
+                raw_transcript="Ответить",
+                normalized_transcript="answer",
+                detected_locale="ru-RU",
+                locale_hint="ru-RU",
+                lifecycle_state="awaiting_follow_up",
+                spoken_response="Я могу открывать приложения и отвечать на вопросы.",
+                follow_up_reason="short_answer",
+                follow_up_window_seconds=6.0,
+            ),
+            interaction=SimpleNamespace(
+                visible_lines=(),
+                speech_utterance=SpeechUtterance(
+                    text="Я могу открывать приложения и отвечать на вопросы.",
+                    locale="ru-RU",
+                ),
+            ),
+        )
+        third_dispatch = SimpleNamespace(
+            voice_turn=cli.VoiceTurn(
+                raw_transcript="Скажи подробнее",
+                normalized_transcript="Explain more",
+                detected_locale="ru-RU",
+                locale_hint="ru-RU",
+                lifecycle_state="answering",
+            ),
+            interaction=SimpleNamespace(
+                visible_lines=(),
+                speech_utterance=None,
+            ),
+        )
+        first_follow_up_turn = cli.VoiceTurn(
+            raw_transcript="Ответить",
+            normalized_transcript="answer",
+            detected_locale="ru-RU",
+            locale_hint="ru-RU",
+        )
+        second_follow_up_turn = cli.VoiceTurn(
+            raw_transcript="Скажи подробнее",
+            normalized_transcript="Explain more",
+            detected_locale="ru-RU",
+            locale_hint="ru-RU",
+        )
+
+        with patch(
+            "cli.capture_voice_turn",
+            return_value=VoiceCaptureTurn(
+                raw_transcript="Что ты умеешь и открой сафари",
+                normalized_text="what can you do and open safari",
+                locale_hint="ru-RU",
+            ),
+        ) as capture_mock, patch(
+            "cli.capture_follow_up_voice_turn",
+            side_effect=[first_follow_up_turn, second_follow_up_turn],
+        ) as follow_up_capture_mock, patch(
+            "cli.dispatch_voice_turn",
+            side_effect=[first_dispatch, second_dispatch, third_dispatch],
+        ) as dispatch_mock, patch(
+            "cli.render_interaction_dispatch"
+        ) as render_mock, patch(
+            "cli._build_default_interaction_manager",
+            return_value=interaction_manager,
+        ), patch(
+            "cli.build_default_tts_provider",
+            return_value=tts_provider,
+        ), patch.dict(
+            "os.environ",
+            {"JARVIS_VOICE_CONTINUOUS_MODE": "1"},
+            clear=False,
+        ):
+            should_exit, speak_enabled, output = self._run_command(
+                "voice",
+                speak_enabled=True,
+                telemetry=telemetry,
+            )
+
+        self.assertFalse(should_exit)
+        self.assertTrue(speak_enabled)
+        self.assertIn('recognized: "what can you do and open safari"', output)
+        self.assertIn('recognized: "answer"', output)
+        self.assertIn('recognized: "Explain more"', output)
+        self.assertEqual(output.count("voice: follow-up... speak now."), 2)
+        capture_mock.assert_called_once_with(
+            timeout_seconds=cli._VOICE_CAPTURE_TIMEOUT_SECONDS,
+            audio_policy=ANY,
+        )
+        self.assertEqual(follow_up_capture_mock.call_count, 2)
+        self.assertEqual(dispatch_mock.call_count, 3)
+        dispatch_mock.assert_any_call(
+            capture_mock.return_value,
+            interaction_manager=interaction_manager,
+            session_context=self.session_context,
+            speak_enabled=True,
+        )
+        dispatch_mock.assert_any_call(
+            first_follow_up_turn,
+            interaction_manager=interaction_manager,
+            session_context=self.session_context,
+            speak_enabled=True,
+        )
+        dispatch_mock.assert_any_call(
+            second_follow_up_turn,
+            interaction_manager=interaction_manager,
+            session_context=self.session_context,
+            speak_enabled=True,
+        )
+        self.assertEqual(render_mock.call_count, 3)
+        self.assertEqual(telemetry.record_capture.call_count, 3)
+        self.assertEqual(telemetry.record_dispatch.call_count, 3)
+        self.assertEqual(telemetry.record_follow_up_opened.call_count, 2)
+        self.assertEqual(telemetry.record_follow_up_completed.call_count, 2)
+        telemetry.record_follow_up_loop.assert_called_once_with(
+            completed_turns=2,
+            limit_hit=False,
+        )
+
+    def test_voice_command_follow_up_loop_stays_bounded_to_two_extra_turns(self) -> None:
+        interaction_manager = MagicMock()
+        telemetry = MagicMock()
+        first_dispatch = SimpleNamespace(
+            voice_turn=cli.VoiceTurn(
+                raw_transcript="Закрой телеграм",
+                normalized_transcript="close telegram",
+                detected_locale="ru-RU",
+                locale_hint="ru-RU",
+                lifecycle_state="awaiting_follow_up",
+                spoken_response="Закрыть Telegram?",
+                follow_up_reason="confirmation",
+                follow_up_window_seconds=8.0,
+            ),
+            interaction=SimpleNamespace(
+                visible_lines=(),
+                speech_utterance=None,
+            ),
+        )
+        second_dispatch = SimpleNamespace(
+            voice_turn=cli.VoiceTurn(
+                raw_transcript="Да",
+                normalized_transcript="confirm",
+                detected_locale="ru-RU",
+                locale_hint="ru-RU",
+                lifecycle_state="awaiting_follow_up",
+                spoken_response="Ты точно хочешь закрыть Telegram?",
+                follow_up_reason="confirmation",
+                follow_up_window_seconds=8.0,
+            ),
+            interaction=SimpleNamespace(
+                visible_lines=(),
+                speech_utterance=None,
+            ),
+        )
+        third_dispatch = SimpleNamespace(
+            voice_turn=cli.VoiceTurn(
+                raw_transcript="Да",
+                normalized_transcript="confirm",
+                detected_locale="ru-RU",
+                locale_hint="ru-RU",
+                lifecycle_state="awaiting_follow_up",
+                spoken_response="Последнее подтверждение.",
+                follow_up_reason="confirmation",
+                follow_up_window_seconds=8.0,
+            ),
+            interaction=SimpleNamespace(
+                visible_lines=(),
+                speech_utterance=None,
+            ),
+        )
+        first_follow_up_turn = cli.VoiceTurn(
+            raw_transcript="Да",
+            normalized_transcript="confirm",
+            detected_locale="ru-RU",
+            locale_hint="ru-RU",
+        )
+        second_follow_up_turn = cli.VoiceTurn(
+            raw_transcript="Да",
+            normalized_transcript="confirm",
+            detected_locale="ru-RU",
+            locale_hint="ru-RU",
+        )
+
+        with patch(
+            "cli.capture_voice_turn",
+            return_value=VoiceCaptureTurn(
+                raw_transcript="Закрой телеграм",
+                normalized_text="close telegram",
+                locale_hint="ru-RU",
+            ),
+        ) as capture_mock, patch(
+            "cli.capture_follow_up_voice_turn",
+            side_effect=[first_follow_up_turn, second_follow_up_turn],
+        ) as follow_up_capture_mock, patch(
+            "cli.dispatch_voice_turn",
+            side_effect=[first_dispatch, second_dispatch, third_dispatch],
+        ) as dispatch_mock, patch(
+            "cli.render_interaction_dispatch"
+        ) as render_mock, patch(
+            "cli._build_default_interaction_manager",
+            return_value=interaction_manager,
+        ), patch.dict(
+            "os.environ",
+            {"JARVIS_VOICE_CONTINUOUS_MODE": "1"},
+            clear=False,
+        ):
+            should_exit, speak_enabled, output = self._run_command(
+                "voice",
+                speak_enabled=False,
+                telemetry=telemetry,
+            )
+
+        self.assertFalse(should_exit)
+        self.assertFalse(speak_enabled)
+        active_budget = cli.max_auto_follow_up_turns({"JARVIS_VOICE_CONTINUOUS_MODE": "1"})
+        self.assertEqual(output.count("voice: follow-up... speak now."), active_budget)
+        capture_mock.assert_called_once_with(
+            timeout_seconds=cli._VOICE_CAPTURE_TIMEOUT_SECONDS,
+            audio_policy=ANY,
+        )
+        self.assertEqual(follow_up_capture_mock.call_count, active_budget)
+        self.assertEqual(dispatch_mock.call_count, 1 + active_budget)
+        self.assertEqual(render_mock.call_count, 1 + active_budget)
+        telemetry.record_follow_up_loop.assert_called_once_with(
+            completed_turns=active_budget,
+            limit_hit=True,
+        )
+
     def test_voice_command_does_not_auto_capture_follow_up_when_continuous_flag_is_off(self) -> None:
         interaction_manager = MagicMock()
         first_dispatch = SimpleNamespace(
@@ -660,6 +909,296 @@ class CliSmokeTests(unittest.TestCase):
             speak_enabled=False,
         )
         render_mock.assert_called_once()
+
+    def test_voice_follow_up_listen_again_control_recaptures_once_before_dispatch(self) -> None:
+        interaction_manager = MagicMock()
+        telemetry = MagicMock()
+        retry_control_turn = cli.VoiceTurn(
+            raw_transcript="слушай снова",
+            normalized_transcript="listen again",
+            detected_locale="ru-RU",
+            locale_hint="ru-RU",
+        )
+        final_follow_up_turn = cli.VoiceTurn(
+            raw_transcript="Да",
+            normalized_transcript="confirm",
+            detected_locale="ru-RU",
+            locale_hint="ru-RU",
+        )
+        first_dispatch = SimpleNamespace(
+            voice_turn=cli.VoiceTurn(
+                raw_transcript="Джарвис, закрой телеграм",
+                normalized_transcript="close telegram",
+                detected_locale="ru-RU",
+                locale_hint="ru-RU",
+                lifecycle_state="awaiting_follow_up",
+                spoken_response="Закрыть Telegram?",
+                follow_up_reason="confirmation",
+                follow_up_window_seconds=8.0,
+            ),
+            interaction=SimpleNamespace(
+                visible_lines=(),
+                speech_utterance=None,
+            ),
+        )
+        second_dispatch = SimpleNamespace(
+            voice_turn=cli.VoiceTurn(
+                raw_transcript="Да",
+                normalized_transcript="confirm",
+                detected_locale="ru-RU",
+                locale_hint="ru-RU",
+                lifecycle_state="executing",
+            ),
+            interaction=SimpleNamespace(
+                visible_lines=(),
+                speech_utterance=None,
+            ),
+        )
+
+        with patch(
+            "cli.capture_voice_turn",
+            return_value=VoiceCaptureTurn(
+                raw_transcript="Джарвис, закрой телеграм",
+                normalized_text="close telegram",
+                locale_hint="ru-RU",
+            ),
+        ) as capture_mock, patch(
+            "cli.capture_follow_up_voice_turn",
+            side_effect=[
+                retry_control_turn,
+                final_follow_up_turn,
+            ],
+        ) as follow_up_capture_mock, patch(
+            "cli.dispatch_voice_turn",
+            side_effect=[first_dispatch, second_dispatch],
+        ) as dispatch_mock, patch(
+            "cli.render_interaction_dispatch"
+        ) as render_mock, patch(
+            "cli._build_default_interaction_manager",
+            return_value=interaction_manager,
+        ), patch.dict(
+            "os.environ",
+            {"JARVIS_VOICE_CONTINUOUS_MODE": "1"},
+            clear=False,
+        ):
+            should_exit, speak_enabled, output = self._run_command(
+                "voice",
+                speak_enabled=False,
+                telemetry=telemetry,
+            )
+
+        self.assertFalse(should_exit)
+        self.assertFalse(speak_enabled)
+        self.assertIn("voice: follow-up... speak now.", output)
+        self.assertIn("voice: listening again... speak now.", output)
+        self.assertNotIn('recognized: "listen again"', output)
+        self.assertIn('recognized: "confirm"', output)
+        capture_mock.assert_called_once_with(
+            timeout_seconds=cli._VOICE_CAPTURE_TIMEOUT_SECONDS,
+            audio_policy=ANY,
+        )
+        self.assertEqual(follow_up_capture_mock.call_count, 2)
+        follow_up_capture_mock.assert_any_call(
+            voice_turn=first_dispatch.voice_turn,
+            audio_policy=ANY,
+        )
+        self.assertEqual(dispatch_mock.call_count, 2)
+        dispatch_mock.assert_any_call(
+            capture_mock.return_value,
+            interaction_manager=interaction_manager,
+            session_context=self.session_context,
+            speak_enabled=False,
+        )
+        dispatch_mock.assert_any_call(
+            final_follow_up_turn,
+            interaction_manager=interaction_manager,
+            session_context=self.session_context,
+            speak_enabled=False,
+        )
+        self.assertEqual(render_mock.call_count, 2)
+        self.assertEqual(telemetry.record_follow_up_opened.call_count, 2)
+        telemetry.record_follow_up_control.assert_called_once_with(
+            first_dispatch.voice_turn,
+            retry_control_turn,
+            action="listen_again",
+        )
+        telemetry.record_follow_up_completed.assert_called_once_with(
+            first_dispatch.voice_turn,
+            final_follow_up_turn,
+        )
+
+    def test_voice_follow_up_stop_speaking_control_closes_window_without_dispatch(self) -> None:
+        interaction_manager = MagicMock()
+        telemetry = MagicMock()
+        first_dispatch = SimpleNamespace(
+            voice_turn=cli.VoiceTurn(
+                raw_transcript="Джарвис, закрой телеграм",
+                normalized_transcript="close telegram",
+                detected_locale="ru-RU",
+                locale_hint="ru-RU",
+                lifecycle_state="awaiting_follow_up",
+                spoken_response="Закрыть Telegram?",
+                follow_up_reason="confirmation",
+                follow_up_window_seconds=8.0,
+            ),
+            interaction=SimpleNamespace(
+                visible_lines=(),
+                speech_utterance=None,
+            ),
+        )
+        dismiss_control_turn = cli.VoiceTurn(
+            raw_transcript="замолчи",
+            normalized_transcript="stop speaking",
+            detected_locale="ru-RU",
+            locale_hint="ru-RU",
+        )
+
+        with patch(
+            "cli.capture_voice_turn",
+            return_value=VoiceCaptureTurn(
+                raw_transcript="Джарвис, закрой телеграм",
+                normalized_text="close telegram",
+                locale_hint="ru-RU",
+            ),
+        ) as capture_mock, patch(
+            "cli.capture_follow_up_voice_turn",
+            return_value=dismiss_control_turn,
+        ) as follow_up_capture_mock, patch(
+            "cli.dispatch_voice_turn",
+            return_value=first_dispatch,
+        ) as dispatch_mock, patch(
+            "cli.render_interaction_dispatch"
+        ) as render_mock, patch(
+            "cli._build_default_interaction_manager",
+            return_value=interaction_manager,
+        ), patch.dict(
+            "os.environ",
+            {"JARVIS_VOICE_CONTINUOUS_MODE": "1"},
+            clear=False,
+        ):
+            should_exit, speak_enabled, output = self._run_command(
+                "voice",
+                speak_enabled=False,
+                telemetry=telemetry,
+            )
+
+        self.assertFalse(should_exit)
+        self.assertFalse(speak_enabled)
+        self.assertIn("voice: follow-up... speak now.", output)
+        self.assertIn("voice: follow-up closed.", output)
+        self.assertNotIn('recognized: "stop speaking"', output)
+        capture_mock.assert_called_once_with(
+            timeout_seconds=cli._VOICE_CAPTURE_TIMEOUT_SECONDS,
+            audio_policy=ANY,
+        )
+        follow_up_capture_mock.assert_called_once_with(
+            voice_turn=first_dispatch.voice_turn,
+            audio_policy=ANY,
+        )
+        dispatch_mock.assert_called_once_with(
+            capture_mock.return_value,
+            interaction_manager=interaction_manager,
+            session_context=self.session_context,
+            speak_enabled=False,
+        )
+        render_mock.assert_called_once()
+        telemetry.record_follow_up_opened.assert_called_once_with(first_dispatch.voice_turn)
+        telemetry.record_follow_up_control.assert_called_once_with(
+            first_dispatch.voice_turn,
+            dismiss_control_turn,
+            action="dismiss_follow_up",
+        )
+        telemetry.record_follow_up_completed.assert_not_called()
+
+    def test_voice_short_answer_cancel_control_closes_window_without_dispatch(self) -> None:
+        interaction_manager = MagicMock()
+        telemetry = MagicMock()
+        tts_provider = MagicMock()
+        first_dispatch = SimpleNamespace(
+            voice_turn=cli.VoiceTurn(
+                raw_transcript="Что ты умеешь?",
+                normalized_transcript="what can you do",
+                detected_locale="ru-RU",
+                locale_hint="ru-RU",
+                lifecycle_state="awaiting_follow_up",
+                spoken_response="Я могу открывать приложения и отвечать на вопросы.",
+                follow_up_reason="short_answer",
+                follow_up_window_seconds=6.0,
+            ),
+            interaction=SimpleNamespace(
+                visible_lines=(),
+                speech_utterance=SpeechUtterance(
+                    text="Я могу открывать приложения и отвечать на вопросы.",
+                    locale="ru-RU",
+                ),
+            ),
+        )
+        dismiss_control_turn = cli.VoiceTurn(
+            raw_transcript="стоп",
+            normalized_transcript="cancel",
+            detected_locale="ru-RU",
+            locale_hint="ru-RU",
+        )
+
+        with patch(
+            "cli.capture_voice_turn",
+            return_value=VoiceCaptureTurn(
+                raw_transcript="Что ты умеешь?",
+                normalized_text="what can you do",
+                locale_hint="ru-RU",
+            ),
+        ) as capture_mock, patch(
+            "cli.capture_follow_up_voice_turn",
+            return_value=dismiss_control_turn,
+        ) as follow_up_capture_mock, patch(
+            "cli.dispatch_voice_turn",
+            return_value=first_dispatch,
+        ) as dispatch_mock, patch(
+            "cli.render_interaction_dispatch"
+        ) as render_mock, patch(
+            "cli._build_default_interaction_manager",
+            return_value=interaction_manager,
+        ), patch(
+            "cli.build_default_tts_provider",
+            return_value=tts_provider,
+        ), patch.dict(
+            "os.environ",
+            {"JARVIS_VOICE_CONTINUOUS_MODE": "1"},
+            clear=False,
+        ):
+            should_exit, speak_enabled, output = self._run_command(
+                "voice",
+                speak_enabled=True,
+                telemetry=telemetry,
+            )
+
+        self.assertFalse(should_exit)
+        self.assertTrue(speak_enabled)
+        self.assertIn("voice: follow-up... speak now.", output)
+        self.assertIn("voice: follow-up closed.", output)
+        self.assertNotIn('recognized: "cancel"', output)
+        capture_mock.assert_called_once_with(
+            timeout_seconds=cli._VOICE_CAPTURE_TIMEOUT_SECONDS,
+            audio_policy=ANY,
+        )
+        follow_up_capture_mock.assert_called_once_with(
+            voice_turn=first_dispatch.voice_turn,
+            audio_policy=ANY,
+        )
+        dispatch_mock.assert_called_once_with(
+            capture_mock.return_value,
+            interaction_manager=interaction_manager,
+            session_context=self.session_context,
+            speak_enabled=True,
+        )
+        render_mock.assert_called_once()
+        telemetry.record_follow_up_opened.assert_called_once_with(first_dispatch.voice_turn)
+        telemetry.record_follow_up_control.assert_called_once_with(
+            first_dispatch.voice_turn,
+            dismiss_control_turn,
+            action="dismiss_follow_up",
+        )
+        telemetry.record_follow_up_completed.assert_not_called()
 
     def test_voice_command_records_telemetry_for_follow_up_path(self) -> None:
         interaction_manager = MagicMock()
@@ -736,6 +1275,10 @@ class CliSmokeTests(unittest.TestCase):
         telemetry.record_follow_up_completed.assert_called_once_with(
             first_dispatch.voice_turn,
             follow_up_capture_mock.return_value,
+        )
+        telemetry.record_follow_up_loop.assert_called_once_with(
+            completed_turns=1,
+            limit_hit=False,
         )
         initial_capture_kwargs = telemetry.record_capture.call_args_list[0].kwargs
         self.assertEqual(initial_capture_kwargs["phase"], "initial")
@@ -826,6 +1369,10 @@ class CliSmokeTests(unittest.TestCase):
         telemetry.record_follow_up_completed.assert_called_once_with(
             first_dispatch.voice_turn,
             follow_up_capture_mock.return_value,
+        )
+        telemetry.record_follow_up_loop.assert_called_once_with(
+            completed_turns=1,
+            limit_hit=False,
         )
         initial_capture_kwargs = telemetry.record_capture.call_args_list[0].kwargs
         self.assertEqual(initial_capture_kwargs["phase"], "initial")
@@ -1101,6 +1648,188 @@ class CliSmokeTests(unittest.TestCase):
         write_mock.assert_called_once_with(readiness_record)
         runtime_mock.assert_not_called()
         capture_mock.assert_not_called()
+
+    def test_voice_mode_helper_is_intercepted_before_runtime(self) -> None:
+        mode_status = SimpleNamespace(max_auto_follow_up_turns=2)
+
+        with patch("cli._handle_runtime_input") as runtime_mock, patch(
+            "cli.capture_voice_turn"
+        ) as capture_mock, patch(
+            "cli.build_voice_mode_status",
+            return_value=mode_status,
+        ) as status_mock, patch(
+            "cli.format_voice_mode_status",
+            return_value="VOICE MODE SUMMARY",
+        ) as format_mock:
+            should_exit, speak_enabled, output = self._run_command("voice mode", speak_enabled=False)
+
+        self.assertFalse(should_exit)
+        self.assertFalse(speak_enabled)
+        self.assertIn("VOICE MODE SUMMARY", output)
+        status_mock.assert_called_once_with()
+        format_mock.assert_called_once_with(mode_status)
+        runtime_mock.assert_not_called()
+        capture_mock.assert_not_called()
+
+    def test_voice_last_helper_is_intercepted_before_runtime(self) -> None:
+        voice_session_state = MagicMock()
+
+        with patch("cli._handle_runtime_input") as runtime_mock, patch(
+            "cli.capture_voice_turn"
+        ) as capture_mock, patch(
+            "cli.format_voice_last_event",
+            return_value="VOICE LAST SUMMARY",
+        ) as format_mock:
+            should_exit, speak_enabled, output = self._run_command(
+                "voice last",
+                speak_enabled=False,
+                voice_session_state=voice_session_state,
+            )
+
+        self.assertFalse(should_exit)
+        self.assertFalse(speak_enabled)
+        self.assertIn("VOICE LAST SUMMARY", output)
+        format_mock.assert_called_once_with(voice_session_state)
+        runtime_mock.assert_not_called()
+        capture_mock.assert_not_called()
+
+    def test_voice_status_helper_is_intercepted_before_runtime(self) -> None:
+        telemetry = MagicMock()
+        session_status = SimpleNamespace(speak_enabled=True)
+
+        with patch("cli._handle_runtime_input") as runtime_mock, patch(
+            "cli.capture_voice_turn"
+        ) as capture_mock, patch(
+            "cli.build_voice_session_status",
+            return_value=session_status,
+        ) as status_mock, patch(
+            "cli.format_voice_session_status",
+            return_value="VOICE STATUS SUMMARY",
+        ) as format_mock:
+            should_exit, speak_enabled, output = self._run_command(
+                "voice status",
+                speak_enabled=True,
+                telemetry=telemetry,
+            )
+
+        self.assertFalse(should_exit)
+        self.assertTrue(speak_enabled)
+        self.assertIn("VOICE STATUS SUMMARY", output)
+        telemetry.snapshot.assert_called_once_with()
+        status_mock.assert_called_once_with(
+            speak_enabled=True,
+            telemetry_snapshot=telemetry.snapshot.return_value,
+        )
+        format_mock.assert_called_once_with(session_status)
+        runtime_mock.assert_not_called()
+        capture_mock.assert_not_called()
+
+    def test_voice_command_records_last_dispatch_in_session_state(self) -> None:
+        interaction_manager = MagicMock()
+        voice_session_state = MagicMock()
+        dispatch_result = SimpleNamespace(
+            voice_turn=cli.VoiceTurn(
+                raw_transcript="Открой телеграм",
+                normalized_transcript="open telegram",
+                detected_locale="ru-RU",
+                locale_hint="ru-RU",
+                lifecycle_state="executing",
+                interaction_kind="command",
+            ),
+            interaction=SimpleNamespace(
+                visible_lines=(),
+                speech_utterance=None,
+            ),
+        )
+
+        with patch(
+            "cli.capture_voice_turn",
+            return_value=VoiceCaptureTurn(
+                raw_transcript="Открой телеграм",
+                normalized_text="open telegram",
+                locale_hint="ru-RU",
+            ),
+        ), patch(
+            "cli.dispatch_voice_turn",
+            return_value=dispatch_result,
+        ), patch(
+            "cli.render_interaction_dispatch"
+        ), patch(
+            "cli._build_default_interaction_manager",
+            return_value=interaction_manager,
+        ):
+            should_exit, speak_enabled, _output = self._run_command(
+                "voice",
+                speak_enabled=False,
+                voice_session_state=voice_session_state,
+            )
+
+        self.assertFalse(should_exit)
+        self.assertFalse(speak_enabled)
+        voice_session_state.record_dispatch.assert_called_once_with(dispatch_result.voice_turn)
+
+    def test_voice_follow_up_control_records_last_control_in_session_state(self) -> None:
+        interaction_manager = MagicMock()
+        voice_session_state = MagicMock()
+        first_dispatch = SimpleNamespace(
+            voice_turn=cli.VoiceTurn(
+                raw_transcript="Закрой телеграм",
+                normalized_transcript="close telegram",
+                detected_locale="ru-RU",
+                locale_hint="ru-RU",
+                lifecycle_state="awaiting_follow_up",
+                spoken_response="Закрыть Telegram?",
+                follow_up_reason="confirmation",
+                follow_up_window_seconds=8.0,
+            ),
+            interaction=SimpleNamespace(
+                visible_lines=(),
+                speech_utterance=None,
+            ),
+        )
+        dismiss_control_turn = cli.VoiceTurn(
+            raw_transcript="замолчи",
+            normalized_transcript="stop speaking",
+            detected_locale="ru-RU",
+            locale_hint="ru-RU",
+        )
+
+        with patch(
+            "cli.capture_voice_turn",
+            return_value=VoiceCaptureTurn(
+                raw_transcript="Закрой телеграм",
+                normalized_text="close telegram",
+                locale_hint="ru-RU",
+            ),
+        ), patch(
+            "cli.capture_follow_up_voice_turn",
+            return_value=dismiss_control_turn,
+        ), patch(
+            "cli.dispatch_voice_turn",
+            return_value=first_dispatch,
+        ), patch(
+            "cli.render_interaction_dispatch"
+        ), patch(
+            "cli._build_default_interaction_manager",
+            return_value=interaction_manager,
+        ), patch.dict(
+            "os.environ",
+            {"JARVIS_VOICE_CONTINUOUS_MODE": "1"},
+            clear=False,
+        ):
+            should_exit, speak_enabled, _output = self._run_command(
+                "voice",
+                speak_enabled=False,
+                voice_session_state=voice_session_state,
+            )
+
+        self.assertFalse(should_exit)
+        self.assertFalse(speak_enabled)
+        voice_session_state.record_control.assert_called_once_with(
+            first_dispatch.voice_turn,
+            dismiss_control_turn,
+            action="dismiss_follow_up",
+        )
 
     def test_voice_gate_helper_is_intercepted_before_runtime(self) -> None:
         gate_report = SimpleNamespace(gate_status="blocked")
@@ -4885,6 +5614,7 @@ class CliSmokeTests(unittest.TestCase):
         command: str,
         speak_enabled: bool,
         telemetry: object | None = None,
+        voice_session_state: object | None = None,
     ) -> tuple[bool, bool, str]:
         buffer = io.StringIO()
         with redirect_stdout(buffer):
@@ -4894,6 +5624,7 @@ class CliSmokeTests(unittest.TestCase):
                 session_context=self.session_context,
                 speak_enabled=speak_enabled,
                 telemetry=telemetry,
+                voice_session_state=voice_session_state,
             )
         return should_exit, updated_speak_enabled, buffer.getvalue()
 

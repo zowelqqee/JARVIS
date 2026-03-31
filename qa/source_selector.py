@@ -23,6 +23,8 @@ def select_sources(question: QuestionRequest) -> list[GroundingSource]:
 
     if question_type == QuestionType.ANSWER_FOLLOW_UP:
         sources = get_registered_sources_for_paths(_follow_up_sources(question))
+        if not sources and _follow_up_kind_value(question) == "repeat":
+            return []
         if not sources:
             follow_up_question_type = _follow_up_question_type(question)
             follow_up_topic = _follow_up_topic(question)
@@ -114,6 +116,14 @@ def _follow_up_sources(question: QuestionRequest) -> list[str]:
     if not isinstance(raw_sources, (list, tuple)):
         return []
     return [str(source).strip() for source in raw_sources if str(source).strip()]
+
+
+def _follow_up_kind_value(question: QuestionRequest) -> str | None:
+    raw_context_refs = getattr(question, "context_refs", {}) or {}
+    if not isinstance(raw_context_refs, dict):
+        return None
+    follow_up_kind = str(raw_context_refs.get("follow_up_kind", "") or "").strip()
+    return follow_up_kind or None
 
 
 def _follow_up_topic(question: QuestionRequest) -> str:

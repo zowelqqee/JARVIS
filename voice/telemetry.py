@@ -38,6 +38,10 @@ class VoiceTelemetrySnapshot:
     retry_rate: float
     tts_failure_rate: float
     average_spoken_response_length: float
+    follow_up_relisten_count: int = 0
+    follow_up_dismiss_count: int = 0
+    max_follow_up_chain_length: int = 0
+    follow_up_limit_hit_count: int = 0
 
     def to_dict(self) -> dict[str, Any]:
         """Return a JSON-serializable snapshot representation."""
@@ -52,6 +56,10 @@ class VoiceTelemetrySnapshot:
             "retry_rate": self.retry_rate,
             "tts_failure_rate": self.tts_failure_rate,
             "average_spoken_response_length": self.average_spoken_response_length,
+            "follow_up_relisten_count": self.follow_up_relisten_count,
+            "follow_up_dismiss_count": self.follow_up_dismiss_count,
+            "max_follow_up_chain_length": self.max_follow_up_chain_length,
+            "follow_up_limit_hit_count": self.follow_up_limit_hit_count,
         }
 
 
@@ -137,6 +145,43 @@ class VoiceTelemetryCollector:
             )
         )
 
+    def record_follow_up_control(
+        self,
+        prior_turn: object,
+        follow_up_turn: object,
+        *,
+        action: str,
+    ) -> None:
+        """Record one shell-level follow-up control action handled before routing."""
+        self._events.append(
+            VoiceTelemetryEvent(
+                event_type="follow_up_control",
+                payload={
+                    "action": str(action or "").strip() or None,
+                    "reason": str(getattr(prior_turn, "follow_up_reason", "") or "").strip() or None,
+                    "locale": _voice_locale(follow_up_turn),
+                    "recognized_chars": len(_normalized_text(follow_up_turn)),
+                },
+            )
+        )
+
+    def record_follow_up_loop(
+        self,
+        *,
+        completed_turns: int,
+        limit_hit: bool,
+    ) -> None:
+        """Record one bounded follow-up loop summary for the explicit voice shell path."""
+        self._events.append(
+            VoiceTelemetryEvent(
+                event_type="follow_up_loop",
+                payload={
+                    "completed_turns": max(0, int(completed_turns)),
+                    "limit_hit": bool(limit_hit),
+                },
+            )
+        )
+
     def record_tts_result(self, utterance: SpeechUtterance, result: TTSResult) -> None:
         """Record one spoken-output attempt outcome."""
         spoken_text = str(getattr(utterance, "text", "") or "").strip()
@@ -158,6 +203,8 @@ class VoiceTelemetryCollector:
         capture_events = [event.payload for event in self._events if event.event_type == "capture"]
         dispatch_events = [event.payload for event in self._events if event.event_type == "dispatch"]
         follow_up_completed = [event.payload for event in self._events if event.event_type == "follow_up_completed"]
+        follow_up_controls = [event.payload for event in self._events if event.event_type == "follow_up_control"]
+        follow_up_loops = [event.payload for event in self._events if event.event_type == "follow_up_loop"]
         tts_events = [event.payload for event in self._events if event.event_type == "tts"]
         attempted_tts_events = [payload for payload in tts_events if bool(payload.get("attempted", False))]
         confirmation_requests = [
@@ -186,6 +233,18 @@ class VoiceTelemetryCollector:
         empty_captures = [
             payload for payload in capture_events if bool(payload.get("empty_recognition", False))
         ]
+        relisten_controls = [
+            payload for payload in follow_up_controls if payload.get("action") == "listen_again"
+        ]
+        dismiss_controls = [
+            payload for payload in follow_up_controls if payload.get("action") == "dismiss_follow_up"
+        ]
+        loop_depths = [
+            int(payload.get("completed_turns", 0) or 0) for payload in follow_up_loops
+        ]
+        limit_hits = [
+            payload for payload in follow_up_loops if bool(payload.get("limit_hit", False))
+        ]
 
         return VoiceTelemetrySnapshot(
             capture_attempts=len(capture_events),
@@ -198,6 +257,10 @@ class VoiceTelemetryCollector:
             retry_rate=_rate(len(retryable_failures), len(capture_events)),
             tts_failure_rate=_rate(len(tts_failures), len(attempted_tts_events)),
             average_spoken_response_length=_average(spoken_lengths) or 0.0,
+            follow_up_relisten_count=len(relisten_controls),
+            follow_up_dismiss_count=len(dismiss_controls),
+            max_follow_up_chain_length=max(loop_depths, default=0),
+            follow_up_limit_hit_count=len(limit_hits),
         )
 
 
@@ -311,6 +374,10 @@ def format_voice_telemetry_snapshot(snapshot: VoiceTelemetrySnapshot) -> str:
             f"retry rate: {_percent(snapshot.retry_rate)}",
             f"tts failure rate: {_percent(snapshot.tts_failure_rate)}",
             f"average spoken response length: {_metric_value(snapshot.average_spoken_response_length)}",
+            f"follow-up relisten count: {snapshot.follow_up_relisten_count}",
+            f"follow-up dismiss count: {snapshot.follow_up_dismiss_count}",
+            f"max follow-up chain length: {snapshot.max_follow_up_chain_length}",
+            f"follow-up limit hit count: {snapshot.follow_up_limit_hit_count}",
         ]
     )
 

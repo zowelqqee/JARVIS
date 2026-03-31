@@ -62,11 +62,22 @@ class VoiceNormalizationTests(unittest.TestCase):
             "какой источник": "Which source?",
             "где это написано": "Where is that written",
             "почему": "Why is that",
+            "повтори": "Repeat that",
+            "скажи ещё раз": "Repeat that",
         }
 
         for raw_text, expected in cases.items():
             with self.subTest(raw_text=raw_text):
                 self.assertEqual(normalize_voice_command(raw_text), expected)
+
+    def test_russian_listen_again_control_phrase_maps_to_shell_control_surface(self) -> None:
+        self.assertEqual(normalize_voice_command("слушай снова"), "listen again")
+
+    def test_russian_stop_speaking_control_phrase_maps_to_shell_control_surface(self) -> None:
+        self.assertEqual(normalize_voice_command("замолчи"), "stop speaking")
+
+    def test_english_repeat_follow_up_maps_to_existing_text_surface(self) -> None:
+        self.assertEqual(normalize_voice_command("repeat"), "Repeat that")
 
 
 if __name__ == "__main__":

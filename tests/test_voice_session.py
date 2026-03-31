@@ -16,6 +16,7 @@ from voice.session import (
     capture_cli_voice_turn,
     capture_follow_up_voice_turn,
     finalize_voice_turn,
+    follow_up_control_action,
 )
 
 
@@ -210,6 +211,40 @@ class VoiceSessionTests(unittest.TestCase):
 
         with self.assertRaises(ValueError):
             capture_follow_up_voice_turn(voice_turn)
+
+    def test_follow_up_control_action_detects_listen_again_surface(self) -> None:
+        voice_turn = VoiceTurn(
+            raw_transcript="слушай снова",
+            normalized_transcript="listen again",
+            detected_locale="ru-RU",
+            locale_hint="ru-RU",
+        )
+
+        self.assertEqual(follow_up_control_action(voice_turn), "listen_again")
+
+    def test_follow_up_control_action_detects_stop_speaking_surface(self) -> None:
+        voice_turn = VoiceTurn(
+            raw_transcript="замолчи",
+            normalized_transcript="stop speaking",
+            detected_locale="ru-RU",
+            locale_hint="ru-RU",
+        )
+
+        self.assertEqual(follow_up_control_action(voice_turn), "dismiss_follow_up")
+
+    def test_follow_up_control_action_treats_cancel_as_short_answer_dismiss_only(self) -> None:
+        voice_turn = VoiceTurn(
+            raw_transcript="стоп",
+            normalized_transcript="cancel",
+            detected_locale="ru-RU",
+            locale_hint="ru-RU",
+        )
+
+        self.assertEqual(
+            follow_up_control_action(voice_turn, prior_reason="short_answer"),
+            "dismiss_follow_up",
+        )
+        self.assertIsNone(follow_up_control_action(voice_turn, prior_reason="confirmation"))
 
 
 if __name__ == "__main__":

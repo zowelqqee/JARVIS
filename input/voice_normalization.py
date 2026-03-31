@@ -119,6 +119,20 @@ _RUSSIAN_ANSWER_FOLLOW_UP_MAP = {
     "почему": "Why is that",
     "почему это так": "Why is that",
     "почему так": "Why so",
+    "повтори": "Repeat that",
+    "повтори это": "Repeat that",
+    "повтори ответ": "Repeat that",
+    "скажи еще раз": "Repeat that",
+    "скажи ещё раз": "Repeat that",
+}
+_RUSSIAN_CONTROL_COMMAND_MAP = {
+    "слушай снова": "listen again",
+    "слушай еще раз": "listen again",
+    "слушай ещё раз": "listen again",
+    "замолчи": "stop speaking",
+}
+_VOICE_EXACT_CANONICAL_MAP = {
+    "repeat": "Repeat that",
 }
 _RUSSIAN_MIXED_COMMAND_RE = re.compile(
     r"^(?P<head>.+?)\s+(?P<join>и|а потом)\s+(?P<tail>(?:открой|запусти|закрой|покажи|найди|подготовь|используй)\b.+)$",
@@ -138,6 +152,8 @@ def normalize_voice_command(recognized_text: str) -> str:
     compact = _canonicalize_russian_followup(compact)
     compact = _normalize_russian_mixed_interaction(compact)
     compact = _canonicalize_russian_answer_follow_up(compact)
+    compact = _canonicalize_russian_control_command(compact)
+    compact = _canonicalize_exact_voice_phrase(compact)
     compact = _canonicalize_exact_russian_phrase(compact)
     compact = _canonicalize_russian_command(compact)
     return compact
@@ -225,6 +241,12 @@ def _canonicalize_exact_russian_phrase(text: str) -> str:
     return mapped or text
 
 
+def _canonicalize_exact_voice_phrase(text: str) -> str:
+    lookup = text.lower().strip(_TERMINAL_PUNCTUATION)
+    mapped = _VOICE_EXACT_CANONICAL_MAP.get(lookup)
+    return mapped or text
+
+
 def _canonicalize_russian_followup(text: str) -> str:
     tokens = [token.lower().strip(_TERMINAL_PUNCTUATION) for token in text.split()]
     compact_tokens = [token for token in tokens if token]
@@ -247,6 +269,12 @@ def _canonicalize_russian_followup(text: str) -> str:
 def _canonicalize_russian_answer_follow_up(text: str) -> str:
     lookup = text.lower().strip(_TERMINAL_PUNCTUATION)
     mapped = _RUSSIAN_ANSWER_FOLLOW_UP_MAP.get(lookup)
+    return mapped or text
+
+
+def _canonicalize_russian_control_command(text: str) -> str:
+    lookup = text.lower().strip(_TERMINAL_PUNCTUATION)
+    mapped = _RUSSIAN_CONTROL_COMMAND_MAP.get(lookup)
     return mapped or text
 
 

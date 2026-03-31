@@ -181,6 +181,8 @@ class InteractionManagerTests(unittest.TestCase):
         self.assertEqual((recent_answer_context or {}).get("topic"), "clarification")
         self.assertEqual((recent_answer_context or {}).get("scope"), "docs")
         self.assertTrue((recent_answer_context or {}).get("sources"))
+        self.assertIn("Clarification is a hard boundary", str((recent_answer_context or {}).get("answer_text", "")))
+        self.assertEqual((recent_answer_context or {}).get("answer_kind"), "grounded_local")
 
     def test_safe_follow_up_question_reuses_recent_answer_context(self) -> None:
         self.manager.handle_input("How does clarification work?", session_context=self.session_context)
@@ -245,6 +247,40 @@ class InteractionManagerTests(unittest.TestCase):
         self.assertEqual((recent_answer_context or {}).get("topic"), "open_domain_general")
         self.assertEqual((recent_answer_context or {}).get("scope"), "open_domain")
         self.assertEqual((recent_answer_context or {}).get("sources"), [])
+        self.assertIn("Ada Lovelace", str((recent_answer_context or {}).get("answer_text", "")))
+        self.assertEqual((recent_answer_context or {}).get("answer_kind"), "open_domain_model")
+        self.assertEqual((recent_answer_context or {}).get("answer_provenance"), "model_knowledge")
+
+    def test_open_domain_repeat_follow_up_stays_local_and_reuses_recent_answer_text(self) -> None:
+        class _FailOnRepeatProvider(_FakeOpenDomainProvider):
+            def answer(self, question, **kwargs):
+                if str(getattr(question, "raw_input", "")).strip() == "Repeat that":
+                    raise AssertionError("repeat follow-up should not call the LLM provider")
+                return super().answer(question, **kwargs)
+
+        manager = InteractionManager(
+            answer_backend_config=AnswerBackendConfig(
+                backend_kind=AnswerBackendKind.LLM,
+                llm=LlmBackendConfig(
+                    enabled=True,
+                    provider=LlmProviderKind.OPENAI_RESPONSES,
+                    open_domain_enabled=True,
+                    fallback_enabled=False,
+                ),
+            )
+        )
+
+        with patch.dict("qa.llm_backend._PROVIDERS", {LlmProviderKind.OPENAI_RESPONSES: _FailOnRepeatProvider()}, clear=False):
+            first = manager.handle_input("Who is Ada Lovelace?", session_context=self.session_context)
+            repeated = manager.handle_input("Repeat that", session_context=self.session_context)
+
+        self.assertEqual(getattr(first.interaction_mode, "value", ""), "question")
+        self.assertEqual(getattr(repeated.interaction_mode, "value", ""), "question")
+        self.assertEqual(getattr(repeated.answer_result, "answer_text", ""), getattr(first.answer_result, "answer_text", ""))
+        self.assertEqual(getattr(repeated.answer_result, "warning", ""), getattr(first.answer_result, "warning", ""))
+        self.assertEqual(getattr(getattr(repeated.answer_result, "answer_kind", None), "value", getattr(repeated.answer_result, "answer_kind", None)), "open_domain_model")
+        self.assertEqual(getattr(getattr(repeated.answer_result, "provenance", None), "value", getattr(repeated.answer_result, "provenance", None)), "model_knowledge")
+        self.assertEqual(list(getattr(repeated.answer_result, "sources", []) or []), [])
 
     def test_russian_quantitative_open_domain_question_routes_to_model_answer(self) -> None:
         manager = InteractionManager(

@@ -7,6 +7,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from voice.session import VoiceTurn
 from voice.gate import (
     build_voice_readiness_gate_report,
     format_voice_readiness_gate_report,
@@ -60,6 +61,26 @@ class VoiceReadinessGateTests(unittest.TestCase):
             )
             write_voice_readiness_artifact(record, artifact_path=artifact_path)
             telemetry = build_default_voice_telemetry()
+            prior_turn = VoiceTurn(
+                raw_transcript="Что ты умеешь?",
+                normalized_transcript="what can you do",
+                detected_locale="ru-RU",
+                locale_hint="ru-RU",
+                lifecycle_state="awaiting_follow_up",
+                follow_up_reason="short_answer",
+                follow_up_window_seconds=6.0,
+            )
+            telemetry.record_follow_up_control(
+                prior_turn,
+                VoiceTurn(
+                    raw_transcript="замолчи",
+                    normalized_transcript="stop speaking",
+                    detected_locale="ru-RU",
+                    locale_hint="ru-RU",
+                ),
+                action="dismiss_follow_up",
+            )
+            telemetry.record_follow_up_loop(completed_turns=2, limit_hit=True)
             write_voice_telemetry_artifact(
                 telemetry.snapshot(),
                 artifact_path=telemetry_artifact_path,
@@ -73,7 +94,14 @@ class VoiceReadinessGateTests(unittest.TestCase):
         self.assertTrue(report.gate_ready)
         self.assertEqual(report.telemetry_artifact_path, str(telemetry_artifact_path))
         self.assertEqual(report.telemetry_artifact_status, "ready")
-        self.assertEqual(report.telemetry_note, "latest session telemetry artifact is recorded")
+        self.assertEqual(report.telemetry_follow_up_relisten_count, 0)
+        self.assertEqual(report.telemetry_follow_up_dismiss_count, 1)
+        self.assertEqual(report.telemetry_max_follow_up_chain_length, 2)
+        self.assertEqual(report.telemetry_follow_up_limit_hit_count, 1)
+        self.assertEqual(
+            report.telemetry_note,
+            "latest session telemetry artifact is recorded (follow-up relisten=0, dismiss=1, max_chain=2, limit_hits=1)",
+        )
 
     def test_format_mentions_gate_status_and_next_step(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -91,6 +119,10 @@ class VoiceReadinessGateTests(unittest.TestCase):
         self.assertIn(f"telemetry artifact path: {telemetry_artifact_path}", rendered)
         self.assertIn("telemetry artifact status: missing", rendered)
         self.assertIn("telemetry artifact command: voice telemetry write", rendered)
+        self.assertIn("telemetry follow-up relisten count: n/a", rendered)
+        self.assertIn("telemetry follow-up dismiss count: n/a", rendered)
+        self.assertIn("telemetry max follow-up chain length: n/a", rendered)
+        self.assertIn("telemetry follow-up limit hit count: n/a", rendered)
         self.assertIn("telemetry note: advisory only; record a session snapshot before live sign-off with voice telemetry write", rendered)
         self.assertIn("next step: complete_manual_voice_verification", rendered)
 

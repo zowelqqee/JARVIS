@@ -183,6 +183,28 @@ class AnswerEngineTests(unittest.TestCase):
         self.assertIn("clarification happens", result.answer_text.lower())
         self.assertGreaterEqual(len(result.sources), 2)
 
+    def test_repeat_follow_up_reuses_recent_open_domain_answer_text(self) -> None:
+        session_context = SessionContext()
+        session_context.set_recent_answer_context(
+            topic="open_domain_general",
+            scope="open_domain",
+            sources=[],
+            answer_text="Ada Lovelace is commonly described as an early computing pioneer.",
+            answer_warning="May be out of date for changing facts.",
+            answer_kind="open_domain_model",
+            answer_provenance="model_knowledge",
+            answer_confidence=0.72,
+        )
+
+        result = answer_question("Repeat that", session_context=session_context)
+
+        self.assertEqual(result.answer_text, "Ada Lovelace is commonly described as an early computing pioneer.")
+        self.assertEqual(result.sources, [])
+        self.assertEqual(result.warning, "May be out of date for changing facts.")
+        self.assertEqual(getattr(result.answer_kind, "value", result.answer_kind), "open_domain_model")
+        self.assertEqual(getattr(result.provenance, "value", result.provenance), "model_knowledge")
+        self.assertAlmostEqual(result.confidence, 0.72)
+
     def test_runtime_status_can_use_recent_folder_context(self) -> None:
         session_context = SessionContext()
         session_context.set_recent_project_context("/tmp/demo")

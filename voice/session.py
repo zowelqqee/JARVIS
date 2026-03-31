@@ -22,6 +22,10 @@ _VALID_SESSION_TRANSITIONS = {
     "error": frozenset(),
 }
 _FOLLOW_UP_REASONS = frozenset({"clarification", "confirmation", "short_answer"})
+_FOLLOW_UP_CONTROL_ACTIONS = {
+    "listen again": "listen_again",
+    "stop speaking": "dismiss_follow_up",
+}
 
 
 @dataclass(frozen=True, slots=True)
@@ -190,6 +194,23 @@ def capture_follow_up_voice_turn(
         preferred_locales=preferred_locales or request.preferred_locales,
         audio_policy=audio_policy,
     )
+
+
+def follow_up_control_action(voice_turn: VoiceTurn | object, *, prior_reason: str | None = None) -> str | None:
+    """Return a shell-level follow-up control action without routing it downstream."""
+    normalized_text = str(
+        getattr(voice_turn, "normalized_text", None)
+        or getattr(voice_turn, "normalized_transcript", "")
+        or ""
+    ).strip().lower().rstrip("?.! ")
+    if not normalized_text:
+        return None
+    direct_action = _FOLLOW_UP_CONTROL_ACTIONS.get(normalized_text)
+    if direct_action is not None:
+        return direct_action
+    if str(prior_reason or "").strip() == "short_answer" and normalized_text in {"cancel", "stop"}:
+        return "dismiss_follow_up"
+    return None
 
 
 def _follow_up_locales(voice_turn: VoiceTurn) -> tuple[str, ...]:

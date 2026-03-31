@@ -825,6 +825,35 @@
     "should_call_answer_engine": false
   },
   {
+    "id": "voice_en_answer_follow_up_repeat",
+    "case_type": "voice",
+    "category": "voice_follow_up_cases",
+    "voice_input": "repeat",
+    "session_context": {
+      "recent_answer_topic": "clarification",
+      "recent_answer_scope": "docs",
+      "recent_answer_sources": [
+        "docs/clarification_rules.md",
+        "docs/runtime_flow.md"
+      ],
+      "recent_answer_text": "Clarification is a hard boundary. JARVIS asks one minimal question only when ambiguity, missing data, low confidence, or routing ambiguity blocks safe progress.",
+      "recent_answer_kind": "grounded_local",
+      "recent_answer_provenance": "local_sources",
+      "recent_answer_confidence": 0.95
+    },
+    "expected_normalized_input": "Repeat that",
+    "expected_interaction_kind": "question",
+    "expected_question_type": "answer_follow_up",
+    "should_call_runtime": false,
+    "should_call_answer_engine": true,
+    "expected_sources_count_min": 2,
+    "expected_answer_contains_any": [
+      "Clarification is a hard boundary",
+      "one minimal question",
+      "safe progress"
+    ]
+  },
+  {
     "id": "voice_ru_answer_follow_up_explain_more",
     "case_type": "voice",
     "category": "voice_follow_up_cases",
@@ -924,6 +953,35 @@
       "missing data",
       "deterministic",
       "stop execution"
+    ]
+  },
+  {
+    "id": "voice_ru_answer_follow_up_repeat",
+    "case_type": "voice",
+    "category": "voice_follow_up_cases",
+    "voice_input": "повтори",
+    "session_context": {
+      "recent_answer_topic": "clarification",
+      "recent_answer_scope": "docs",
+      "recent_answer_sources": [
+        "docs/clarification_rules.md",
+        "docs/runtime_flow.md"
+      ],
+      "recent_answer_text": "Clarification is a hard boundary. JARVIS asks one minimal question only when ambiguity, missing data, low confidence, or routing ambiguity blocks safe progress.",
+      "recent_answer_kind": "grounded_local",
+      "recent_answer_provenance": "local_sources",
+      "recent_answer_confidence": 0.95
+    },
+    "expected_normalized_input": "Repeat that",
+    "expected_interaction_kind": "question",
+    "expected_question_type": "answer_follow_up",
+    "should_call_runtime": false,
+    "should_call_answer_engine": true,
+    "expected_sources_count_min": 2,
+    "expected_answer_contains_any": [
+      "Clarification is a hard boundary",
+      "one minimal question",
+      "safe progress"
     ]
   },
   {

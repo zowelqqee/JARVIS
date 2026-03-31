@@ -49,7 +49,12 @@ from qa.rollout_profiles import (
 from runtime.runtime_manager import RuntimeManager
 from voice.audio_policy import HalfDuplexAudioPolicy, build_default_audio_policy
 from voice.dispatcher import dispatch_interaction_input, dispatch_voice_turn, render_interaction_dispatch
-from voice.flags import continuous_voice_mode_enabled
+from voice.flags import (
+    build_voice_mode_status,
+    continuous_voice_mode_enabled,
+    format_voice_mode_status,
+    max_auto_follow_up_turns,
+)
 from voice.gate import build_voice_readiness_gate_report, format_voice_readiness_gate_report
 from voice.language import detect_spoken_locale
 from voice.readiness import build_voice_readiness_record, format_voice_readiness_record, write_voice_readiness_artifact
@@ -58,7 +63,14 @@ from voice.session import (
     build_follow_up_capture_request,
     capture_cli_voice_turn as capture_voice_turn,
     capture_follow_up_voice_turn,
+    follow_up_control_action,
 )
+from voice.session_state import (
+    VoiceSessionState,
+    build_default_voice_session_state,
+    format_voice_last_event,
+)
+from voice.status import build_voice_session_status, format_voice_session_status
 from voice.telemetry import (
     VoiceTelemetryCollector,
     build_default_voice_telemetry,
@@ -82,6 +94,7 @@ def main() -> int:
     tts_provider = build_default_tts_provider()
     audio_policy = build_default_audio_policy()
     voice_telemetry = build_default_voice_telemetry()
+    voice_session_state = build_default_voice_session_state()
     speak_enabled = False
 
     print("JARVIS MVP CLI")
@@ -106,6 +119,7 @@ def main() -> int:
             tts_provider=tts_provider,
             audio_policy=audio_policy,
             telemetry=voice_telemetry,
+            voice_session_state=voice_session_state,
         )
         if should_exit:
             return 0
@@ -120,6 +134,7 @@ def _handle_cli_command(
     tts_provider: TTSProvider | None = None,
     audio_policy: HalfDuplexAudioPolicy | None = None,
     telemetry: VoiceTelemetryCollector | None = None,
+    voice_session_state: VoiceSessionState | None = None,
 ) -> tuple[bool, bool]:
     """Handle one CLI command and return exit intent plus updated speech mode."""
     try:
@@ -187,6 +202,18 @@ def _handle_cli_command(
             _write_voice_readiness()
             return False, speak_enabled
 
+        if lowered in {"voice mode", "/voice mode"}:
+            _print_voice_mode()
+            return False, speak_enabled
+
+        if lowered in {"voice last", "/voice last"}:
+            _print_voice_last(voice_session_state)
+            return False, speak_enabled
+
+        if lowered in {"voice status", "/voice status"}:
+            _print_voice_status(speak_enabled=speak_enabled, telemetry=telemetry)
+            return False, speak_enabled
+
         if lowered in {"voice gate", "/voice gate"}:
             _print_voice_gate()
             return False, speak_enabled
@@ -210,46 +237,15 @@ def _handle_cli_command(
         if lowered in {"voice", "/voice"}:
             active_interaction_manager = interaction_manager or _build_default_interaction_manager(runtime_manager)
             active_tts_provider = (tts_provider or build_default_tts_provider()) if speak_enabled else None
-            print("voice: listening... speak now.")
-            voice_turn = _capture_voice_turn_with_telemetry(
-                capture_fn=capture_voice_turn,
-                phase="initial",
-                timeout_seconds=_VOICE_CAPTURE_TIMEOUT_SECONDS,
-                audio_policy=audio_policy,
-                telemetry=telemetry,
-            )
-            voice_dispatch = _dispatch_and_render_voice_turn(
-                voice_turn,
+            _run_voice_command(
                 interaction_manager=active_interaction_manager,
                 session_context=session_context,
                 speak_enabled=speak_enabled,
                 tts_provider=active_tts_provider,
                 audio_policy=audio_policy,
                 telemetry=telemetry,
+                voice_session_state=voice_session_state,
             )
-            follow_up_request = _auto_follow_up_request(voice_dispatch)
-            if follow_up_request is not None:
-                if telemetry is not None:
-                    telemetry.record_follow_up_opened(voice_dispatch.voice_turn)
-                print("voice: follow-up... speak now.")
-                follow_up_turn = _capture_voice_turn_with_telemetry(
-                    capture_fn=capture_follow_up_voice_turn,
-                    phase="follow_up",
-                    telemetry=telemetry,
-                    voice_turn=voice_dispatch.voice_turn,
-                    audio_policy=audio_policy,
-                )
-                if telemetry is not None:
-                    telemetry.record_follow_up_completed(voice_dispatch.voice_turn, follow_up_turn)
-                _dispatch_and_render_voice_turn(
-                    follow_up_turn,
-                    interaction_manager=active_interaction_manager,
-                    session_context=session_context,
-                    speak_enabled=speak_enabled,
-                    tts_provider=active_tts_provider,
-                    audio_policy=audio_policy,
-                    telemetry=telemetry,
-                )
             return False, speak_enabled
 
         if lowered in {"speak on", "/speak on", "speak off", "/speak off"}:
@@ -315,6 +311,12 @@ def _print_help() -> None:
     print("  /voice readiness Show the offline voice readiness helper summary.")
     print("  voice readiness write Write the offline voice readiness artifact when unblocked.")
     print("  /voice readiness write Write the offline voice readiness artifact when unblocked.")
+    print("  voice mode       Show the current bounded voice-conversation mode.")
+    print("  /voice mode      Show the current bounded voice-conversation mode.")
+    print("  voice last       Show the last voice event in this CLI session.")
+    print("  /voice last      Show the last voice event in this CLI session.")
+    print("  voice status     Show current CLI voice-session status and counters.")
+    print("  /voice status    Show current CLI voice-session status and counters.")
     print("  voice gate       Show the offline voice rollout gate verdict.")
     print("  /voice gate      Show the offline voice rollout gate verdict.")
     print("  voice telemetry  Show in-memory voice metrics for this CLI session.")
@@ -339,6 +341,7 @@ def _dispatch_and_render_voice_turn(
     tts_provider: TTSProvider | None = None,
     audio_policy: HalfDuplexAudioPolicy | None = None,
     telemetry: VoiceTelemetryCollector | None = None,
+    voice_session_state: VoiceSessionState | None = None,
 ):
     """Resolve one prepared voice turn and render its visible/spoken result."""
     print(f'recognized: "{getattr(voice_turn, "normalized_text", "")}"')
@@ -348,6 +351,8 @@ def _dispatch_and_render_voice_turn(
         speak_enabled=speak_enabled,
         interaction_manager=interaction_manager,
     )
+    if voice_session_state is not None:
+        voice_session_state.record_dispatch(voice_dispatch.voice_turn)
     if telemetry is not None:
         telemetry.record_dispatch(voice_dispatch.voice_turn, voice_dispatch.interaction)
     render_interaction_dispatch(
@@ -358,6 +363,69 @@ def _dispatch_and_render_voice_turn(
         on_speech_result=telemetry.record_tts_result if telemetry is not None else None,
     )
     return voice_dispatch
+
+
+def _run_voice_command(
+    *,
+    interaction_manager: InteractionManager,
+    session_context: SessionContext,
+    speak_enabled: bool,
+    tts_provider: TTSProvider | None = None,
+    audio_policy: HalfDuplexAudioPolicy | None = None,
+    telemetry: VoiceTelemetryCollector | None = None,
+    voice_session_state: VoiceSessionState | None = None,
+) -> None:
+    """Run one bounded voice conversation starting from the explicit `voice` shell command."""
+    follow_up_budget = max_auto_follow_up_turns()
+    completed_follow_up_turns = 0
+    print("voice: listening... speak now.")
+    current_turn = _capture_voice_turn_with_telemetry(
+        capture_fn=capture_voice_turn,
+        phase="initial",
+        timeout_seconds=_VOICE_CAPTURE_TIMEOUT_SECONDS,
+        audio_policy=audio_policy,
+        telemetry=telemetry,
+    )
+    current_dispatch = _dispatch_and_render_voice_turn(
+        current_turn,
+        interaction_manager=interaction_manager,
+        session_context=session_context,
+        speak_enabled=speak_enabled,
+        tts_provider=tts_provider,
+        audio_policy=audio_policy,
+        telemetry=telemetry,
+        voice_session_state=voice_session_state,
+    )
+    for _ in range(follow_up_budget):
+        follow_up_request = _auto_follow_up_request(current_dispatch)
+        if follow_up_request is None:
+            break
+        follow_up_turn = _capture_auto_follow_up_turn(
+            current_dispatch.voice_turn,
+            telemetry=telemetry,
+            audio_policy=audio_policy,
+            voice_session_state=voice_session_state,
+        )
+        if follow_up_turn is None:
+            break
+        if telemetry is not None:
+            telemetry.record_follow_up_completed(current_dispatch.voice_turn, follow_up_turn)
+        completed_follow_up_turns += 1
+        current_dispatch = _dispatch_and_render_voice_turn(
+            follow_up_turn,
+            interaction_manager=interaction_manager,
+            session_context=session_context,
+            speak_enabled=speak_enabled,
+            tts_provider=tts_provider,
+            audio_policy=audio_policy,
+            telemetry=telemetry,
+            voice_session_state=voice_session_state,
+        )
+    if telemetry is not None and follow_up_budget > 0:
+        telemetry.record_follow_up_loop(
+            completed_turns=completed_follow_up_turns,
+            limit_hit=completed_follow_up_turns >= follow_up_budget and _auto_follow_up_request(current_dispatch) is not None,
+        )
 
 
 def _auto_follow_up_request(voice_dispatch: object):
@@ -404,8 +472,54 @@ def _capture_voice_turn_with_telemetry(
             phase=phase,
             elapsed_seconds=perf_counter() - started_at,
             voice_turn=voice_turn,
-        )
+    )
     return voice_turn
+
+
+def _capture_auto_follow_up_turn(
+    prior_turn: VoiceTurn,
+    *,
+    telemetry: VoiceTelemetryCollector | None = None,
+    audio_policy: HalfDuplexAudioPolicy | None = None,
+    voice_session_state: VoiceSessionState | None = None,
+):
+    """Capture one blocking follow-up reply with a single listen-again control retry."""
+    for attempt in range(2):
+        if telemetry is not None:
+            telemetry.record_follow_up_opened(prior_turn)
+        if attempt == 0:
+            print("voice: follow-up... speak now.")
+        else:
+            print("voice: listening again... speak now.")
+        follow_up_turn = _capture_voice_turn_with_telemetry(
+            capture_fn=capture_follow_up_voice_turn,
+            phase="follow_up",
+            telemetry=telemetry,
+            voice_turn=prior_turn,
+            audio_policy=audio_policy,
+        )
+        control_action = follow_up_control_action(
+            follow_up_turn,
+            prior_reason=str(getattr(prior_turn, "follow_up_reason", "") or "").strip() or None,
+        )
+        if telemetry is not None and control_action is not None:
+            telemetry.record_follow_up_control(
+                prior_turn,
+                follow_up_turn,
+                action=control_action,
+            )
+        if voice_session_state is not None and control_action is not None:
+            voice_session_state.record_control(
+                prior_turn,
+                follow_up_turn,
+                action=control_action,
+            )
+        if control_action == "dismiss_follow_up":
+            print("voice: follow-up closed.")
+            return None
+        if control_action != "listen_again":
+            return follow_up_turn
+    return None
 
 
 def _handle_runtime_input(
@@ -900,6 +1014,33 @@ def _print_voice_readiness() -> None:
     """Print the current offline voice-readiness helper summary."""
     record = build_voice_readiness_record()
     print(format_voice_readiness_record(record))
+
+
+def _print_voice_mode() -> None:
+    """Print the current bounded voice-conversation mode summary."""
+    print(format_voice_mode_status(build_voice_mode_status()))
+
+
+def _print_voice_last(voice_session_state: VoiceSessionState | None) -> None:
+    """Print the last current-session voice event summary."""
+    print(format_voice_last_event(voice_session_state))
+
+
+def _print_voice_status(
+    *,
+    speak_enabled: bool,
+    telemetry: VoiceTelemetryCollector | None,
+) -> None:
+    """Print the current CLI voice-session status and counters."""
+    active_telemetry = telemetry or build_default_voice_telemetry()
+    print(
+        format_voice_session_status(
+            build_voice_session_status(
+                speak_enabled=speak_enabled,
+                telemetry_snapshot=active_telemetry.snapshot(),
+            )
+        )
+    )
 
 
 def _write_voice_readiness() -> None:

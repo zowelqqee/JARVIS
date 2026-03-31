@@ -189,6 +189,10 @@ def _resolve_answer_backend_config(
 
 
 def _backend_kind_for_question(question: QuestionRequest, config: AnswerBackendConfig) -> AnswerBackendKind | str:
+    if getattr(question, "question_type", None) == QuestionType.ANSWER_FOLLOW_UP:
+        context_refs = getattr(question, "context_refs", {}) or {}
+        if isinstance(context_refs, dict) and str(context_refs.get("follow_up_kind", "") or "").strip() == "repeat":
+            return AnswerBackendKind.DETERMINISTIC
     configured_backend = getattr(getattr(config, "backend_kind", None), "value", getattr(config, "backend_kind", None))
     if str(configured_backend or "").strip() == AnswerBackendKind.LLM.value:
         return config.backend_kind
@@ -364,6 +368,21 @@ def _classify_answer_follow_up(
         "answer_scope": answer_scope,
         "answer_sources": answer_sources,
     }
+    answer_text = str(recent_answer_context.get("answer_text", "") or "").strip()
+    if answer_text:
+        context_refs["answer_text"] = answer_text
+    answer_warning = str(recent_answer_context.get("answer_warning", "") or "").strip()
+    if answer_warning:
+        context_refs["answer_warning"] = answer_warning
+    answer_kind = str(recent_answer_context.get("answer_kind", "") or "").strip()
+    if answer_kind:
+        context_refs["answer_kind"] = answer_kind
+    answer_provenance = str(recent_answer_context.get("answer_provenance", "") or "").strip()
+    if answer_provenance:
+        context_refs["answer_provenance"] = answer_provenance
+    answer_confidence = recent_answer_context.get("answer_confidence")
+    if answer_confidence is not None:
+        context_refs["answer_confidence"] = float(answer_confidence)
     return QuestionRequest(
         raw_input=normalized,
         question_type=QuestionType.ANSWER_FOLLOW_UP,
@@ -406,6 +425,13 @@ def _follow_up_kind(text: str) -> str | None:
         "why does that apply",
     }:
         return "why"
+    if normalized in {
+        "repeat that",
+        "repeat the answer",
+        "say that again",
+        "say it again",
+    }:
+        return "repeat"
     return None
 
 

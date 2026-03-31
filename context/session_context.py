@@ -37,6 +37,11 @@ class SessionContext:
     recent_answer_topic: str | None = None
     recent_answer_scope: str | None = None
     recent_answer_sources: list[str] = field(default_factory=list)
+    recent_answer_text: str | None = None
+    recent_answer_warning: str | None = None
+    recent_answer_kind: str | None = None
+    recent_answer_provenance: str | None = None
+    recent_answer_confidence: float | None = None
     pending_interaction_question_input: str | None = None
     pending_interaction_command_input: str | None = None
 
@@ -234,10 +239,20 @@ class SessionContext:
         topic: str | None,
         scope: str | None,
         sources: list[str] | None = None,
+        answer_text: str | None = None,
+        answer_warning: str | None = None,
+        answer_kind: str | None = None,
+        answer_provenance: str | None = None,
+        answer_confidence: float | None = None,
     ) -> None:
         """Store one short-lived answer context for safe question follow-ups."""
         normalized_topic = str(topic or "").strip()
         normalized_scope = str(scope or "").strip()
+        normalized_answer_text = str(answer_text or "").strip()
+        normalized_answer_warning = str(answer_warning or "").strip()
+        normalized_answer_kind = str(answer_kind or "").strip()
+        normalized_answer_provenance = str(answer_provenance or "").strip()
+        normalized_answer_confidence = None if answer_confidence is None else float(answer_confidence)
         normalized_sources: list[str] = []
         seen_sources: set[str] = set()
         for source in list(sources or []):
@@ -247,22 +262,50 @@ class SessionContext:
             normalized_sources.append(source_text)
             seen_sources.add(source_text)
 
-        if not normalized_topic and not normalized_scope and not normalized_sources:
+        if (
+            not normalized_topic
+            and not normalized_scope
+            and not normalized_sources
+            and not normalized_answer_text
+            and not normalized_answer_warning
+            and not normalized_answer_kind
+            and not normalized_answer_provenance
+            and normalized_answer_confidence is None
+        ):
             self.clear_recent_answer_context()
             return
 
         self.recent_answer_topic = normalized_topic or None
         self.recent_answer_scope = normalized_scope or None
         self.recent_answer_sources = normalized_sources
+        self.recent_answer_text = normalized_answer_text or None
+        self.recent_answer_warning = normalized_answer_warning or None
+        self.recent_answer_kind = normalized_answer_kind or None
+        self.recent_answer_provenance = normalized_answer_provenance or None
+        self.recent_answer_confidence = normalized_answer_confidence
 
     def get_recent_answer_context(self) -> dict[str, Any] | None:
         """Return the latest grounded answer context available for safe follow-ups."""
-        if not self.recent_answer_topic and not self.recent_answer_scope and not self.recent_answer_sources:
+        if (
+            not self.recent_answer_topic
+            and not self.recent_answer_scope
+            and not self.recent_answer_sources
+            and not self.recent_answer_text
+            and not self.recent_answer_warning
+            and not self.recent_answer_kind
+            and not self.recent_answer_provenance
+            and self.recent_answer_confidence is None
+        ):
             return None
         return {
             "topic": self.recent_answer_topic,
             "scope": self.recent_answer_scope,
             "sources": list(self.recent_answer_sources),
+            "answer_text": self.recent_answer_text,
+            "answer_warning": self.recent_answer_warning,
+            "answer_kind": self.recent_answer_kind,
+            "answer_provenance": self.recent_answer_provenance,
+            "answer_confidence": self.recent_answer_confidence,
         }
 
     def clear_recent_answer_context(self) -> None:
@@ -270,6 +313,11 @@ class SessionContext:
         self.recent_answer_topic = None
         self.recent_answer_scope = None
         self.recent_answer_sources = []
+        self.recent_answer_text = None
+        self.recent_answer_warning = None
+        self.recent_answer_kind = None
+        self.recent_answer_provenance = None
+        self.recent_answer_confidence = None
 
     def set_pending_interaction_clarification(
         self,

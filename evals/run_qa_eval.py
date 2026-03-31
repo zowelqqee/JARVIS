@@ -853,6 +853,11 @@ def _build_session_context(payload: dict[str, Any]) -> SessionContext:
             )
     recent_answer_topic = str(payload.get("recent_answer_topic", "") or "").strip()
     recent_answer_scope = str(payload.get("recent_answer_scope", "") or "").strip()
+    recent_answer_text = str(payload.get("recent_answer_text", "") or "").strip()
+    recent_answer_warning = str(payload.get("recent_answer_warning", "") or "").strip()
+    recent_answer_kind = str(payload.get("recent_answer_kind", "") or "").strip()
+    recent_answer_provenance = str(payload.get("recent_answer_provenance", "") or "").strip()
+    recent_answer_confidence = payload.get("recent_answer_confidence")
     raw_recent_answer_sources = payload.get("recent_answer_sources")
     recent_answer_sources: list[str] = []
     if isinstance(raw_recent_answer_sources, list):
@@ -864,11 +869,25 @@ def _build_session_context(payload: dict[str, Any]) -> SessionContext:
             if not source_path.is_absolute():
                 source_text = str((_REPO_ROOT / source_path).resolve())
             recent_answer_sources.append(source_text)
-    if recent_answer_topic or recent_answer_scope or recent_answer_sources:
+    if (
+        recent_answer_topic
+        or recent_answer_scope
+        or recent_answer_sources
+        or recent_answer_text
+        or recent_answer_warning
+        or recent_answer_kind
+        or recent_answer_provenance
+        or recent_answer_confidence is not None
+    ):
         session_context.set_recent_answer_context(
             topic=recent_answer_topic or None,
             scope=recent_answer_scope or None,
             sources=recent_answer_sources,
+            answer_text=recent_answer_text or None,
+            answer_warning=recent_answer_warning or None,
+            answer_kind=recent_answer_kind or None,
+            answer_provenance=recent_answer_provenance or None,
+            answer_confidence=float(recent_answer_confidence) if recent_answer_confidence is not None else None,
         )
     pending_interaction_question_input = str(payload.get("pending_interaction_question_input", "") or "").strip()
     pending_interaction_command_input = str(payload.get("pending_interaction_command_input", "") or "").strip()

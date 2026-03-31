@@ -315,6 +315,11 @@ class DeterministicAnswerBackend:
         follow_up_kind = str(context_refs.get("follow_up_kind", "") or "").strip()
         answer_topic = str(context_refs.get("answer_topic", "") or "").strip()
         answer_scope = str(context_refs.get("answer_scope", "") or "").strip()
+        answer_text = str(context_refs.get("answer_text", "") or "").strip()
+        answer_warning = str(context_refs.get("answer_warning", "") or "").strip() or None
+        answer_kind = str(context_refs.get("answer_kind", "") or "").strip() or None
+        answer_provenance = str(context_refs.get("answer_provenance", "") or "").strip() or None
+        answer_confidence = context_refs.get("answer_confidence")
         fallback_sources = [
             str(source).strip()
             for source in list(context_refs.get("answer_sources", []) or [])
@@ -325,6 +330,23 @@ class DeterministicAnswerBackend:
                 ErrorCode.INSUFFICIENT_CONTEXT,
                 "No recent answer context is available for that follow-up.",
                 details={"reason": "no_recent_answer"},
+            )
+
+        if follow_up_kind == "repeat":
+            if not answer_text:
+                raise self._answer_error(
+                    ErrorCode.INSUFFICIENT_CONTEXT,
+                    "No recent answer text is available for that repeat request.",
+                    details={"reason": "no_recent_answer_text"},
+                )
+            return self._repeat_follow_up_result(
+                answer_text=answer_text,
+                answer_warning=answer_warning,
+                answer_kind=answer_kind,
+                answer_provenance=answer_provenance,
+                answer_confidence=answer_confidence,
+                grounding_bundle=grounding_bundle,
+                fallback_sources=fallback_sources,
             )
 
         if follow_up_kind in {"which_source", "where_written"}:
@@ -357,6 +379,34 @@ class DeterministicAnswerBackend:
             ErrorCode.UNSUPPORTED_QUESTION,
             "Answer follow-up is outside the deterministic v1.5 rule set.",
             details={"reason": "topic_not_supported", "follow_up_kind": follow_up_kind},
+        )
+
+    def _repeat_follow_up_result(
+        self,
+        *,
+        answer_text: str,
+        answer_warning: str | None,
+        answer_kind: str | None,
+        answer_provenance: str | None,
+        answer_confidence: Any,
+        grounding_bundle: GroundingBundle | None,
+        fallback_sources: list[str],
+    ) -> AnswerResult:
+        resolved_answer_kind = _answer_kind_value(answer_kind, fallback_sources=fallback_sources)
+        resolved_provenance = _answer_provenance_value(
+            answer_provenance,
+            answer_kind=resolved_answer_kind,
+            fallback_sources=fallback_sources,
+        )
+        confidence = float(answer_confidence) if answer_confidence is not None else 0.98
+        return AnswerResult(
+            answer_text=answer_text,
+            sources=self._sources(grounding_bundle, fallback_sources),
+            source_attributions=self._source_attributions(grounding_bundle, fallback_sources),
+            confidence=confidence,
+            warning=answer_warning,
+            answer_kind=resolved_answer_kind,
+            provenance=resolved_provenance,
         )
 
     def _docs_rule_answer(self, question: QuestionRequest, *, grounding_bundle: GroundingBundle | None) -> AnswerResult:
@@ -714,3 +764,32 @@ def _target_label(target: Any) -> str:
     if name and path:
         return f"{name} ({path})"
     return name or path or "the recent target"
+
+
+def _answer_kind_value(value: str | None, *, fallback_sources: list[str]) -> AnswerKind:
+    normalized = str(value or "").strip()
+    if normalized:
+        try:
+            return AnswerKind(normalized)
+        except ValueError:
+            pass
+    return AnswerKind.GROUNDED_LOCAL if fallback_sources else AnswerKind.OPEN_DOMAIN_MODEL
+
+
+def _answer_provenance_value(
+    value: str | None,
+    *,
+    answer_kind: AnswerKind,
+    fallback_sources: list[str],
+) -> AnswerProvenance | None:
+    normalized = str(value or "").strip()
+    if normalized:
+        try:
+            return AnswerProvenance(normalized)
+        except ValueError:
+            pass
+    if fallback_sources:
+        return AnswerProvenance.LOCAL_SOURCES
+    if answer_kind == AnswerKind.OPEN_DOMAIN_MODEL:
+        return AnswerProvenance.MODEL_KNOWLEDGE
+    return None

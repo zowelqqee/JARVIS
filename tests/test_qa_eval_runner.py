@@ -104,12 +104,13 @@ class QaEvalRunnerTests(unittest.TestCase):
                 "voice_en_mixed_answer_reply",
                 "voice_en_mixed_execute_reply",
                 "voice_en_confirmation_deny_reply",
+                "voice_en_answer_follow_up_repeat",
             ],
         )
 
         report = run_eval_cases(selected)
 
-        self.assertEqual(report.total_cases, 6)
+        self.assertEqual(report.total_cases, 7)
         self.assertEqual(report.failed_cases, 0)
         result_by_id = {result.case_id: result for result in report.results}
         self.assertEqual(result_by_id["voice_en_open_app_command"].details.get("actual_normalized_input"), "open Safari")
@@ -118,6 +119,7 @@ class QaEvalRunnerTests(unittest.TestCase):
             "clarification",
         )
         self.assertEqual(result_by_id["voice_en_confirmation_deny_reply"].details.get("actual_normalized_input"), "no")
+        self.assertEqual(result_by_id["voice_en_answer_follow_up_repeat"].details.get("actual_normalized_input"), "Repeat that")
 
     def test_voice_eval_case_can_cover_english_open_domain_mock_path(self) -> None:
         cases = load_qa_eval_cases(DEFAULT_CORPUS_PATH)
@@ -145,12 +147,13 @@ class QaEvalRunnerTests(unittest.TestCase):
                 "voice_ru_answer_follow_up_sources",
                 "voice_ru_answer_follow_up_where_written",
                 "voice_ru_answer_follow_up_why",
+                "voice_ru_answer_follow_up_repeat",
             ],
         )
 
         report = run_eval_cases(selected)
 
-        self.assertEqual(report.total_cases, 4)
+        self.assertEqual(report.total_cases, 5)
         self.assertEqual(report.failed_cases, 0)
         result_by_id = {result.case_id: result for result in report.results}
         self.assertEqual(
@@ -172,6 +175,10 @@ class QaEvalRunnerTests(unittest.TestCase):
         self.assertEqual(
             result_by_id["voice_ru_answer_follow_up_why"].details.get("actual_normalized_input"),
             "Why is that",
+        )
+        self.assertEqual(
+            result_by_id["voice_ru_answer_follow_up_repeat"].details.get("actual_normalized_input"),
+            "Repeat that",
         )
 
     def test_voice_eval_case_can_cover_permission_denied_capture_error(self) -> None:
