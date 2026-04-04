@@ -11,6 +11,7 @@
 - The current mode is still not a continuous conversation loop.
 - CLI may open a bounded sequence of immediate blocking follow-up replies only when `JARVIS_VOICE_CONTINUOUS_MODE=1`.
 - Spoken output is optional and controlled by `speak on` / `speak off`.
+- Optional earcons can be enabled with `JARVIS_VOICE_EARCONS=1`.
 - Russian and English are both expected to work for the MVP voice surface.
 
 ## Current Limitations
@@ -25,6 +26,7 @@
 ## Setup
 - Run: `python3 cli.py`
 - To verify automatic blocking follow-up, run: `JARVIS_VOICE_CONTINUOUS_MODE=1 python3 cli.py`
+- To verify optional earcons, run: `JARVIS_VOICE_EARCONS=1 python3 cli.py`
 - Optional offline rollout helpers:
   - `voice mode` inside CLI to inspect whether bounded advanced follow-up mode is currently enabled
   - `voice last` inside CLI to inspect the most recent voice dispatch or follow-up control handled in this session
@@ -50,6 +52,9 @@
 - After capture, CLI prints one normalized `recognized: "..."` line.
 - If `JARVIS_VOICE_CONTINUOUS_MODE=1` and a voice turn ends in blocking clarification or confirmation, CLI should print `voice: follow-up... speak now.` and may continue for up to two extra follow-up replies in the same bounded loop.
 - If `JARVIS_VOICE_CONTINUOUS_MODE=1`, `speak on` is enabled, and a question answer is short enough, CLI may keep the bounded loop alive for one more immediate answer follow-up.
+- If the bounded loop still wants another follow-up after those two extra turns, CLI should stop cleanly with `voice: follow-up limit reached.`
+- With `speak on`, a slow question or answer-follow-up may briefly emit `voice: thinking...` plus a short spoken filler such as `One moment.` or `Одну секунду.` before the final answer.
+- With `JARVIS_VOICE_EARCONS=1`, CLI may emit short non-verbal cues for listening start, listening stop, error, and speech start.
 - The normalized line may be English even for Russian fixed phrases and follow-ups.
 - Runtime behavior must stay deterministic after normalization.
 - Spoken output should be shorter and friendlier than terminal output.
@@ -105,6 +110,7 @@
   - follow-up turn: `выполнить`
 - Expected result: command branch executes and the pending mixed clarification clears.
 - If the follow-up reply is missed once, CLI should give one more short prompt like `voice: didn't catch that. speak again.`
+- With `JARVIS_VOICE_EARCONS=1`, that missed follow-up retry should also emit a short error cue.
 - If the follow-up is still missed after that retry, the window should close cleanly instead of crashing the voice shell.
 
 ### 7) Russian answer follow-up by voice
@@ -141,12 +147,15 @@
 - If the follow-up capture was noisy, say `слушай снова`.
 - Expected recognized text: `listen again`
 - Expected result: the current follow-up window reopens once and waits for the real reply instead of routing `listen again` as a command.
+- Natural relisten variants like `послушай снова` or English `try again` should behave the same way inside the current follow-up window.
 - If the immediate follow-up reply is missed without any control phrase, CLI should retry once with `voice: didn't catch that. speak again.`
 - If that second follow-up capture is also empty, CLI should print `voice: no follow-up reply detected.` and close the current follow-up window.
+- With `JARVIS_VOICE_EARCONS=1`, each missed follow-up attempt may also emit a short error cue before the next retry or close.
 - If you want to dismiss the immediate follow-up window, say `замолчи`.
 - Expected recognized text: `stop speaking`
 - Expected result: the current follow-up window closes without routing `stop speaking` as a command reply.
-- For a short-answer follow-up window, `стоп` / `отмена` may also close the offered extra follow-up instead of routing a command-path cancel.
+- Natural dismiss variants like `прекрати говорить` or English `stop talking` should also close the current follow-up window.
+- For a short-answer follow-up window, `стоп` / `отмена` and natural dismiss replies like `не сейчас`, `not now`, or `no thanks` may also close the offered extra follow-up instead of routing a command-path cancel.
 
 ### 8) Confirmation approve by voice
 - Precondition: run CLI with `JARVIS_VOICE_CONTINUOUS_MODE=1`.

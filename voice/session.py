@@ -24,8 +24,23 @@ _VALID_SESSION_TRANSITIONS = {
 _FOLLOW_UP_REASONS = frozenset({"clarification", "confirmation", "short_answer"})
 _FOLLOW_UP_CONTROL_ACTIONS = {
     "listen again": "listen_again",
+    "try again": "listen_again",
+    "listen once more": "listen_again",
     "stop speaking": "dismiss_follow_up",
+    "stop talking": "dismiss_follow_up",
+    "be quiet": "dismiss_follow_up",
 }
+_SHORT_ANSWER_DISMISS_SURFACES = frozenset(
+    {
+        "cancel",
+        "stop",
+        "not now",
+        "no thanks",
+        "never mind",
+        "не сейчас",
+        "не надо",
+    }
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -208,7 +223,10 @@ def follow_up_control_action(voice_turn: VoiceTurn | object, *, prior_reason: st
     direct_action = _FOLLOW_UP_CONTROL_ACTIONS.get(normalized_text)
     if direct_action is not None:
         return direct_action
-    if str(prior_reason or "").strip() == "short_answer" and normalized_text in {"cancel", "stop"}:
+    if (
+        str(prior_reason or "").strip() == "short_answer"
+        and normalized_text in _SHORT_ANSWER_DISMISS_SURFACES
+    ):
         return "dismiss_follow_up"
     return None
 

@@ -5,12 +5,28 @@ from __future__ import annotations
 import unittest
 from types import SimpleNamespace
 
-from voice.speech_presenter import interaction_speech_message, interaction_speech_utterance
+from voice.speech_presenter import (
+    interaction_speech_message,
+    interaction_speech_utterance,
+    latency_filler_utterance,
+)
 from voice.tts_provider import SpeechUtterance
 
 
 class SpeechPresenterTests(unittest.TestCase):
     """Protect the voice-facing speech rendering contract."""
+
+    def test_latency_filler_utterance_defaults_to_english(self) -> None:
+        self.assertEqual(
+            latency_filler_utterance(),
+            SpeechUtterance(text="One moment.", locale="en-US"),
+        )
+
+    def test_latency_filler_utterance_uses_russian_locale_hint(self) -> None:
+        self.assertEqual(
+            latency_filler_utterance(preferred_locale="ru-RU"),
+            SpeechUtterance(text="Одну секунду.", locale="ru-RU"),
+        )
 
     def test_question_warning_uses_russian_prefix_for_russian_answer(self) -> None:
         result = SimpleNamespace(

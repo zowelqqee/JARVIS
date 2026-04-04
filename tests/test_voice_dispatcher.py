@@ -163,7 +163,10 @@ class VoiceDispatcherTests(unittest.TestCase):
         self.assertEqual(dispatch_result.voice_turn.lifecycle_state, "awaiting_follow_up")
         self.assertEqual(dispatch_result.voice_turn.follow_up_reason, "confirmation")
         self.assertEqual(dispatch_result.voice_turn.follow_up_window_seconds, 8.0)
-        self.assertEqual(dispatch_result.voice_turn.interaction_summary, "Закрыть Telegram?")
+        self.assertEqual(
+            dispatch_result.voice_turn.interaction_summary,
+            "Закрыть Telegram? Скажи да или нет.",
+        )
 
     def test_dispatch_interaction_input_marks_short_answer_follow_up_window(self) -> None:
         interaction_manager = MagicMock()
@@ -236,6 +239,27 @@ class VoiceDispatcherTests(unittest.TestCase):
         )
 
         self.assertEqual(lines, ["state: completed", "speech: unavailable."])
+
+    def test_render_interaction_dispatch_plays_speaking_start_earcon_before_tts(self) -> None:
+        lines: list[str] = []
+        tts_provider = MagicMock()
+        tts_provider.speak.return_value = TTSResult(ok=True)
+        earcon_provider = MagicMock()
+        dispatch_result = SimpleNamespace(
+            visible_lines=("state: completed",),
+            speech_utterance=SpeechUtterance(text="Hello there.", locale="en-US"),
+        )
+
+        render_interaction_dispatch(
+            dispatch_result,
+            emit_line=lines.append,
+            tts_provider=tts_provider,
+            earcon_provider=earcon_provider,
+        )
+
+        self.assertEqual(lines, ["state: completed"])
+        earcon_provider.play.assert_called_once_with("speaking_start")
+        tts_provider.speak.assert_called_once_with(SpeechUtterance(text="Hello there.", locale="en-US"))
 
 
 if __name__ == "__main__":

@@ -70,11 +70,27 @@ class VoiceNormalizationTests(unittest.TestCase):
             with self.subTest(raw_text=raw_text):
                 self.assertEqual(normalize_voice_command(raw_text), expected)
 
-    def test_russian_listen_again_control_phrase_maps_to_shell_control_surface(self) -> None:
-        self.assertEqual(normalize_voice_command("слушай снова"), "listen again")
+    def test_russian_listen_again_control_phrases_map_to_shell_control_surface(self) -> None:
+        cases = {
+            "слушай снова": "listen again",
+            "послушай снова": "listen again",
+            "послушай ещё раз": "listen again",
+        }
 
-    def test_russian_stop_speaking_control_phrase_maps_to_shell_control_surface(self) -> None:
-        self.assertEqual(normalize_voice_command("замолчи"), "stop speaking")
+        for raw_text, expected in cases.items():
+            with self.subTest(raw_text=raw_text):
+                self.assertEqual(normalize_voice_command(raw_text), expected)
+
+    def test_russian_stop_speaking_control_phrases_map_to_shell_control_surface(self) -> None:
+        cases = {
+            "замолчи": "stop speaking",
+            "прекрати говорить": "stop speaking",
+            "перестань говорить": "stop speaking",
+        }
+
+        for raw_text, expected in cases.items():
+            with self.subTest(raw_text=raw_text):
+                self.assertEqual(normalize_voice_command(raw_text), expected)
 
     def test_english_repeat_follow_up_maps_to_existing_text_surface(self) -> None:
         self.assertEqual(normalize_voice_command("repeat"), "Repeat that")

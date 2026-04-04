@@ -222,6 +222,16 @@ class VoiceSessionTests(unittest.TestCase):
 
         self.assertEqual(follow_up_control_action(voice_turn), "listen_again")
 
+    def test_follow_up_control_action_detects_try_again_surface(self) -> None:
+        voice_turn = VoiceTurn(
+            raw_transcript="try again",
+            normalized_transcript="try again",
+            detected_locale="en-US",
+            locale_hint="en-US",
+        )
+
+        self.assertEqual(follow_up_control_action(voice_turn), "listen_again")
+
     def test_follow_up_control_action_detects_stop_speaking_surface(self) -> None:
         voice_turn = VoiceTurn(
             raw_transcript="замолчи",
@@ -232,12 +242,36 @@ class VoiceSessionTests(unittest.TestCase):
 
         self.assertEqual(follow_up_control_action(voice_turn), "dismiss_follow_up")
 
+    def test_follow_up_control_action_detects_stop_talking_surface(self) -> None:
+        voice_turn = VoiceTurn(
+            raw_transcript="stop talking",
+            normalized_transcript="stop talking",
+            detected_locale="en-US",
+            locale_hint="en-US",
+        )
+
+        self.assertEqual(follow_up_control_action(voice_turn), "dismiss_follow_up")
+
     def test_follow_up_control_action_treats_cancel_as_short_answer_dismiss_only(self) -> None:
         voice_turn = VoiceTurn(
             raw_transcript="стоп",
             normalized_transcript="cancel",
             detected_locale="ru-RU",
             locale_hint="ru-RU",
+        )
+
+        self.assertEqual(
+            follow_up_control_action(voice_turn, prior_reason="short_answer"),
+            "dismiss_follow_up",
+        )
+        self.assertIsNone(follow_up_control_action(voice_turn, prior_reason="confirmation"))
+
+    def test_follow_up_control_action_treats_natural_short_answer_dismiss_as_contextual_only(self) -> None:
+        voice_turn = VoiceTurn(
+            raw_transcript="not now",
+            normalized_transcript="not now",
+            detected_locale="en-US",
+            locale_hint="en-US",
         )
 
         self.assertEqual(

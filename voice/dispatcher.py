@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING
 
 from ui.interaction_presenter import interaction_output_lines
 from voice.audio_policy import HalfDuplexAudioPolicy
+from voice.earcons import EarconProvider
 from voice.session import VoiceTurn, finalize_voice_turn
 from voice.speech_presenter import interaction_speech_utterance
 from voice.tts_provider import SpeechUtterance, TTSProvider
@@ -119,6 +120,7 @@ def render_interaction_dispatch(
     emit_line: Callable[[str], None],
     tts_provider: TTSProvider | None = None,
     audio_policy: HalfDuplexAudioPolicy | None = None,
+    earcon_provider: EarconProvider | None = None,
     on_speech_result: Callable[[SpeechUtterance, object], None] | None = None,
 ) -> None:
     """Emit visible lines and optional spoken output for one prepared dispatch."""
@@ -128,6 +130,9 @@ def render_interaction_dispatch(
     utterance = dispatch_result.speech_utterance
     if utterance is None or tts_provider is None:
         return
+
+    if earcon_provider is not None:
+        earcon_provider.play("speaking_start")
 
     if audio_policy is None:
         speech_result = tts_provider.speak(utterance)

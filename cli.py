@@ -8,11 +8,13 @@ import hashlib
 from collections.abc import MutableMapping
 from datetime import datetime, timezone
 from pathlib import Path
+from threading import Event, Thread
 from time import perf_counter
 
 from context.session_context import SessionContext
 from input.voice_input import VoiceInputError
 from interaction.interaction_manager import InteractionManager
+from interaction.interaction_router import route_interaction
 from qa.beta_release_review import (
     beta_release_review_artifact_consistency,
     beta_release_review_pending_checks,
@@ -49,11 +51,13 @@ from qa.rollout_profiles import (
 from runtime.runtime_manager import RuntimeManager
 from voice.audio_policy import HalfDuplexAudioPolicy, build_default_audio_policy
 from voice.dispatcher import dispatch_interaction_input, dispatch_voice_turn, render_interaction_dispatch
+from voice.earcons import EarconProvider, build_default_earcon_provider
 from voice.flags import (
     build_voice_mode_status,
     continuous_voice_mode_enabled,
     format_voice_mode_status,
     max_auto_follow_up_turns,
+    voice_earcons_enabled,
 )
 from voice.gate import build_voice_readiness_gate_report, format_voice_readiness_gate_report
 from voice.language import detect_spoken_locale
@@ -70,6 +74,7 @@ from voice.session_state import (
     build_default_voice_session_state,
     format_voice_last_event,
 )
+from voice.speech_presenter import latency_filler_utterance
 from voice.status import build_voice_session_status, format_voice_session_status
 from voice.telemetry import (
     VoiceTelemetryCollector,
@@ -82,7 +87,20 @@ from voice.telemetry import (
 from voice.tts_provider import TTSProvider, build_default_tts_provider
 
 _VOICE_CAPTURE_TIMEOUT_SECONDS = 7.0
+_VOICE_LATENCY_FILLER_DELAY_SECONDS = 0.6
 _FOLLOW_UP_EMPTY_RETRYABLE_CODES = frozenset({"EMPTY_RECOGNITION", "RECOGNITION_FAILED"})
+_VOICE_ANSWER_FOLLOW_UP_FILLER_SURFACES = frozenset(
+    {
+        "explain more",
+        "which source",
+        "which sources",
+        "where is that written",
+        "where is that documented",
+        "why is that",
+        "why so",
+        "repeat that",
+    }
+)
 _LIVE_SMOKE_ARTIFACT_ENV = "JARVIS_QA_OPENAI_LIVE_ARTIFACT"
 _LIVE_SMOKE_ARTIFACT_MAX_AGE_HOURS = 24.0
 
@@ -238,11 +256,13 @@ def _handle_cli_command(
         if lowered in {"voice", "/voice"}:
             active_interaction_manager = interaction_manager or _build_default_interaction_manager(runtime_manager)
             active_tts_provider = (tts_provider or build_default_tts_provider()) if speak_enabled else None
+            active_earcon_provider = build_default_earcon_provider() if voice_earcons_enabled() else None
             _run_voice_command(
                 interaction_manager=active_interaction_manager,
                 session_context=session_context,
                 speak_enabled=speak_enabled,
                 tts_provider=active_tts_provider,
+                earcon_provider=active_earcon_provider,
                 audio_policy=audio_policy,
                 telemetry=telemetry,
                 voice_session_state=voice_session_state,
@@ -340,18 +360,30 @@ def _dispatch_and_render_voice_turn(
     session_context: SessionContext,
     speak_enabled: bool,
     tts_provider: TTSProvider | None = None,
+    earcon_provider: EarconProvider | None = None,
     audio_policy: HalfDuplexAudioPolicy | None = None,
     telemetry: VoiceTelemetryCollector | None = None,
     voice_session_state: VoiceSessionState | None = None,
 ):
     """Resolve one prepared voice turn and render its visible/spoken result."""
     print(f'recognized: "{getattr(voice_turn, "normalized_text", "")}"')
-    voice_dispatch = dispatch_voice_turn(
+    filler_worker = _start_voice_latency_filler(
         voice_turn,
+        interaction_manager=interaction_manager,
         session_context=session_context,
         speak_enabled=speak_enabled,
-        interaction_manager=interaction_manager,
+        tts_provider=tts_provider,
+        audio_policy=audio_policy,
     )
+    try:
+        voice_dispatch = dispatch_voice_turn(
+            voice_turn,
+            session_context=session_context,
+            speak_enabled=speak_enabled,
+            interaction_manager=interaction_manager,
+        )
+    finally:
+        _stop_voice_latency_filler(filler_worker)
     if voice_session_state is not None:
         voice_session_state.record_dispatch(voice_dispatch.voice_turn)
     if telemetry is not None:
@@ -360,10 +392,125 @@ def _dispatch_and_render_voice_turn(
         voice_dispatch.interaction,
         emit_line=print,
         tts_provider=tts_provider,
+        earcon_provider=earcon_provider,
         audio_policy=audio_policy,
         on_speech_result=telemetry.record_tts_result if telemetry is not None else None,
     )
     return voice_dispatch
+
+
+def _start_voice_latency_filler(
+    voice_turn: VoiceTurn | object,
+    *,
+    interaction_manager: InteractionManager,
+    session_context: SessionContext,
+    speak_enabled: bool,
+    tts_provider: TTSProvider | None = None,
+    audio_policy: HalfDuplexAudioPolicy | None = None,
+) -> tuple[Event, Thread] | None:
+    """Start one best-effort timer for slow question-like voice turns."""
+    if not _should_emit_voice_latency_filler(
+        voice_turn,
+        interaction_manager=interaction_manager,
+        session_context=session_context,
+        speak_enabled=speak_enabled,
+        tts_provider=tts_provider,
+    ):
+        return None
+
+    stop_event = Event()
+    worker = Thread(
+        target=_run_voice_latency_filler,
+        kwargs={
+            "stop_event": stop_event,
+            "preferred_locale": str(
+                getattr(voice_turn, "locale_hint", None)
+                or getattr(voice_turn, "detected_locale", "")
+                or ""
+            ).strip()
+            or None,
+            "tts_provider": tts_provider,
+            "audio_policy": audio_policy,
+        },
+        daemon=True,
+    )
+    worker.start()
+    return stop_event, worker
+
+
+def _stop_voice_latency_filler(worker_state: tuple[Event, Thread] | None) -> None:
+    """Stop one pending latency filler worker and wait for it to settle."""
+    if worker_state is None:
+        return
+    stop_event, worker = worker_state
+    stop_event.set()
+    worker.join()
+
+
+def _run_voice_latency_filler(
+    *,
+    stop_event: Event,
+    preferred_locale: str | None,
+    tts_provider: TTSProvider | None = None,
+    audio_policy: HalfDuplexAudioPolicy | None = None,
+) -> None:
+    """Emit one short voice filler when answer generation takes noticeably long."""
+    if stop_event.wait(_VOICE_LATENCY_FILLER_DELAY_SECONDS):
+        return
+
+    print("voice: thinking...")
+    if tts_provider is None or stop_event.is_set():
+        return
+
+    utterance = latency_filler_utterance(preferred_locale=preferred_locale)
+    try:
+        if audio_policy is None:
+            tts_provider.speak(utterance)
+        else:
+            with audio_policy.speaking_phase():
+                tts_provider.speak(utterance)
+    except Exception:
+        return
+
+
+def _should_emit_voice_latency_filler(
+    voice_turn: VoiceTurn | object,
+    *,
+    interaction_manager: InteractionManager,
+    session_context: SessionContext,
+    speak_enabled: bool,
+    tts_provider: TTSProvider | None = None,
+) -> bool:
+    """Return whether one prepared voice turn is likely to hit answer-generation latency."""
+    if not speak_enabled or tts_provider is None:
+        return False
+
+    interaction_input = str(
+        getattr(voice_turn, "interaction_input", None)
+        or getattr(voice_turn, "normalized_text", None)
+        or getattr(voice_turn, "normalized_transcript", "")
+        or ""
+    ).strip()
+    if not interaction_input:
+        return False
+
+    decision = route_interaction(
+        interaction_input,
+        session_context=session_context,
+        runtime_state=getattr(interaction_manager.runtime_manager, "current_state", None),
+    )
+    decision_kind = str(getattr(getattr(decision, "kind", None), "value", getattr(decision, "kind", "")) or "").strip()
+    if decision_kind == "question":
+        return True
+    if decision_kind != "command":
+        return False
+
+    recent_answer_context = session_context.get_recent_answer_context()
+    if recent_answer_context is None:
+        return False
+
+    normalized_input = interaction_input.lower().strip(" \t\r\n,.!?;:")
+    return normalized_input in _VOICE_ANSWER_FOLLOW_UP_FILLER_SURFACES
 
 
 def _run_voice_command(
@@ -372,6 +519,7 @@ def _run_voice_command(
     session_context: SessionContext,
     speak_enabled: bool,
     tts_provider: TTSProvider | None = None,
+    earcon_provider: EarconProvider | None = None,
     audio_policy: HalfDuplexAudioPolicy | None = None,
     telemetry: VoiceTelemetryCollector | None = None,
     voice_session_state: VoiceSessionState | None = None,
@@ -379,24 +527,32 @@ def _run_voice_command(
     """Run one bounded voice conversation starting from the explicit `voice` shell command."""
     follow_up_budget = max_auto_follow_up_turns()
     completed_follow_up_turns = 0
+    limit_hit = False
     print("voice: listening... speak now.")
-    current_turn = _capture_voice_turn_with_telemetry(
-        capture_fn=capture_voice_turn,
-        phase="initial",
-        timeout_seconds=_VOICE_CAPTURE_TIMEOUT_SECONDS,
-        audio_policy=audio_policy,
-        telemetry=telemetry,
-    )
-    current_dispatch = _dispatch_and_render_voice_turn(
-        current_turn,
-        interaction_manager=interaction_manager,
-        session_context=session_context,
-        speak_enabled=speak_enabled,
-        tts_provider=tts_provider,
-        audio_policy=audio_policy,
-        telemetry=telemetry,
-        voice_session_state=voice_session_state,
-    )
+    _play_voice_earcon(earcon_provider, "listening_start")
+    try:
+        current_turn = _capture_voice_turn_with_telemetry(
+            capture_fn=capture_voice_turn,
+            phase="initial",
+            timeout_seconds=_VOICE_CAPTURE_TIMEOUT_SECONDS,
+            audio_policy=audio_policy,
+            telemetry=telemetry,
+            earcon_provider=earcon_provider,
+        )
+        current_dispatch = _dispatch_and_render_voice_turn(
+            current_turn,
+            interaction_manager=interaction_manager,
+            session_context=session_context,
+            speak_enabled=speak_enabled,
+            tts_provider=tts_provider,
+            earcon_provider=earcon_provider,
+            audio_policy=audio_policy,
+            telemetry=telemetry,
+            voice_session_state=voice_session_state,
+        )
+    except VoiceInputError:
+        _play_voice_earcon(earcon_provider, "error")
+        raise
     for _ in range(follow_up_budget):
         follow_up_request = _auto_follow_up_request(current_dispatch)
         if follow_up_request is None:
@@ -404,6 +560,7 @@ def _run_voice_command(
         follow_up_turn = _capture_auto_follow_up_turn(
             current_dispatch.voice_turn,
             telemetry=telemetry,
+            earcon_provider=earcon_provider,
             audio_policy=audio_policy,
             voice_session_state=voice_session_state,
         )
@@ -418,14 +575,21 @@ def _run_voice_command(
             session_context=session_context,
             speak_enabled=speak_enabled,
             tts_provider=tts_provider,
+            earcon_provider=earcon_provider,
             audio_policy=audio_policy,
             telemetry=telemetry,
             voice_session_state=voice_session_state,
         )
+    if follow_up_budget > 0:
+        limit_hit = (
+            completed_follow_up_turns >= follow_up_budget and _auto_follow_up_request(current_dispatch) is not None
+        )
+    if limit_hit:
+        print("voice: follow-up limit reached.")
     if telemetry is not None and follow_up_budget > 0:
         telemetry.record_follow_up_loop(
             completed_turns=completed_follow_up_turns,
-            limit_hit=completed_follow_up_turns >= follow_up_budget and _auto_follow_up_request(current_dispatch) is not None,
+            limit_hit=limit_hit,
         )
 
 
@@ -454,6 +618,7 @@ def _capture_voice_turn_with_telemetry(
     capture_fn,
     phase: str,
     telemetry: VoiceTelemetryCollector | None = None,
+    earcon_provider: EarconProvider | None = None,
     **capture_kwargs,
 ):
     """Capture one voice turn and record timing plus error outcome when telemetry is enabled."""
@@ -468,6 +633,9 @@ def _capture_voice_turn_with_telemetry(
                 error=exc,
             )
         raise
+    finally:
+        if phase in {"initial", "follow_up"}:
+            _play_voice_earcon(earcon_provider, "listening_stop")
     if telemetry is not None:
         telemetry.record_capture(
             phase=phase,
@@ -481,6 +649,7 @@ def _capture_auto_follow_up_turn(
     prior_turn: VoiceTurn,
     *,
     telemetry: VoiceTelemetryCollector | None = None,
+    earcon_provider: EarconProvider | None = None,
     audio_policy: HalfDuplexAudioPolicy | None = None,
     voice_session_state: VoiceSessionState | None = None,
 ):
@@ -497,15 +666,18 @@ def _capture_auto_follow_up_turn(
             print("voice: listening again... speak now.")
         else:
             print("voice: didn't catch that. speak again.")
+        _play_voice_earcon(earcon_provider, "listening_start")
         try:
             follow_up_turn = _capture_voice_turn_with_telemetry(
                 capture_fn=capture_follow_up_voice_turn,
                 phase="follow_up",
                 telemetry=telemetry,
+                earcon_provider=earcon_provider,
                 voice_turn=prior_turn,
                 audio_policy=audio_policy,
             )
         except VoiceInputError as exc:
+            _play_voice_earcon(earcon_provider, "error")
             if _is_retryable_follow_up_capture_error(exc) and empty_retry_attempts < 1:
                 empty_retry_attempts += 1
                 prompt_kind = "empty_retry"
@@ -546,6 +718,16 @@ def _capture_auto_follow_up_turn(
 def _is_retryable_follow_up_capture_error(error: VoiceInputError) -> bool:
     """Return whether one follow-up capture error should stay inside the bounded voice loop."""
     return str(getattr(error, "code", "") or "").strip() in _FOLLOW_UP_EMPTY_RETRYABLE_CODES
+
+
+def _play_voice_earcon(earcon_provider: EarconProvider | None, event: str) -> None:
+    """Play one best-effort earcon event when the feature is enabled."""
+    if earcon_provider is None:
+        return
+    try:
+        earcon_provider.play(event)
+    except Exception:
+        return
 
 
 def _handle_runtime_input(

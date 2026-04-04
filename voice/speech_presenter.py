@@ -224,6 +224,13 @@ def interaction_speech_utterance(result: object, preferred_locale: str | None = 
     return SpeechUtterance(text=message, locale=_spoken_utterance_locale(message, preferred_locale=preferred_locale))
 
 
+def latency_filler_utterance(preferred_locale: str | None = None) -> SpeechUtterance:
+    """Return one short spoken filler for slow voice answer generation."""
+    if prefers_russian_locale(preferred_locale):
+        return SpeechUtterance(text="Одну секунду.", locale="ru-RU")
+    return SpeechUtterance(text="One moment.", locale="en-US")
+
+
 def interaction_speech_message(result: object, preferred_locale: str | None = None) -> str | None:
     """Return the speech-friendly top-level interaction message."""
     mode = _interaction_mode_value(result)

@@ -129,7 +129,12 @@ _RUSSIAN_CONTROL_COMMAND_MAP = {
     "слушай снова": "listen again",
     "слушай еще раз": "listen again",
     "слушай ещё раз": "listen again",
+    "послушай снова": "listen again",
+    "послушай еще раз": "listen again",
+    "послушай ещё раз": "listen again",
     "замолчи": "stop speaking",
+    "прекрати говорить": "stop speaking",
+    "перестань говорить": "stop speaking",
 }
 _VOICE_EXACT_CANONICAL_MAP = {
     "say more": "Explain more",
