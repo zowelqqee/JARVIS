@@ -74,6 +74,7 @@
 - Expected recognized text: `Кто президент Франции`
 - Expected result: question path, no command execution.
 - Important: answer freshness depends on the configured QA backend and environment.
+- For unsafe or refusal question cases, spoken output should stay short; if the refusal includes immediate self-harm safety guidance, it may mention `988` briefly instead of reading a long policy-style answer aloud.
 
 ### 4) Fixed Russian capabilities prompt
 - Shell input: `voice`
@@ -86,6 +87,9 @@
 - Spoken input: `Что ты умеешь и открой сафари`
 - Expected recognized text: `Что ты умеешь and open safari`
 - Expected result: routing clarification only; no silent answer-plus-execute behavior.
+- For ambiguous target prompts, spoken clarification should avoid reading full paths aloud and should stay short enough to answer by voice.
+- If clarification or failure text accidentally contains debug tails like `Debug:` or `request_id=...`, spoken output should drop them before speaking.
+- For short English failures with a known `next_step_hint`, spoken output may include that hint as a second short sentence instead of dropping it.
 
 ### 6) Russian clarification follow-up by voice
 - Precondition: run CLI with `JARVIS_VOICE_CONTINUOUS_MODE=1`.
@@ -95,11 +99,13 @@
   - first turn: `Что ты умеешь и открой сафари`
   - follow-up turn after `voice: follow-up... speak now.`: `ответить`
 - Expected result: question branch executes and the pending mixed clarification clears.
+- English follow-up variants like `just answer`, `go ahead`, `do it`, or `open it` should also resolve naturally inside the same mixed clarification window.
 - Repeat with:
   - first turn: `Что ты умеешь и открой сафари`
   - follow-up turn: `выполнить`
 - Expected result: command branch executes and the pending mixed clarification clears.
-- If the follow-up window is missed, restart with a fresh `voice` command.
+- If the follow-up reply is missed once, CLI should give one more short prompt like `voice: didn't catch that. speak again.`
+- If the follow-up is still missed after that retry, the window should close cleanly instead of crashing the voice shell.
 
 ### 7) Russian answer follow-up by voice
 - Precondition: ask any grounded question that leaves recent answer context, for example `Что ты умеешь`.
@@ -111,6 +117,11 @@
 - Expected recognized text for the follow-up reply: `Explain more`
 - Expected result: answer-follow-up path reuses recent answer context and returns a more detailed grounded answer.
 - If that follow-up still ends in a short spoken answer, CLI may open one more immediate follow-up window before the bounded loop stops.
+- English voice variants like `tell me more`, `which source`, `where is that from`, `why is that`, and `say that again` should normalize to the same follow-up surface.
+- For source-oriented follow-ups, spoken output should shorten absolute file or folder paths to short names instead of reading full `/Users/...` or `/tmp/...` paths aloud.
+- If the spoken answer references repo-relative paths like `docs/clarification_rules.md` or contains light markdown formatting, TTS should still say a short clean phrase such as `clarification_rules.md`, not read slashes, backticks, or formatting markers aloud.
+- If the spoken answer includes a website URL, TTS should prefer a short host like `docs.python.org` instead of reading `https://...` literally.
+- If QA/debug noise leaks into the answer text, spoken output should drop tails like `Debug:`, `Traceback`, `request_id=...`, or `latency_ms=...` instead of reading them aloud.
 - Repeat with:
   - follow-up reply or second fresh `voice` turn: `какой источник`
 - Expected recognized text: `Which source?`
@@ -130,6 +141,8 @@
 - If the follow-up capture was noisy, say `слушай снова`.
 - Expected recognized text: `listen again`
 - Expected result: the current follow-up window reopens once and waits for the real reply instead of routing `listen again` as a command.
+- If the immediate follow-up reply is missed without any control phrase, CLI should retry once with `voice: didn't catch that. speak again.`
+- If that second follow-up capture is also empty, CLI should print `voice: no follow-up reply detected.` and close the current follow-up window.
 - If you want to dismiss the immediate follow-up window, say `замолчи`.
 - Expected recognized text: `stop speaking`
 - Expected result: the current follow-up window closes without routing `stop speaking` as a command reply.
@@ -142,8 +155,10 @@
 - Spoken input sequence:
   - first turn: close command
   - follow-up turn after `voice: follow-up... speak now.`: `да`
+- Expected spoken confirmation prompt: for destructive close actions, JARVIS should use a short yes-or-no prompt rather than a dry runtime log.
 - Expected recognized text: canonical approval reply such as `yes`
 - Expected result: blocked command resumes and executes from the confirmation boundary.
+- Natural English confirmations like `sure`, `do it`, or `sounds good` should also approve the blocked command.
 
 ### 9) Confirmation deny by voice
 - Precondition: run CLI with `JARVIS_VOICE_CONTINUOUS_MODE=1`.
@@ -154,6 +169,7 @@
   - follow-up turn: `нет` or `отмена`
 - Expected recognized text: canonical denial reply such as `no` or `cancel`
 - Expected result: runtime becomes `cancelled`; blocked step does not execute.
+- Natural English denials like `not now` or `no thanks` should also cancel the blocked command.
 
 ### 10) Repeated follow-up noise
 - Precondition: run CLI with `JARVIS_VOICE_CONTINUOUS_MODE=1`.

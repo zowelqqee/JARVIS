@@ -854,6 +854,108 @@
     ]
   },
   {
+    "id": "voice_en_answer_follow_up_explain_more",
+    "case_type": "voice",
+    "category": "voice_follow_up_cases",
+    "voice_input": "tell me more",
+    "session_context": {
+      "recent_answer_topic": "clarification",
+      "recent_answer_scope": "docs",
+      "recent_answer_sources": [
+        "docs/clarification_rules.md",
+        "docs/runtime_flow.md"
+      ]
+    },
+    "expected_normalized_input": "Explain more",
+    "expected_interaction_kind": "question",
+    "expected_question_type": "answer_follow_up",
+    "should_call_runtime": false,
+    "should_call_answer_engine": true,
+    "expected_sources_count_min": 2,
+    "expected_answer_contains_any": [
+      "clearer explanation",
+      "clarification happens",
+      "more detail",
+      "clarification and runtime flow docs"
+    ]
+  },
+  {
+    "id": "voice_en_answer_follow_up_source",
+    "case_type": "voice",
+    "category": "voice_follow_up_cases",
+    "voice_input": "which source",
+    "session_context": {
+      "recent_answer_topic": "clarification",
+      "recent_answer_scope": "docs",
+      "recent_answer_sources": [
+        "docs/clarification_rules.md",
+        "docs/runtime_flow.md"
+      ]
+    },
+    "expected_normalized_input": "Which source?",
+    "expected_interaction_kind": "question",
+    "expected_question_type": "answer_follow_up",
+    "should_call_runtime": false,
+    "should_call_answer_engine": true,
+    "expected_sources_count_min": 1,
+    "expected_answer_contains_any": [
+      "docs/clarification_rules.md",
+      "clarification rules",
+      "runtime_flow.md"
+    ]
+  },
+  {
+    "id": "voice_en_answer_follow_up_where_written",
+    "case_type": "voice",
+    "category": "voice_follow_up_cases",
+    "voice_input": "where is that from",
+    "session_context": {
+      "recent_answer_topic": "clarification",
+      "recent_answer_scope": "docs",
+      "recent_answer_sources": [
+        "docs/clarification_rules.md",
+        "docs/runtime_flow.md"
+      ]
+    },
+    "expected_normalized_input": "Where is that written",
+    "expected_interaction_kind": "question",
+    "expected_question_type": "answer_follow_up",
+    "should_call_runtime": false,
+    "should_call_answer_engine": true,
+    "expected_sources_count_min": 1,
+    "expected_answer_contains_any": [
+      "That is written in",
+      "docs/clarification_rules.md",
+      "runtime_flow.md"
+    ]
+  },
+  {
+    "id": "voice_en_answer_follow_up_why",
+    "case_type": "voice",
+    "category": "voice_follow_up_cases",
+    "voice_input": "why is that",
+    "session_context": {
+      "recent_answer_topic": "clarification",
+      "recent_answer_scope": "docs",
+      "recent_answer_sources": [
+        "docs/clarification_rules.md",
+        "docs/runtime_flow.md"
+      ]
+    },
+    "expected_normalized_input": "Why is that",
+    "expected_interaction_kind": "question",
+    "expected_question_type": "answer_follow_up",
+    "should_call_runtime": false,
+    "should_call_answer_engine": true,
+    "expected_sources_count_min": 2,
+    "expected_answer_contains_any": [
+      "ambiguity",
+      "missing data",
+      "deterministic",
+      "stop execution"
+    ]
+  },
+  {
     "id": "voice_ru_answer_follow_up_explain_more",
     "case_type": "voice",
     "category": "voice_follow_up_cases",

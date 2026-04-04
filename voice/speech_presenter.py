@@ -5,6 +5,7 @@ from __future__ import annotations
 import re
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
 
 from voice.language import detect_spoken_locale, prefers_russian_locale
 from voice.tts_provider import SpeechUtterance
@@ -78,6 +79,26 @@ _NO_VISIBLE_FILTERED_WINDOWS_RE = re.compile(
     r"^No visible (?P<filter>.+) windows found\.$",
     flags=re.IGNORECASE,
 )
+_URL_RE = re.compile(r"(?P<url>https?://[^\s)]+)")
+_ABSOLUTE_PATH_RE = re.compile(r"(?P<path>/[A-Za-z0-9._-]+(?:/[A-Za-z0-9._-]+)+)")
+_RELATIVE_PATH_RE = re.compile(r"(?P<path>(?:[A-Za-z0-9._-]+/)+[A-Za-z0-9._-]+)")
+_SPOKEN_MARKDOWN_RE = re.compile(r"(```|`|\*\*|__)")
+_QUESTION_REFUSAL_RE = re.compile(r"\bI can['’]t help with\b", flags=re.IGNORECASE)
+_QUESTION_SELF_HARM_REFUSAL_RE = re.compile(
+    r"\b(can['’]t help with self-harm|can['’]t help with instructions for hurting yourself)\b",
+    flags=re.IGNORECASE,
+)
+_INTERNAL_DEBUG_MARKERS = (
+    "Traceback (most recent call last):",
+    "Debug:",
+    "debug:",
+    "request_id=",
+    "correlation_id=",
+    "latency_ms=",
+    "error_code=",
+    "structured_output=",
+    "output_text=",
+)
 
 _SPOKEN_INTENT_TEMPLATES = {
     "en": {
@@ -98,14 +119,14 @@ _SPOKEN_INTENT_TEMPLATES = {
 
 _SPOKEN_CONFIRMATION_TEMPLATES = {
     "en": {
-        "close_app": "Do you want me to close {targets}?",
-        "close_window": "Do you want me to close the {targets} window?",
+        "close_app": "Do you want me to close {targets}? Say yes or no.",
+        "close_window": "Do you want me to close the {targets} window? Say yes or no.",
         "open_app": "Do you want me to open {targets}?",
         "open_file": "Do you want me to open file {targets}?",
     },
     "ru": {
-        "close_app": "Закрыть {targets}?",
-        "close_window": "Закрыть окно {targets}?",
+        "close_app": "Закрыть {targets}? Скажи да или нет.",
+        "close_window": "Закрыть окно {targets}? Скажи да или нет.",
         "open_app": "Открыть {targets}?",
         "open_file": "Открыть файл {targets}?",
     },
@@ -121,6 +142,14 @@ _RUSSIAN_CLARIFICATION_EXACT_MAP = {
     "Which previous target are you referring to?": "Какую предыдущую цель ты имеешь в виду?",
     "Please clarify the action and target.": "Уточни действие и цель.",
     "Which app do you want?": "Какое приложение ты имеешь в виду?",
+}
+
+_ENGLISH_CLARIFICATION_EXACT_MAP = {
+    "Please reply with confirm or cancel.": "Say confirm or cancel.",
+    "Please reply with answer or execute.": "Say answer or execute.",
+    "Which previous target are you referring to?": "Which target do you mean?",
+    "Which website URL should I open?": "Which website should I open?",
+    "Please clarify the action and target.": "Tell me the action and target.",
 }
 
 _RUSSIAN_FAILURE_EXACT_MAP = {
@@ -143,6 +172,24 @@ _RUSSIAN_HINT_EXACT_MAP = {
     "Try opening a folder first, then search inside it.": "Сначала открой папку, потом ищи внутри неё.",
     "Try again in an active macOS desktop session.": "Попробуй ещё раз в активной сессии macOS.",
     "Try using the app name instead of a window reference.": "Попробуй использовать имя приложения вместо ссылки на окно.",
+}
+
+_ENGLISH_HINT_EXACT_MAP = {
+    "Reply yes to continue or no to cancel.": "Say yes to continue or no to cancel.",
+    "Reply with one app name.": "Say one app name.",
+    "Reply with one window name.": "Say one window name.",
+    "Reply with an exact name or full path.": "Say an exact name or full path.",
+    "Reply with one full website URL.": "Say one full website address.",
+    "Reply with a folder or search query.": "Say a folder or search query.",
+    "Reply with one project folder.": "Say one project folder.",
+    "Reply with one specific target.": "Say one specific target.",
+    "Try a more specific app or file name.": "Try a more specific app or file name.",
+    "Try a more specific target name.": "Try a more specific target name.",
+    "Try opening a folder first, then retry.": "Try opening a folder first, then retry.",
+    "Try opening a folder first, then search inside it.": "Try opening a folder first, then search inside it.",
+    "Try again in an active macOS desktop session.": "Try again in an active macOS desktop session.",
+    "Try using the app name instead of a window reference.": "Try using the app name instead of a window reference.",
+    "Try a more specific command.": "Try a more specific command.",
 }
 
 _RUSSIAN_QUESTION_TEXT_EXACT_MAP = {
@@ -174,7 +221,7 @@ def interaction_speech_utterance(result: object, preferred_locale: str | None = 
     message = interaction_speech_message(result, preferred_locale=preferred_locale)
     if not message:
         return None
-    return SpeechUtterance(text=message, locale=detect_spoken_locale(message))
+    return SpeechUtterance(text=message, locale=_spoken_utterance_locale(message, preferred_locale=preferred_locale))
 
 
 def interaction_speech_message(result: object, preferred_locale: str | None = None) -> str | None:
@@ -226,7 +273,9 @@ def _question_speech_message(
         answer_result = getattr(result, "answer_result", None)
         answer_text = str(getattr(answer_result, "answer_text", "") or "").strip()
     if answer_text:
-        return _spoken_question_text(_answer_summary(answer_text), preferred_locale=preferred_locale)
+        spoken_answer = _spoken_question_answer_text(answer_text, preferred_locale=preferred_locale)
+        if spoken_answer:
+            return spoken_answer
 
     failure_message = str(visibility.get("failure_message", "") or "").strip()
     if not failure_message:
@@ -305,14 +354,14 @@ def _spoken_command_summary(command_summary: str, *, preferred_locale: str | Non
 
 
 def _sanitize_spoken_completion(completion_result: str, *, preferred_locale: str | None = None) -> str:
-    normalized = " ".join(str(completion_result or "").split()).strip()
+    normalized = _sanitize_spoken_surface(completion_result)
     if not normalized:
         return ""
 
     if prefers_russian_locale(preferred_locale, normalized):
         localized = _localized_russian_completion_text(normalized)
         if localized:
-            return localized
+            return _sanitize_spoken_surface(localized)
 
     if normalized.lower().startswith("opened file:"):
         opened_path = normalized.split(":", maxsplit=1)[1].strip()
@@ -322,7 +371,7 @@ def _sanitize_spoken_completion(completion_result: str, *, preferred_locale: str
                 return f"Открыл файл {label}."
             return f"Opened file {label}."
 
-    return normalized
+    return _sanitize_spoken_surface(normalized)
 
 
 def _looks_like_internal_completion(text: str) -> bool:
@@ -368,10 +417,17 @@ def _spoken_confirmation_message_from_text(message: str, *, preferred_locale: st
 
 
 def _spoken_clarification_text(message: str, *, preferred_locale: str | None = None) -> str:
-    normalized = " ".join(str(message or "").split()).strip()
-    if not normalized or not prefers_russian_locale(preferred_locale, normalized):
+    normalized = _sanitize_spoken_surface(message)
+    if not normalized:
         return normalized
 
+    if not prefers_russian_locale(preferred_locale, normalized):
+        return _sanitize_spoken_surface(_localized_english_clarification_text(normalized))
+
+    return _sanitize_spoken_surface(_localized_russian_clarification_text(normalized))
+
+
+def _localized_russian_clarification_text(normalized: str) -> str:
     exact = _RUSSIAN_CLARIFICATION_EXACT_MAP.get(normalized)
     if exact:
         return exact
@@ -404,45 +460,209 @@ def _spoken_clarification_text(message: str, *, preferred_locale: str | None = N
     return normalized
 
 
+def _localized_english_clarification_text(normalized: str) -> str:
+    exact = _ENGLISH_CLARIFICATION_EXACT_MAP.get(normalized)
+    if exact:
+        return exact
+
+    target_with_options = _TARGET_NOT_FOUND_WITH_OPTIONS_RE.match(normalized)
+    if target_with_options is not None:
+        target = str(target_with_options.group("target") or "").strip()
+        options = str(target_with_options.group("options") or "").strip()
+        return f"I couldn't find {_spoken_target(target)}. Did you mean {_spoken_option_list(options, conjunction='or')}?"
+
+    target_with_followup = _TARGET_NOT_FOUND_WITH_TARGET_RE.match(normalized)
+    if target_with_followup is not None:
+        target = str(target_with_followup.group("target") or "").strip()
+        return f"I couldn't find {_spoken_target(target)}. Which target should I use?"
+
+    generic_options = _TARGET_NOT_FOUND_GENERIC_OPTIONS_RE.match(normalized)
+    if generic_options is not None:
+        options = str(generic_options.group("options") or "").strip()
+        return f"I couldn't find that target. Did you mean {_spoken_option_list(options, conjunction='or')}?"
+
+    if normalized == "I could not find the target; which one should I use?":
+        return "I couldn't find the target. Which one should I use?"
+
+    return normalized
+
+
 def _spoken_failure_text(
     message: str,
     *,
     preferred_locale: str | None = None,
     next_step_hint: str | None = None,
 ) -> str:
-    normalized = " ".join(str(message or "").split()).strip()
+    normalized = _sanitize_spoken_surface(message)
     if not normalized:
         return ""
 
     localized = normalized
     if prefers_russian_locale(preferred_locale, normalized):
-        localized = _localized_russian_failure_text(normalized)
+        localized = _sanitize_spoken_surface(_localized_russian_failure_text(normalized))
 
     spoken_hint = _spoken_hint_text(next_step_hint, preferred_locale=preferred_locale)
     if spoken_hint and not _messages_overlap(localized, spoken_hint):
-        return _join_sentences(localized, spoken_hint)
-    return localized
+        return _sanitize_spoken_surface(_join_sentences(localized, spoken_hint))
+    return _sanitize_spoken_surface(localized)
 
 
 def _spoken_question_text(text: str, *, preferred_locale: str | None = None) -> str:
     normalized = " ".join(str(text or "").split()).strip()
-    if not normalized or not prefers_russian_locale(preferred_locale, normalized):
+    if not normalized:
         return normalized
-    return _RUSSIAN_QUESTION_TEXT_EXACT_MAP.get(normalized, normalized)
+    refusal_override = _spoken_question_refusal_text(normalized, preferred_locale=preferred_locale)
+    if refusal_override:
+        return _sanitize_spoken_question_surface(refusal_override)
+    if not prefers_russian_locale(preferred_locale, normalized):
+        return _sanitize_spoken_question_surface(normalized)
+    return _sanitize_spoken_question_surface(_RUSSIAN_QUESTION_TEXT_EXACT_MAP.get(normalized, normalized))
 
 
 def _spoken_question_warning(warning: str, *, preferred_locale: str | None = None) -> str:
     normalized = " ".join(str(warning or "").split()).strip()
     if not normalized or not prefers_russian_locale(preferred_locale, normalized):
-        return normalized
-    return _RUSSIAN_QUESTION_WARNING_EXACT_MAP.get(normalized, normalized)
+        return _sanitize_spoken_question_surface(normalized)
+    return _sanitize_spoken_question_surface(_RUSSIAN_QUESTION_WARNING_EXACT_MAP.get(normalized, normalized))
 
 
 def _spoken_question_failure(message: str, *, preferred_locale: str | None = None) -> str:
     normalized = " ".join(str(message or "").split()).strip()
-    if not normalized or not prefers_russian_locale(preferred_locale, normalized):
+    if not normalized:
         return normalized
-    return _RUSSIAN_QUESTION_FAILURE_EXACT_MAP.get(normalized, normalized)
+
+    failure_code = _question_failure_code(normalized)
+    if failure_code:
+        if prefers_russian_locale(preferred_locale, normalized):
+            return _sanitize_spoken_question_surface({
+                "UNSUPPORTED_QUESTION": "Я не могу ответить на этот вопрос в текущем режиме.",
+                "INSUFFICIENT_CONTEXT": "Мне не хватает недавнего контекста, чтобы ответить на это уточнение.",
+            }.get(failure_code, normalized))
+        return _sanitize_spoken_question_surface({
+            "UNSUPPORTED_QUESTION": "I can't answer that in the current mode.",
+            "INSUFFICIENT_CONTEXT": "I need more recent context for that follow-up.",
+        }.get(failure_code, normalized))
+
+    if not prefers_russian_locale(preferred_locale, normalized):
+        return _sanitize_spoken_question_surface(normalized)
+    return _sanitize_spoken_question_surface(_RUSSIAN_QUESTION_FAILURE_EXACT_MAP.get(normalized, normalized))
+
+
+def _spoken_question_answer_text(answer_text: str, *, preferred_locale: str | None = None) -> str:
+    normalized = " ".join(str(answer_text or "").split()).strip()
+    if not normalized:
+        return ""
+
+    refusal_override = _spoken_question_refusal_text(normalized, preferred_locale=preferred_locale)
+    if refusal_override:
+        return refusal_override
+    return _spoken_question_text(_answer_summary(normalized), preferred_locale=preferred_locale)
+
+
+def _spoken_question_refusal_text(text: str, *, preferred_locale: str | None = None) -> str | None:
+    normalized = " ".join(str(text or "").split()).strip()
+    if not normalized:
+        return None
+
+    if _looks_like_self_harm_refusal(normalized):
+        if prefers_russian_locale(preferred_locale, normalized):
+            return "Я не могу помочь с этим. Если тебе угрожает немедленная опасность, позвони или напиши на 988 прямо сейчас."
+        return "I can't help with that. If you're in immediate danger, call or text 988 now."
+
+    if _QUESTION_REFUSAL_RE.search(normalized) is not None:
+        if prefers_russian_locale(preferred_locale, normalized):
+            return "Я не могу помочь с этой просьбой."
+        return "I can't help with that request."
+
+    return None
+
+
+def _looks_like_self_harm_refusal(text: str) -> bool:
+    normalized = " ".join(str(text or "").split()).strip()
+    if not normalized:
+        return False
+    if _QUESTION_SELF_HARM_REFUSAL_RE.search(normalized) is not None:
+        return True
+    return "988" in normalized and "self-harm" in normalized.lower()
+
+
+def _question_failure_code(message: str) -> str:
+    code, separator, _detail = str(message or "").partition(":")
+    normalized_code = code.strip()
+    if not separator:
+        return ""
+    if normalized_code in {"UNSUPPORTED_QUESTION", "INSUFFICIENT_CONTEXT"}:
+        return normalized_code
+    return ""
+
+
+def _sanitize_spoken_surface(text: str) -> str:
+    normalized = " ".join(str(text or "").split()).strip()
+    if not normalized:
+        return normalized
+    without_debug = _trim_internal_debug_suffix(normalized)
+    without_markup = _SPOKEN_MARKDOWN_RE.sub("", without_debug)
+    with_short_urls = _URL_RE.sub(
+        lambda match: _spoken_url_target(str(match.group("url") or "").strip()),
+        without_markup,
+    )
+    with_short_absolute_paths = _ABSOLUTE_PATH_RE.sub(
+        lambda match: _spoken_target(str(match.group("path") or "").strip()),
+        with_short_urls,
+    )
+    return _RELATIVE_PATH_RE.sub(
+        lambda match: _spoken_relative_path_target(match, with_short_absolute_paths),
+        with_short_absolute_paths,
+    )
+
+
+def _sanitize_spoken_question_surface(text: str) -> str:
+    return _sanitize_spoken_surface(text)
+
+
+def _spoken_relative_path_target(match: re.Match[str], source_text: str) -> str:
+    path = str(match.group("path") or "").strip()
+    if not path:
+        return path
+
+    start = match.start()
+    prefix = source_text[max(0, start - 8) : start].lower()
+    if prefix.endswith("http://") or prefix.endswith("https://"):
+        return path
+    return _spoken_target(path)
+
+
+def _spoken_url_target(url: str) -> str:
+    candidate = str(url or "").strip()
+    if not candidate:
+        return candidate
+
+    trailing = ""
+    while candidate and candidate[-1] in ".,;:!?":
+        trailing = candidate[-1] + trailing
+        candidate = candidate[:-1]
+
+    parsed = urlsplit(candidate)
+    host = parsed.netloc or candidate
+    return f"{host}{trailing}"
+
+
+def _trim_internal_debug_suffix(text: str) -> str:
+    normalized = " ".join(str(text or "").split()).strip()
+    if not normalized:
+        return normalized
+
+    cutoff = len(normalized)
+    for marker in _INTERNAL_DEBUG_MARKERS:
+        position = normalized.find(marker)
+        if position == 0:
+            return ""
+        if position > 0:
+            cutoff = min(cutoff, position)
+
+    if cutoff == len(normalized):
+        return normalized
+    return normalized[:cutoff].rstrip(" ,;:-")
 
 
 def _localized_russian_failure_text(message: str) -> str:
@@ -548,12 +768,12 @@ def _localized_russian_completion_text(message: str) -> str:
 
 
 def _spoken_hint_text(hint: str | None, *, preferred_locale: str | None = None) -> str:
-    normalized = " ".join(str(hint or "").split()).strip()
+    normalized = _sanitize_spoken_surface(hint)
     if not normalized:
         return ""
-    if not prefers_russian_locale(preferred_locale, normalized):
-        return ""
-    return _RUSSIAN_HINT_EXACT_MAP.get(normalized, "")
+    if prefers_russian_locale(preferred_locale, normalized):
+        return _RUSSIAN_HINT_EXACT_MAP.get(normalized, "")
+    return _ENGLISH_HINT_EXACT_MAP.get(normalized, "")
 
 
 def _messages_overlap(primary: str, secondary: str) -> bool:
@@ -594,11 +814,16 @@ def _normalized_scope_suffix(scope: str | None) -> str:
     return scope_text
 
 
-def _spoken_option_list(options: str) -> str:
+def _spoken_option_list(options: str, *, conjunction: str | None = None) -> str:
     parts = [part.strip() for part in str(options or "").split(",") if part.strip()]
     if not parts:
         return str(options or "").strip()
-    return ", ".join(_spoken_target(part) for part in parts)
+    spoken_parts = [_spoken_target(part) for part in parts]
+    if conjunction and len(spoken_parts) >= 2:
+        if len(spoken_parts) == 2:
+            return f"{spoken_parts[0]} {conjunction} {spoken_parts[1]}"
+        return f"{', '.join(spoken_parts[:-1])}, {conjunction} {spoken_parts[-1]}"
+    return ", ".join(spoken_parts)
 
 def _spoken_intent_template(intent: str, *parts: str, preferred_locale: str | None = None) -> str | None:
     language = "ru" if prefers_russian_locale(preferred_locale, *parts) else "en"
@@ -619,6 +844,13 @@ def _question_summary(*, result: object, visibility: dict[str, Any]) -> str:
         answer_result = getattr(result, "answer_result", None)
         answer_text = str(getattr(answer_result, "answer_text", "") or "").strip()
     return _answer_summary(answer_text)
+
+
+def _spoken_utterance_locale(message: str, *, preferred_locale: str | None = None) -> str:
+    locale_text = str(preferred_locale or "").strip().lower()
+    if locale_text.startswith("ru"):
+        return "ru-RU"
+    return detect_spoken_locale(message)
 
 
 def _answer_summary(answer_text: str) -> str:

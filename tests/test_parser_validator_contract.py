@@ -139,6 +139,18 @@ class ParserValidatorContractTests(unittest.TestCase):
         self.assertFalse(validation.valid)
         self.assertEqual(getattr(validation.error.code, "value", ""), "MULTIPLE_MATCHES")
 
+    def test_natural_confirmation_approve_reply_maps_to_confirm_intent(self) -> None:
+        command = parse_command("sure", self.session_context)
+
+        self.assertEqual(getattr(command.intent, "value", ""), "confirm")
+        self.assertEqual(command.parameters.get("response"), "approved")
+
+    def test_natural_confirmation_deny_reply_maps_to_confirm_intent(self) -> None:
+        command = parse_command("not now", self.session_context)
+
+        self.assertEqual(getattr(command.intent, "value", ""), "confirm")
+        self.assertEqual(command.parameters.get("response"), "denied")
+
 
 if __name__ == "__main__":
     unittest.main()

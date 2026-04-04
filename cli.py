@@ -82,6 +82,7 @@ from voice.telemetry import (
 from voice.tts_provider import TTSProvider, build_default_tts_provider
 
 _VOICE_CAPTURE_TIMEOUT_SECONDS = 7.0
+_FOLLOW_UP_EMPTY_RETRYABLE_CODES = frozenset({"EMPTY_RECOGNITION", "RECOGNITION_FAILED"})
 _LIVE_SMOKE_ARTIFACT_ENV = "JARVIS_QA_OPENAI_LIVE_ARTIFACT"
 _LIVE_SMOKE_ARTIFACT_MAX_AGE_HOURS = 24.0
 
@@ -483,21 +484,37 @@ def _capture_auto_follow_up_turn(
     audio_policy: HalfDuplexAudioPolicy | None = None,
     voice_session_state: VoiceSessionState | None = None,
 ):
-    """Capture one blocking follow-up reply with a single listen-again control retry."""
-    for attempt in range(2):
+    """Capture one blocking follow-up reply with bounded control and no-speech retries."""
+    relisten_attempts = 0
+    empty_retry_attempts = 0
+    prompt_kind = "initial"
+    while True:
         if telemetry is not None:
             telemetry.record_follow_up_opened(prior_turn)
-        if attempt == 0:
+        if prompt_kind == "initial":
             print("voice: follow-up... speak now.")
-        else:
+        elif prompt_kind == "listen_again":
             print("voice: listening again... speak now.")
-        follow_up_turn = _capture_voice_turn_with_telemetry(
-            capture_fn=capture_follow_up_voice_turn,
-            phase="follow_up",
-            telemetry=telemetry,
-            voice_turn=prior_turn,
-            audio_policy=audio_policy,
-        )
+        else:
+            print("voice: didn't catch that. speak again.")
+        try:
+            follow_up_turn = _capture_voice_turn_with_telemetry(
+                capture_fn=capture_follow_up_voice_turn,
+                phase="follow_up",
+                telemetry=telemetry,
+                voice_turn=prior_turn,
+                audio_policy=audio_policy,
+            )
+        except VoiceInputError as exc:
+            if _is_retryable_follow_up_capture_error(exc) and empty_retry_attempts < 1:
+                empty_retry_attempts += 1
+                prompt_kind = "empty_retry"
+                continue
+            if _is_retryable_follow_up_capture_error(exc):
+                print("voice: no follow-up reply detected.")
+                print("voice: follow-up closed.")
+                return None
+            raise
         control_action = follow_up_control_action(
             follow_up_turn,
             prior_reason=str(getattr(prior_turn, "follow_up_reason", "") or "").strip() or None,
@@ -519,7 +536,16 @@ def _capture_auto_follow_up_turn(
             return None
         if control_action != "listen_again":
             return follow_up_turn
-    return None
+        if relisten_attempts >= 1:
+            print("voice: follow-up closed.")
+            return None
+        relisten_attempts += 1
+        prompt_kind = "listen_again"
+
+
+def _is_retryable_follow_up_capture_error(error: VoiceInputError) -> bool:
+    """Return whether one follow-up capture error should stay inside the bounded voice loop."""
+    return str(getattr(error, "code", "") or "").strip() in _FOLLOW_UP_EMPTY_RETRYABLE_CODES
 
 
 def _handle_runtime_input(

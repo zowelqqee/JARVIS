@@ -132,7 +132,19 @@ _RUSSIAN_CONTROL_COMMAND_MAP = {
     "замолчи": "stop speaking",
 }
 _VOICE_EXACT_CANONICAL_MAP = {
+    "say more": "Explain more",
+    "tell me more": "Explain more",
+    "go on": "Explain more",
+    "which source": "Which source?",
+    "what source": "Which source?",
+    "which sources": "Which sources?",
+    "where is that from": "Where is that written",
+    "where's that from": "Where is that written",
+    "why is that": "Why is that",
     "repeat": "Repeat that",
+    "repeat that": "Repeat that",
+    "say that again": "Repeat that",
+    "tell me again": "Repeat that",
 }
 _RUSSIAN_MIXED_COMMAND_RE = re.compile(
     r"^(?P<head>.+?)\s+(?P<join>и|а потом)\s+(?P<tail>(?:открой|запусти|закрой|покажи|найди|подготовь|используй)\b.+)$",

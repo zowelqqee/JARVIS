@@ -79,6 +79,20 @@ class VoiceNormalizationTests(unittest.TestCase):
     def test_english_repeat_follow_up_maps_to_existing_text_surface(self) -> None:
         self.assertEqual(normalize_voice_command("repeat"), "Repeat that")
 
+    def test_english_answer_follow_up_phrases_map_to_existing_text_surface(self) -> None:
+        cases = {
+            "say more": "Explain more",
+            "tell me more": "Explain more",
+            "which source": "Which source?",
+            "where is that from": "Where is that written",
+            "why is that": "Why is that",
+            "say that again": "Repeat that",
+        }
+
+        for raw_text, expected in cases.items():
+            with self.subTest(raw_text=raw_text):
+                self.assertEqual(normalize_voice_command(raw_text), expected)
+
 
 if __name__ == "__main__":
     unittest.main()

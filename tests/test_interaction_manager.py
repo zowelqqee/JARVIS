@@ -103,10 +103,32 @@ class InteractionManagerTests(unittest.TestCase):
         self.assertIn("open_app", getattr(result.answer_result, "answer_text", ""))
         self.assertIsNone(self.session_context.get_pending_interaction_clarification())
 
+    def test_mixed_input_natural_answer_reply_routes_to_question_branch(self) -> None:
+        self.manager.handle_input("What can you do and open Safari", session_context=self.session_context)
+
+        result = self.manager.handle_input("just answer", session_context=self.session_context)
+
+        self.assertEqual(getattr(result.interaction_mode, "value", ""), "question")
+        self.assertIsNotNone(result.answer_result)
+        self.assertIsNone(result.runtime_result)
+        self.assertIn("open_app", getattr(result.answer_result, "answer_text", ""))
+        self.assertIsNone(self.session_context.get_pending_interaction_clarification())
+
     def test_mixed_input_execute_reply_routes_to_command_branch(self) -> None:
         self.manager.handle_input("What can you do and open Safari", session_context=self.session_context)
 
         result = self.manager.handle_input("Execute the command", session_context=self.session_context)
+
+        self.assertEqual(getattr(result.interaction_mode, "value", ""), "command")
+        self.assertIsNotNone(result.runtime_result)
+        self.assertIsNone(result.answer_result)
+        self.assertIn("open_app", getattr(result.runtime_result, "command_summary", "") or "")
+        self.assertIsNone(self.session_context.get_pending_interaction_clarification())
+
+    def test_mixed_input_natural_execute_reply_routes_to_command_branch(self) -> None:
+        self.manager.handle_input("What can you do and open Safari", session_context=self.session_context)
+
+        result = self.manager.handle_input("go ahead", session_context=self.session_context)
 
         self.assertEqual(getattr(result.interaction_mode, "value", ""), "command")
         self.assertIsNotNone(result.runtime_result)

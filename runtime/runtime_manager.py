@@ -36,8 +36,30 @@ from jarvis_error import ErrorCategory, ErrorCode, JarvisError  # type: ignore  
 from step import Step, StepStatus  # type: ignore  # noqa: E402
 
 
-_CONFIRM_APPROVAL_WORDS = {"yes", "confirm", "ok", "continue", "да", "подтвердить", "подтверждаю"}
-_CONFIRM_DENIAL_WORDS = {"no", "cancel", "stop", "нет", "отмена", "отменить", "отмени"}
+_CONFIRM_APPROVAL_WORDS = {
+    "yes",
+    "confirm",
+    "ok",
+    "continue",
+    "sure",
+    "do it",
+    "sounds good",
+    "go ahead",
+    "да",
+    "подтвердить",
+    "подтверждаю",
+}
+_CONFIRM_DENIAL_WORDS = {
+    "no",
+    "cancel",
+    "stop",
+    "no thanks",
+    "not now",
+    "нет",
+    "отмена",
+    "отменить",
+    "отмени",
+}
 _CLARIFICATION_CANCEL_WORDS = {"cancel", "stop"}
 _FRESH_COMMAND_PREFIXES = (
     "open ",
