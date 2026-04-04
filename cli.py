@@ -49,7 +49,7 @@ from qa.rollout_profiles import (
     rollout_stability_artifact_path_for_candidate,
 )
 from runtime.runtime_manager import RuntimeManager
-from voice.audio_policy import HalfDuplexAudioPolicy, build_default_audio_policy
+from voice.audio_policy import AudioPolicyError, HalfDuplexAudioPolicy, build_default_audio_policy
 from voice.dispatcher import dispatch_interaction_input, dispatch_voice_turn, render_interaction_dispatch
 from voice.earcons import EarconProvider, build_default_earcon_provider
 from voice.flags import (
@@ -84,7 +84,7 @@ from voice.telemetry import (
     load_voice_telemetry_snapshot,
     write_voice_telemetry_artifact,
 )
-from voice.tts_provider import TTSProvider, build_default_tts_provider
+from voice.tts_provider import TTSProvider, build_default_tts_provider, stop_speech_if_supported
 
 _VOICE_CAPTURE_TIMEOUT_SECONDS = 7.0
 _VOICE_LATENCY_FILLER_DELAY_SECONDS = 0.6
@@ -383,7 +383,11 @@ def _dispatch_and_render_voice_turn(
             interaction_manager=interaction_manager,
         )
     finally:
-        _stop_voice_latency_filler(filler_worker)
+        _stop_voice_latency_filler(
+            filler_worker,
+            tts_provider=tts_provider,
+            telemetry=telemetry,
+        )
     if voice_session_state is not None:
         voice_session_state.record_dispatch(voice_dispatch.voice_turn)
     if telemetry is not None:
@@ -438,13 +442,58 @@ def _start_voice_latency_filler(
     return stop_event, worker
 
 
-def _stop_voice_latency_filler(worker_state: tuple[Event, Thread] | None) -> None:
+def _stop_voice_latency_filler(
+    worker_state: tuple[Event, Thread] | None,
+    *,
+    tts_provider: TTSProvider | None = None,
+    telemetry: VoiceTelemetryCollector | None = None,
+) -> None:
     """Stop one pending latency filler worker and wait for it to settle."""
     if worker_state is None:
         return
     stop_event, worker = worker_state
     stop_event.set()
+    if stop_speech_if_supported(tts_provider) and telemetry is not None:
+        telemetry.record_speech_interruption(
+            reason="final_answer_start",
+            phase="response",
+        )
     worker.join()
+
+
+def _prepare_voice_capture_transition(
+    *,
+    audio_policy: HalfDuplexAudioPolicy | None = None,
+    tts_provider: TTSProvider | None = None,
+    telemetry: VoiceTelemetryCollector | None = None,
+    voice_session_state: VoiceSessionState | None = None,
+    interruption_reason: str | None = None,
+    interruption_locale: str | None = None,
+) -> None:
+    """Stop active speech before the next listening phase begins."""
+    interrupted = False
+    if audio_policy is None:
+        interrupted = stop_speech_if_supported(tts_provider)
+    else:
+        try:
+            interrupted = audio_policy.stop_speaking_for_capture(
+                stop_active_speech=lambda: stop_speech_if_supported(tts_provider)
+            )
+        except AudioPolicyError as exc:
+            raise VoiceInputError("AUDIO_POLICY_CONFLICT", str(exc)) from exc
+    if not interrupted:
+        return
+    normalized_reason = str(interruption_reason or "").strip() or "capture_start"
+    if telemetry is not None:
+        telemetry.record_speech_interruption(
+            reason=normalized_reason,
+            phase="capture",
+        )
+    if voice_session_state is not None:
+        voice_session_state.record_interruption(
+            reason=normalized_reason,
+            locale=interruption_locale,
+        )
 
 
 def _run_voice_latency_filler(
@@ -528,6 +577,13 @@ def _run_voice_command(
     follow_up_budget = max_auto_follow_up_turns()
     completed_follow_up_turns = 0
     limit_hit = False
+    _prepare_voice_capture_transition(
+        audio_policy=audio_policy,
+        tts_provider=tts_provider,
+        telemetry=telemetry,
+        voice_session_state=voice_session_state,
+        interruption_reason="initial_capture_start",
+    )
     print("voice: listening... speak now.")
     _play_voice_earcon(earcon_provider, "listening_start")
     try:
@@ -560,6 +616,7 @@ def _run_voice_command(
         follow_up_turn = _capture_auto_follow_up_turn(
             current_dispatch.voice_turn,
             telemetry=telemetry,
+            tts_provider=tts_provider,
             earcon_provider=earcon_provider,
             audio_policy=audio_policy,
             voice_session_state=voice_session_state,
@@ -585,6 +642,7 @@ def _run_voice_command(
             completed_follow_up_turns >= follow_up_budget and _auto_follow_up_request(current_dispatch) is not None
         )
     if limit_hit:
+        _play_voice_earcon(earcon_provider, "error")
         print("voice: follow-up limit reached.")
     if telemetry is not None and follow_up_budget > 0:
         telemetry.record_follow_up_loop(
@@ -649,6 +707,7 @@ def _capture_auto_follow_up_turn(
     prior_turn: VoiceTurn,
     *,
     telemetry: VoiceTelemetryCollector | None = None,
+    tts_provider: TTSProvider | None = None,
     earcon_provider: EarconProvider | None = None,
     audio_policy: HalfDuplexAudioPolicy | None = None,
     voice_session_state: VoiceSessionState | None = None,
@@ -666,6 +725,19 @@ def _capture_auto_follow_up_turn(
             print("voice: listening again... speak now.")
         else:
             print("voice: didn't catch that. speak again.")
+        _prepare_voice_capture_transition(
+            audio_policy=audio_policy,
+            tts_provider=tts_provider,
+            telemetry=telemetry,
+            voice_session_state=voice_session_state,
+            interruption_reason="follow_up_capture_start",
+            interruption_locale=str(
+                getattr(prior_turn, "locale_hint", None)
+                or getattr(prior_turn, "detected_locale", None)
+                or ""
+            ).strip()
+            or None,
+        )
         _play_voice_earcon(earcon_provider, "listening_start")
         try:
             follow_up_turn = _capture_voice_turn_with_telemetry(

@@ -279,6 +279,60 @@ class SpeechPresenterTests(unittest.TestCase):
             "Relevant source clarification_rules.md",
         )
 
+    def test_long_english_question_answer_suggests_say_more(self) -> None:
+        result = SimpleNamespace(
+            interaction_mode="question",
+            visibility={
+                "interaction_mode": "question",
+                "answer_text": (
+                    "Rayleigh scattering makes shorter wavelengths of sunlight scatter more strongly in the atmosphere. "
+                    "That is why blue light spreads across the sky more than red light during the day. "
+                    "The exact color still depends on air composition, dust, humidity, and the position of the sun."
+                ),
+            },
+        )
+
+        self.assertEqual(
+            interaction_speech_message(result, preferred_locale="en-US"),
+            (
+                "Rayleigh scattering makes shorter wavelengths of sunlight scatter more strongly in the atmosphere. "
+                'Say "say more" if you want more detail.'
+            ),
+        )
+
+    def test_long_russian_question_answer_suggests_podrobnee(self) -> None:
+        result = SimpleNamespace(
+            interaction_mode="question",
+            visibility={
+                "interaction_mode": "question",
+                "answer_summary": "Рэйлиевское рассеяние объясняет, почему небо выглядит голубым.",
+                "answer_text": (
+                    "Рэйлиевское рассеяние объясняет, почему небо выглядит голубым. "
+                    "Короткие волны синего света рассеиваются в атмосфере сильнее, чем длинные волны красного света. "
+                    "На оттенок неба также влияют пыль, влажность, высота солнца и общее состояние атмосферы."
+                ),
+            },
+        )
+
+        self.assertEqual(
+            interaction_speech_message(result, preferred_locale="ru-RU"),
+            "Рэйлиевское рассеяние объясняет, почему небо выглядит голубым. Скажи подробнее, если хочешь больше деталей.",
+        )
+
+    def test_short_question_answer_does_not_add_more_detail_prompt(self) -> None:
+        result = SimpleNamespace(
+            interaction_mode="question",
+            visibility={
+                "interaction_mode": "question",
+                "answer_text": "The sky looks blue because shorter wavelengths scatter more strongly.",
+            },
+        )
+
+        self.assertEqual(
+            interaction_speech_message(result, preferred_locale="en-US"),
+            "The sky looks blue because shorter wavelengths scatter more strongly.",
+        )
+
     def test_folder_answer_paths_are_sanitized_for_spoken_russian_output(self) -> None:
         result = SimpleNamespace(
             interaction_mode="question",

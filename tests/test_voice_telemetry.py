@@ -193,6 +193,26 @@ class VoiceTelemetryTests(unittest.TestCase):
         self.assertEqual(snapshot.max_follow_up_chain_length, 2)
         self.assertEqual(snapshot.follow_up_limit_hit_count, 1)
 
+    def test_snapshot_tracks_speech_interruption_metrics(self) -> None:
+        collector = VoiceTelemetryCollector()
+
+        collector.record_speech_interruption(
+            reason="initial_capture_start",
+            phase="capture",
+        )
+        collector.record_speech_interruption(
+            reason="final_answer_start",
+            phase="response",
+        )
+
+        snapshot = collector.snapshot()
+        rendered = format_voice_telemetry_snapshot(snapshot)
+
+        self.assertEqual(snapshot.speech_interrupt_count, 2)
+        self.assertEqual(snapshot.speech_interrupt_for_capture_count, 1)
+        self.assertIn("speech interrupt count: 2", rendered)
+        self.assertIn("speech interrupt for capture count: 1", rendered)
+
     def test_snapshot_can_be_written_and_reloaded_as_artifact(self) -> None:
         collector = VoiceTelemetryCollector()
         collector.record_capture(
@@ -283,6 +303,8 @@ class VoiceTelemetryTests(unittest.TestCase):
         assert snapshot is not None
         self.assertEqual(snapshot.follow_up_relisten_count, 0)
         self.assertEqual(snapshot.follow_up_dismiss_count, 0)
+        self.assertEqual(snapshot.speech_interrupt_count, 0)
+        self.assertEqual(snapshot.speech_interrupt_for_capture_count, 0)
 
     def test_module_can_render_explicit_saved_artifact_path(self) -> None:
         collector = VoiceTelemetryCollector()

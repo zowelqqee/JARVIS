@@ -99,6 +99,8 @@ _INTERNAL_DEBUG_MARKERS = (
     "structured_output=",
     "output_text=",
 )
+_LONG_ANSWER_PROMPT_MIN_CHARS = 220
+_LONG_ANSWER_PROMPT_MARGIN = 40
 
 _SPOKEN_INTENT_TEMPLATES = {
     "en": {
@@ -264,15 +266,29 @@ def _question_speech_message(
     preferred_locale: str | None = None,
 ) -> str | None:
     summary = _question_summary(result=result, visibility=visibility)
+    has_more_detail = _question_has_more_detail(
+        result=result,
+        visibility=visibility,
+        summary=summary,
+        preferred_locale=preferred_locale,
+    )
     if summary:
         spoken_summary = _spoken_question_text(summary, preferred_locale=preferred_locale)
         warning = str(visibility.get("answer_warning", "") or "").strip()
         if not warning:
             answer_result = getattr(result, "answer_result", None)
             warning = str(getattr(answer_result, "warning", "") or "").strip()
+        prompt = _question_more_detail_prompt(preferred_locale=preferred_locale) if has_more_detail else ""
         if warning:
             spoken_warning = _spoken_question_warning(warning, preferred_locale=preferred_locale)
-            return f"{spoken_summary} {_warning_prefix(preferred_locale, spoken_summary, spoken_warning)}: {spoken_warning}"
+            spoken_message = (
+                f"{spoken_summary} {_warning_prefix(preferred_locale, spoken_summary, spoken_warning)}: {spoken_warning}"
+            )
+            if prompt:
+                return f"{spoken_message} {prompt}"
+            return spoken_message
+        if prompt:
+            return f"{spoken_summary} {prompt}"
         return spoken_summary
 
     answer_text = str(visibility.get("answer_text", "") or "").strip()
@@ -851,6 +867,39 @@ def _question_summary(*, result: object, visibility: dict[str, Any]) -> str:
         answer_result = getattr(result, "answer_result", None)
         answer_text = str(getattr(answer_result, "answer_text", "") or "").strip()
     return _answer_summary(answer_text)
+
+
+def _question_has_more_detail(
+    *,
+    result: object,
+    visibility: dict[str, Any],
+    summary: str,
+    preferred_locale: str | None = None,
+) -> bool:
+    normalized_summary = " ".join(str(summary or "").split()).strip()
+    if not normalized_summary:
+        return False
+
+    answer_text = str(visibility.get("answer_text", "") or "").strip()
+    if not answer_text:
+        answer_result = getattr(result, "answer_result", None)
+        answer_text = str(getattr(answer_result, "answer_text", "") or "").strip()
+    normalized_answer = " ".join(str(answer_text or "").split()).strip()
+    if not normalized_answer:
+        return False
+    if _spoken_question_refusal_text(normalized_answer, preferred_locale=preferred_locale):
+        return False
+    if normalized_answer == normalized_summary:
+        return False
+    if len(normalized_answer) < _LONG_ANSWER_PROMPT_MIN_CHARS:
+        return False
+    return len(normalized_answer) > len(normalized_summary) + _LONG_ANSWER_PROMPT_MARGIN
+
+
+def _question_more_detail_prompt(*, preferred_locale: str | None = None) -> str:
+    if prefers_russian_locale(preferred_locale):
+        return "Скажи подробнее, если хочешь больше деталей."
+    return 'Say "say more" if you want more detail.'
 
 
 def _spoken_utterance_locale(message: str, *, preferred_locale: str | None = None) -> str:

@@ -32,6 +32,27 @@ class TTSProvider(Protocol):
         """Speak one prepared utterance."""
 
 
+@runtime_checkable
+class InterruptibleTTSProvider(TTSProvider, Protocol):
+    """Optional contract for local TTS backends that can stop active speech."""
+
+    def stop(self) -> bool:
+        """Stop the current speech attempt, if one is active."""
+
+
+def stop_speech_if_supported(tts_provider: TTSProvider | None) -> bool:
+    """Stop active speech only when the concrete provider exposes a real stop hook."""
+    if tts_provider is None:
+        return False
+    stop_method = getattr(type(tts_provider), "stop", None)
+    if not callable(stop_method):
+        return False
+    try:
+        return bool(stop_method(tts_provider))
+    except Exception:
+        return False
+
+
 def build_default_tts_provider() -> TTSProvider:
     """Build the default local TTS backend for the current CLI."""
     from voice.tts_macos import MacOSTTSProvider

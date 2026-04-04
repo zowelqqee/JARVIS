@@ -15,6 +15,14 @@ class VoiceStatusTests(unittest.TestCase):
         telemetry = VoiceTelemetryCollector()
         telemetry.record_follow_up_loop(completed_turns=2, limit_hit=True)
         telemetry.record_follow_up_loop(completed_turns=1, limit_hit=False)
+        telemetry.record_speech_interruption(
+            reason="initial_capture_start",
+            phase="capture",
+        )
+        telemetry.record_speech_interruption(
+            reason="final_answer_start",
+            phase="response",
+        )
 
         status = build_voice_session_status(
             speak_enabled=True,
@@ -27,6 +35,8 @@ class VoiceStatusTests(unittest.TestCase):
         self.assertEqual(status.max_auto_follow_up_turns, 2)
         self.assertEqual(status.telemetry_max_follow_up_chain_length, 2)
         self.assertEqual(status.telemetry_follow_up_limit_hit_count, 1)
+        self.assertEqual(status.telemetry_speech_interrupt_count, 2)
+        self.assertEqual(status.telemetry_speech_interrupt_for_capture_count, 1)
 
     def test_build_voice_session_status_uses_empty_snapshot_when_missing(self) -> None:
         status = build_voice_session_status(
@@ -44,6 +54,10 @@ class VoiceStatusTests(unittest.TestCase):
     def test_format_voice_session_status_mentions_speech_mode_and_chain_metrics(self) -> None:
         telemetry = VoiceTelemetryCollector()
         telemetry.record_follow_up_loop(completed_turns=2, limit_hit=True)
+        telemetry.record_speech_interruption(
+            reason="initial_capture_start",
+            phase="capture",
+        )
 
         rendered = format_voice_session_status(
             build_voice_session_status(
@@ -59,6 +73,8 @@ class VoiceStatusTests(unittest.TestCase):
         self.assertIn("max auto follow-up turns: 2", rendered)
         self.assertIn("telemetry max follow-up chain length: 2", rendered)
         self.assertIn("telemetry follow-up limit hit count: 1", rendered)
+        self.assertIn("telemetry speech interrupt count: 1", rendered)
+        self.assertIn("telemetry speech interrupt for capture count: 1", rendered)
 
 
 if __name__ == "__main__":

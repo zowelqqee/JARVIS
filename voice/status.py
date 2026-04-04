@@ -25,6 +25,8 @@ class VoiceSessionStatus:
     telemetry_follow_up_limit_hit_count: int
     telemetry_follow_up_relisten_count: int
     telemetry_follow_up_dismiss_count: int
+    telemetry_speech_interrupt_count: int
+    telemetry_speech_interrupt_for_capture_count: int
 
 
 def build_voice_session_status(
@@ -49,6 +51,8 @@ def build_voice_session_status(
         telemetry_follow_up_limit_hit_count=snapshot.follow_up_limit_hit_count,
         telemetry_follow_up_relisten_count=snapshot.follow_up_relisten_count,
         telemetry_follow_up_dismiss_count=snapshot.follow_up_dismiss_count,
+        telemetry_speech_interrupt_count=snapshot.speech_interrupt_count,
+        telemetry_speech_interrupt_for_capture_count=snapshot.speech_interrupt_for_capture_count,
     )
 
 
@@ -69,6 +73,8 @@ def format_voice_session_status(status: VoiceSessionStatus) -> str:
             f"telemetry follow-up limit hit count: {status.telemetry_follow_up_limit_hit_count}",
             f"telemetry follow-up relisten count: {status.telemetry_follow_up_relisten_count}",
             f"telemetry follow-up dismiss count: {status.telemetry_follow_up_dismiss_count}",
+            f"telemetry speech interrupt count: {status.telemetry_speech_interrupt_count}",
+            f"telemetry speech interrupt for capture count: {status.telemetry_speech_interrupt_for_capture_count}",
         ]
     )
 
@@ -89,4 +95,6 @@ def _empty_telemetry_snapshot() -> VoiceTelemetrySnapshot:
         follow_up_dismiss_count=0,
         max_follow_up_chain_length=0,
         follow_up_limit_hit_count=0,
+        speech_interrupt_count=0,
+        speech_interrupt_for_capture_count=0,
     )

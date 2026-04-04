@@ -12,6 +12,7 @@
 - CLI may open a bounded sequence of immediate blocking follow-up replies only when `JARVIS_VOICE_CONTINUOUS_MODE=1`.
 - Spoken output is optional and controlled by `speak on` / `speak off`.
 - Optional earcons can be enabled with `JARVIS_VOICE_EARCONS=1`.
+- Interruptible local TTS backends may now stop in-flight speech before a new listening phase begins.
 - Russian and English are both expected to work for the MVP voice surface.
 
 ## Current Limitations
@@ -29,8 +30,8 @@
 - To verify optional earcons, run: `JARVIS_VOICE_EARCONS=1 python3 cli.py`
 - Optional offline rollout helpers:
   - `voice mode` inside CLI to inspect whether bounded advanced follow-up mode is currently enabled
-  - `voice last` inside CLI to inspect the most recent voice dispatch or follow-up control handled in this session
-  - `voice status` inside CLI to inspect current session voice state, `speak on/off`, and in-memory bounded-loop counters
+  - `voice last` inside CLI to inspect the most recent voice dispatch, follow-up control, or speech interruption handled in this session
+  - `voice status` inside CLI to inspect current session voice state, `speak on/off`, bounded-loop counters, and speech interruption counts
   - `voice readiness` inside CLI or `python3 -m voice.readiness`
   - `voice readiness write` inside CLI to persist the final readiness artifact when unblocked
   - `voice gate` inside CLI or `python3 -m voice.gate`
@@ -39,6 +40,7 @@
 - Optional session metrics helper inside CLI: `voice telemetry`
 - `voice telemetry` now also shows `follow-up relisten count` and `follow-up dismiss count` for `listen again` / `stop speaking` style control replies.
 - `voice telemetry` also shows `max follow-up chain length` and `follow-up limit hit count` for the bounded multi-turn loop.
+- `voice telemetry` now also shows `speech interrupt count` for any local TTS interruption in the session and `speech interrupt for capture count` for the narrower case where the next listening phase barges in on active speech.
 - To inspect the saved telemetry artifact later, run: `voice telemetry artifact` inside CLI or `python3 -m voice.telemetry`
 - To persist the current session snapshot to `tmp/qa`, run: `voice telemetry write`
 - After saving telemetry, `voice readiness` and `voice gate` will also surface the saved follow-up relisten/dismiss counts as rollout evidence.
@@ -53,7 +55,9 @@
 - If `JARVIS_VOICE_CONTINUOUS_MODE=1` and a voice turn ends in blocking clarification or confirmation, CLI should print `voice: follow-up... speak now.` and may continue for up to two extra follow-up replies in the same bounded loop.
 - If `JARVIS_VOICE_CONTINUOUS_MODE=1`, `speak on` is enabled, and a question answer is short enough, CLI may keep the bounded loop alive for one more immediate answer follow-up.
 - If the bounded loop still wants another follow-up after those two extra turns, CLI should stop cleanly with `voice: follow-up limit reached.`
+- With `JARVIS_VOICE_EARCONS=1`, that limit-reached close may also emit a short error cue.
 - With `speak on`, a slow question or answer-follow-up may briefly emit `voice: thinking...` plus a short spoken filler such as `One moment.` or `Одну секунду.` before the final answer.
+- If that short filler is still speaking when the next listening phase starts, the local TTS backend may stop it instead of waiting for the whole utterance to finish.
 - With `JARVIS_VOICE_EARCONS=1`, CLI may emit short non-verbal cues for listening start, listening stop, error, and speech start.
 - The normalized line may be English even for Russian fixed phrases and follow-ups.
 - Runtime behavior must stay deterministic after normalization.
@@ -79,6 +83,7 @@
 - Expected recognized text: `Кто президент Франции`
 - Expected result: question path, no command execution.
 - Important: answer freshness depends on the configured QA backend and environment.
+- If the spoken answer is long, TTS may shorten it and suggest a follow-up phrase like `подробнее` or `say more` instead of reading the whole answer aloud.
 - For unsafe or refusal question cases, spoken output should stay short; if the refusal includes immediate self-harm safety guidance, it may mention `988` briefly instead of reading a long policy-style answer aloud.
 
 ### 4) Fixed Russian capabilities prompt
@@ -128,6 +133,7 @@
 - If the spoken answer references repo-relative paths like `docs/clarification_rules.md` or contains light markdown formatting, TTS should still say a short clean phrase such as `clarification_rules.md`, not read slashes, backticks, or formatting markers aloud.
 - If the spoken answer includes a website URL, TTS should prefer a short host like `docs.python.org` instead of reading `https://...` literally.
 - If QA/debug noise leaks into the answer text, spoken output should drop tails like `Debug:`, `Traceback`, `request_id=...`, or `latency_ms=...` instead of reading them aloud.
+- For longer spoken answers, TTS may end with a short prompt like `Say "say more" if you want more detail.` or `Скажи подробнее, если хочешь больше деталей.`
 - Repeat with:
   - follow-up reply or second fresh `voice` turn: `какой источник`
 - Expected recognized text: `Which source?`
@@ -148,6 +154,7 @@
 - Expected recognized text: `listen again`
 - Expected result: the current follow-up window reopens once and waits for the real reply instead of routing `listen again` as a command.
 - Natural relisten variants like `послушай снова` or English `try again` should behave the same way inside the current follow-up window.
+- With `JARVIS_VOICE_EARCONS=1`, this intentional relisten control should not sound like an error.
 - If the immediate follow-up reply is missed without any control phrase, CLI should retry once with `voice: didn't catch that. speak again.`
 - If that second follow-up capture is also empty, CLI should print `voice: no follow-up reply detected.` and close the current follow-up window.
 - With `JARVIS_VOICE_EARCONS=1`, each missed follow-up attempt may also emit a short error cue before the next retry or close.
@@ -155,6 +162,7 @@
 - Expected recognized text: `stop speaking`
 - Expected result: the current follow-up window closes without routing `stop speaking` as a command reply.
 - Natural dismiss variants like `прекрати говорить` or English `stop talking` should also close the current follow-up window.
+- With `JARVIS_VOICE_EARCONS=1`, this intentional dismiss should also stay quiet instead of emitting an error cue.
 - For a short-answer follow-up window, `стоп` / `отмена` and natural dismiss replies like `не сейчас`, `not now`, or `no thanks` may also close the offered extra follow-up instead of routing a command-path cancel.
 
 ### 8) Confirmation approve by voice

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from contextlib import contextmanager
-from typing import Iterator
+from typing import Callable, Iterator
 
 _VALID_AUDIO_TRANSITIONS = {
     "idle": frozenset({"listening", "speaking"}),
@@ -39,6 +39,17 @@ class HalfDuplexAudioPolicy:
         finally:
             if self.current_state == "speaking":
                 self._transition_to("idle")
+
+    def stop_speaking_for_capture(self, *, stop_active_speech: Callable[[], bool] | None = None) -> bool:
+        """Interrupt active speech before a new capture phase begins."""
+        if self.current_state != "speaking":
+            return False
+        if stop_active_speech is None:
+            raise AudioPolicyError("Cannot start capture while speaking.")
+        if not bool(stop_active_speech()):
+            raise AudioPolicyError("Cannot interrupt active speech for capture.")
+        self.current_state = "idle"
+        return True
 
     def _transition_to(self, next_state: str) -> None:
         allowed_states = _VALID_AUDIO_TRANSITIONS.get(self.current_state, frozenset())
