@@ -88,6 +88,22 @@ _QUESTION_SELF_HARM_REFUSAL_RE = re.compile(
     r"\b(can['’]t help with self-harm|can['’]t help with instructions for hurting yourself)\b",
     flags=re.IGNORECASE,
 )
+_SOURCE_PREFIX_PATTERN = (
+    r"(?:"
+    r"Relevant sources?(?::|\s*[-\u2013\u2014])\s*"
+    r"|Sources?(?::|\s*[-\u2013\u2014])\s*"
+    r"|(?:The relevant source is|Relevant source)\s+"
+    r"|Источники?(?::|\s*[-\u2013\u2014])\s*"
+    r")"
+)
+_SOURCE_LIST_ANSWER_RE = re.compile(
+    rf"^(?:{_SOURCE_PREFIX_PATTERN})(?P<body>.+)$",
+    flags=re.IGNORECASE,
+)
+_EMBEDDED_SOURCE_LIST_ANSWER_RE = re.compile(
+    rf"(?:{_SOURCE_PREFIX_PATTERN})(?P<body>.+)$",
+    flags=re.IGNORECASE,
+)
 _INTERNAL_DEBUG_MARKERS = (
     "Traceback (most recent call last):",
     "Debug:",
@@ -101,6 +117,36 @@ _INTERNAL_DEBUG_MARKERS = (
 )
 _LONG_ANSWER_PROMPT_MIN_CHARS = 220
 _LONG_ANSWER_PROMPT_MARGIN = 40
+_SUMMARY_SOURCE_CUE_TRIM_SUFFIX = " \t;,:-([{<'\"`«“\u2013\u2014"
+_COMMON_FILE_SUFFIXES = {
+    ".c",
+    ".cc",
+    ".cpp",
+    ".css",
+    ".csv",
+    ".go",
+    ".h",
+    ".hpp",
+    ".html",
+    ".java",
+    ".js",
+    ".json",
+    ".jsx",
+    ".m",
+    ".md",
+    ".pdf",
+    ".py",
+    ".rb",
+    ".rs",
+    ".sh",
+    ".swift",
+    ".toml",
+    ".ts",
+    ".tsx",
+    ".txt",
+    ".yaml",
+    ".yml",
+}
 
 _SPOKEN_INTENT_TEMPLATES = {
     "en": {
@@ -207,6 +253,28 @@ _RUSSIAN_QUESTION_WARNING_EXACT_MAP = {
     "This is general information, not legal advice.": "Это общая информация, а не юридическая консультация.",
     "This is general information, not financial advice.": "Это общая информация, а не финансовая рекомендация.",
 }
+_ENGLISH_COMPACT_QUESTION_WARNING_EXACT_MAP = {
+    "Answer is limited to grounded local sources.": "Local sources only.",
+    "This answer is based on model knowledge, not local sources.": "Based on model knowledge, not local sources.",
+    "This answer may be out of date for changing public facts.": "May be out of date.",
+    "This is general information, not medical advice.": "Not medical advice.",
+    "This is general information, not legal advice.": "Not legal advice.",
+    "This is general information, not financial advice.": "Not financial advice.",
+}
+_RUSSIAN_COMPACT_QUESTION_WARNING_EXACT_MAP = {
+    "Answer is limited to grounded local sources.": "Только локальные источники.",
+    "This answer is based on model knowledge, not local sources.": "Основано на знаниях модели, не на локальных источниках.",
+    "This answer may be out of date for changing public facts.": "Ответ может быть неактуален.",
+    "This is general information, not medical advice.": "Это не медицинский совет.",
+    "This is general information, not legal advice.": "Это не юридическая консультация.",
+    "This is general information, not financial advice.": "Это не финансовая рекомендация.",
+}
+_NOTE_STYLE_COMPACT_WARNINGS = frozenset(
+    {
+        "Answer is limited to grounded local sources.",
+        "This answer is based on model knowledge, not local sources.",
+    }
+)
 
 _RUSSIAN_QUESTION_FAILURE_EXACT_MAP = {
     "UNSUPPORTED_QUESTION: Question is outside the supported v1 grounded QA scope.": (
@@ -265,6 +333,13 @@ def _question_speech_message(
     visibility: dict[str, Any],
     preferred_locale: str | None = None,
 ) -> str | None:
+    answer_text = _question_answer_text(result=result, visibility=visibility)
+    source_override = _spoken_source_answer_text(answer_text, preferred_locale=preferred_locale) if answer_text else None
+    embedded_source_cue = (
+        _spoken_embedded_source_cue(answer_text, preferred_locale=preferred_locale)
+        if answer_text and source_override is None and not _looks_like_source_only_answer(answer_text)
+        else None
+    )
     summary = _question_summary(result=result, visibility=visibility)
     has_more_detail = _question_has_more_detail(
         result=result,
@@ -273,28 +348,48 @@ def _question_speech_message(
         preferred_locale=preferred_locale,
     )
     if summary:
-        spoken_summary = _spoken_question_text(summary, preferred_locale=preferred_locale)
+        spoken_summary = source_override or _spoken_question_text(summary, preferred_locale=preferred_locale)
         warning = str(visibility.get("answer_warning", "") or "").strip()
         if not warning:
             answer_result = getattr(result, "answer_result", None)
             warning = str(getattr(answer_result, "warning", "") or "").strip()
-        prompt = _question_more_detail_prompt(preferred_locale=preferred_locale) if has_more_detail else ""
-        if warning:
-            spoken_warning = _spoken_question_warning(warning, preferred_locale=preferred_locale)
-            spoken_message = (
-                f"{spoken_summary} {_warning_prefix(preferred_locale, spoken_summary, spoken_warning)}: {spoken_warning}"
+        prompt = (
+            _question_more_detail_prompt(
+                preferred_locale=preferred_locale,
+                compact=bool(embedded_source_cue or warning),
             )
+            if has_more_detail and source_override is None
+            else ""
+        )
+        if warning:
+            spoken_warning = _spoken_question_warning(
+                warning,
+                preferred_locale=preferred_locale,
+                compact=bool(source_override or embedded_source_cue or prompt),
+            )
+            warning_sentence = (
+                f"{_warning_prefix(
+                    preferred_locale,
+                    spoken_summary,
+                    spoken_warning,
+                    compact=bool(source_override or embedded_source_cue or prompt),
+                    warning_text=warning,
+                )}: {spoken_warning}"
+            )
+            spoken_message = spoken_summary
+            if embedded_source_cue and not _messages_overlap(spoken_message, embedded_source_cue):
+                spoken_message = _join_sentences(spoken_message, embedded_source_cue)
+            if not _messages_overlap(spoken_message, warning_sentence):
+                spoken_message = _join_sentences(spoken_message, warning_sentence)
             if prompt:
-                return f"{spoken_message} {prompt}"
+                return _join_sentences(spoken_message, prompt)
             return spoken_message
+        if embedded_source_cue and not _messages_overlap(spoken_summary, embedded_source_cue):
+            spoken_summary = _join_sentences(spoken_summary, embedded_source_cue)
         if prompt:
-            return f"{spoken_summary} {prompt}"
+            return _join_sentences(spoken_summary, prompt)
         return spoken_summary
 
-    answer_text = str(visibility.get("answer_text", "") or "").strip()
-    if not answer_text:
-        answer_result = getattr(result, "answer_result", None)
-        answer_text = str(getattr(answer_result, "answer_text", "") or "").strip()
     if answer_text:
         spoken_answer = _spoken_question_answer_text(answer_text, preferred_locale=preferred_locale)
         if spoken_answer:
@@ -419,7 +514,17 @@ def _spoken_target(target: str) -> str:
     return candidate
 
 
-def _warning_prefix(preferred_locale: str | None, *parts: str) -> str:
+def _warning_prefix(
+    preferred_locale: str | None,
+    *parts: str,
+    compact: bool = False,
+    warning_text: str | None = None,
+) -> str:
+    normalized_warning = " ".join(str(warning_text or "").split()).strip()
+    if compact and normalized_warning in _NOTE_STYLE_COMPACT_WARNINGS:
+        if prefers_russian_locale(preferred_locale, *parts):
+            return "Примечание"
+        return "Note"
     if prefers_russian_locale(preferred_locale, *parts):
         return "Предупреждение"
     return "Warning"
@@ -542,11 +647,24 @@ def _spoken_question_text(text: str, *, preferred_locale: str | None = None) -> 
     return _sanitize_spoken_question_surface(_RUSSIAN_QUESTION_TEXT_EXACT_MAP.get(normalized, normalized))
 
 
-def _spoken_question_warning(warning: str, *, preferred_locale: str | None = None) -> str:
+def _spoken_question_warning(
+    warning: str,
+    *,
+    preferred_locale: str | None = None,
+    compact: bool = False,
+) -> str:
     normalized = " ".join(str(warning or "").split()).strip()
-    if not normalized or not prefers_russian_locale(preferred_locale, normalized):
+    if not normalized:
         return _sanitize_spoken_question_surface(normalized)
-    return _sanitize_spoken_question_surface(_RUSSIAN_QUESTION_WARNING_EXACT_MAP.get(normalized, normalized))
+    if prefers_russian_locale(preferred_locale, normalized):
+        mapping = (
+            _RUSSIAN_COMPACT_QUESTION_WARNING_EXACT_MAP
+            if compact
+            else _RUSSIAN_QUESTION_WARNING_EXACT_MAP
+        )
+        return _sanitize_spoken_question_surface(mapping.get(normalized, normalized))
+    mapping = _ENGLISH_COMPACT_QUESTION_WARNING_EXACT_MAP if compact else None
+    return _sanitize_spoken_question_surface(mapping.get(normalized, normalized) if mapping else normalized)
 
 
 def _spoken_question_failure(message: str, *, preferred_locale: str | None = None) -> str:
@@ -579,6 +697,9 @@ def _spoken_question_answer_text(answer_text: str, *, preferred_locale: str | No
     refusal_override = _spoken_question_refusal_text(normalized, preferred_locale=preferred_locale)
     if refusal_override:
         return refusal_override
+    source_override = _spoken_source_answer_text(normalized, preferred_locale=preferred_locale)
+    if source_override:
+        return source_override
     return _spoken_question_text(_answer_summary(normalized), preferred_locale=preferred_locale)
 
 
@@ -598,6 +719,127 @@ def _spoken_question_refusal_text(text: str, *, preferred_locale: str | None = N
         return "I can't help with that request."
 
     return None
+
+
+def _spoken_source_answer_text(text: str, *, preferred_locale: str | None = None) -> str | None:
+    sanitized = _sanitize_spoken_question_surface(text)
+    match = _SOURCE_LIST_ANSWER_RE.match(sanitized)
+    if match is None:
+        return None
+
+    body = str(match.group("body") or "").strip()
+    if body.endswith("."):
+        body = body[:-1].rstrip()
+    if not body:
+        return None
+
+    items = _split_source_answer_items(body)
+    if prefers_russian_locale(preferred_locale, sanitized):
+        if len(items) == 1:
+            return f"Источник: {items[0]}."
+        if len(items) == 2:
+            if _prefer_conjoined_source_pair(items):
+                return f"Источники: {items[0]} и {items[1]}."
+            return f"Источники: {items[0]}, {items[1]}."
+    if len(items) == 2 and _prefer_conjoined_source_pair(items):
+        return f"Relevant sources: {items[0]} and {items[1]}."
+    if len(items) <= 2:
+        return None
+
+    head = ", ".join(items[:2])
+    remaining = len(items) - 2
+    if prefers_russian_locale(preferred_locale, sanitized):
+        return (
+            f"Источники: {head} и ещё {remaining} "
+            f"{_russian_count_form(remaining, 'источник', 'источника', 'источников')}."
+        )
+    return f"Relevant sources: {head}, and {remaining} more."
+
+
+def _spoken_embedded_source_cue(text: str, *, preferred_locale: str | None = None) -> str | None:
+    sanitized = _sanitize_spoken_question_surface(text)
+    match = _EMBEDDED_SOURCE_LIST_ANSWER_RE.search(sanitized)
+    if match is None:
+        return None
+    body = str(match.group("body") or "").strip()
+    if body.endswith("."):
+        body = body[:-1].rstrip()
+    items = _split_source_answer_items(body)
+    if not items:
+        return None
+    if prefers_russian_locale(preferred_locale, sanitized):
+        if len(items) == 1:
+            return f"Источник: {items[0]}."
+        if len(items) == 2:
+            if _prefer_conjoined_source_pair(items):
+                return f"Источники: {items[0]} и {items[1]}."
+            return f"Источники: {items[0]}, {items[1]}."
+        head = ", ".join(items[:2])
+        remaining = len(items) - 2
+        return (
+            f"Источники: {head} и ещё {remaining} "
+            f"{_russian_count_form(remaining, 'источник', 'источника', 'источников')}."
+        )
+    if len(items) == 1:
+        return f"Source: {items[0]}."
+    if len(items) == 2:
+        if _prefer_conjoined_source_pair(items):
+            return f"Sources: {items[0]} and {items[1]}."
+        return f"Sources: {items[0]}, {items[1]}."
+    head = ", ".join(items[:2])
+    remaining = len(items) - 2
+    return f"Sources: {head}, and {remaining} more."
+
+
+def _looks_like_source_only_answer(text: str) -> bool:
+    sanitized = _sanitize_spoken_question_surface(text)
+    return _SOURCE_LIST_ANSWER_RE.match(sanitized) is not None
+
+
+def _split_source_answer_items(body: str) -> list[str]:
+    normalized = " ".join(str(body or "").split()).strip()
+    if not normalized:
+        return []
+
+    if "," in normalized:
+        parts = [_normalize_source_answer_item(part) for part in normalized.split(",")]
+    elif " and " in normalized:
+        parts = [_normalize_source_answer_item(part) for part in normalized.split(" and ")]
+    elif " и " in normalized:
+        parts = [_normalize_source_answer_item(part) for part in normalized.split(" и ")]
+    else:
+        parts = [_normalize_source_answer_item(normalized)]
+    return [part for part in parts if part]
+
+
+def _normalize_source_answer_item(item: str) -> str:
+    normalized = " ".join(str(item or "").split()).strip()
+    if not normalized:
+        return ""
+    for prefix in ("and ", "и "):
+        if normalized.lower().startswith(prefix):
+            normalized = normalized[len(prefix) :].strip()
+            break
+    return normalized.strip("()[]{}<>'\"`»”")
+
+
+def _prefer_conjoined_source_pair(items: list[str]) -> bool:
+    if len(items) != 2:
+        return False
+    kinds = {_source_answer_item_kind(item) for item in items}
+    return "file" in kinds and "host" in kinds
+
+
+def _source_answer_item_kind(item: str) -> str:
+    normalized = str(item or "").strip().rstrip(".,;:!?")
+    if not normalized:
+        return "other"
+    suffix = Path(normalized).suffix.lower()
+    if suffix in _COMMON_FILE_SUFFIXES:
+        return "file"
+    if normalized.count(".") >= 2 and " " not in normalized and "/" not in normalized:
+        return "host"
+    return "other"
 
 
 def _looks_like_self_harm_refusal(text: str) -> bool:
@@ -862,11 +1104,16 @@ def _question_summary(*, result: object, visibility: dict[str, Any]) -> str:
     summary = str(visibility.get("answer_summary", "") or "").strip()
     if summary:
         return summary
-    answer_text = str(visibility.get("answer_text", "") or "").strip()
-    if not answer_text:
-        answer_result = getattr(result, "answer_result", None)
-        answer_text = str(getattr(answer_result, "answer_text", "") or "").strip()
+    answer_text = _question_answer_text(result=result, visibility=visibility)
     return _answer_summary(answer_text)
+
+
+def _question_answer_text(*, result: object, visibility: dict[str, Any]) -> str:
+    answer_text = str(visibility.get("answer_text", "") or "").strip()
+    if answer_text:
+        return answer_text
+    answer_result = getattr(result, "answer_result", None)
+    return str(getattr(answer_result, "answer_text", "") or "").strip()
 
 
 def _question_has_more_detail(
@@ -880,10 +1127,7 @@ def _question_has_more_detail(
     if not normalized_summary:
         return False
 
-    answer_text = str(visibility.get("answer_text", "") or "").strip()
-    if not answer_text:
-        answer_result = getattr(result, "answer_result", None)
-        answer_text = str(getattr(answer_result, "answer_text", "") or "").strip()
+    answer_text = _question_answer_text(result=result, visibility=visibility)
     normalized_answer = " ".join(str(answer_text or "").split()).strip()
     if not normalized_answer:
         return False
@@ -896,21 +1140,30 @@ def _question_has_more_detail(
     return len(normalized_answer) > len(normalized_summary) + _LONG_ANSWER_PROMPT_MARGIN
 
 
-def _question_more_detail_prompt(*, preferred_locale: str | None = None) -> str:
+def _question_more_detail_prompt(*, preferred_locale: str | None = None, compact: bool = False) -> str:
     if prefers_russian_locale(preferred_locale):
+        if compact:
+            return "Скажи подробнее, если нужны детали."
         return "Скажи подробнее, если хочешь больше деталей."
+    if compact:
+        return 'Say "say more" for details.'
     return 'Say "say more" if you want more detail.'
 
 
 def _spoken_utterance_locale(message: str, *, preferred_locale: str | None = None) -> str:
-    locale_text = str(preferred_locale or "").strip().lower()
-    if locale_text.startswith("ru"):
-        return "ru-RU"
+    locale_text = str(preferred_locale or "").strip()
+    if locale_text:
+        lowered = locale_text.lower()
+        if lowered == "ru":
+            return "ru-RU"
+        if lowered == "en":
+            return "en-US"
+        return locale_text
     return detect_spoken_locale(message)
 
 
 def _answer_summary(answer_text: str) -> str:
-    normalized = " ".join(str(answer_text or "").split()).strip()
+    normalized = _summary_text_without_embedded_source(answer_text)
     if not normalized:
         return ""
     for punctuation in (". ", "! ", "? "):
@@ -921,6 +1174,17 @@ def _answer_summary(answer_text: str) -> str:
         return normalized
     clipped = normalized[:107].rsplit(" ", 1)[0].strip() or normalized[:107].strip()
     return f"{clipped}..."
+
+
+def _summary_text_without_embedded_source(answer_text: str) -> str:
+    normalized = " ".join(str(answer_text or "").split()).strip()
+    if not normalized:
+        return ""
+    match = _EMBEDDED_SOURCE_LIST_ANSWER_RE.search(normalized)
+    if match is None or match.start() <= 0:
+        return normalized
+    trimmed = normalized[: match.start()].rstrip(_SUMMARY_SOURCE_CUE_TRIM_SUFFIX)
+    return trimmed or normalized
 
 
 def _interaction_visibility(result: object) -> dict[str, Any]:

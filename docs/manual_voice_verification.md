@@ -130,9 +130,24 @@
 - If that follow-up still ends in a short spoken answer, CLI may open one more immediate follow-up window before the bounded loop stops.
 - English voice variants like `tell me more`, `which source`, `where is that from`, `why is that`, and `say that again` should normalize to the same follow-up surface.
 - For source-oriented follow-ups, spoken output should shorten absolute file or folder paths to short names instead of reading full `/Users/...` or `/tmp/...` paths aloud.
+- In the Russian voice path, short source answers should also use a Russian spoken cue such as `Источник:` or `Источники:` instead of leaving English prefixes like `Relevant sources:`.
+- The same source-aware rendering should work when the upstream answer text itself already uses Russian prefixes like `Источник:` or `Источники:`.
+- It should also work for dash-style prefixes like `Sources -`, `Источник -`, or `Источники —`, not only for the colon form.
+- If a source-oriented spoken answer contains a long list of files or hosts, TTS should shorten it to the first two short labels plus a brief tail like `and 2 more` or `и ещё 2 источника`.
+- If a source list mixes file labels and website hosts, spoken output should still keep clean short labels like `clarification_rules.md` and `docs.python.org` and should not leave a raw `and` attached to the final label.
+- For a short mixed pair like `file + host`, spoken output may also use a natural conjunction such as `clarification_rules.md and docs.python.org` or `clarification_rules.md и docs.python.org`.
+- If the underlying answer text already includes a short source cue after the first sentence, spoken output may keep both pieces: first the answer summary, then a second short phrase like `Sources: ...` or `Источники: ...`.
+- Even if that source cue is attached with punctuation like `; Relevant sources: ...`, spoken output should still separate the answer summary from the source phrase cleanly.
+- The same cleanup should hold when the source cue appears after parentheses or dash-like punctuation, for example `(Relevant sources: ...)` or `— Relevant sources: ...`.
+- The same cleanup should also hold when the source cue is wrapped in quotes or guillemets, so spoken output does not keep stray quote characters around the summary or source labels.
+- If such an answer also carries a warning, spoken output should keep a natural order: answer first, then source cue, then warning.
+- In those heavier long-answer cases, the closing follow-up prompt may also switch to a shorter form like `Say "say more" for details.` or `Скажи подробнее, если нужны детали.`
+- In the same heavier cases, the warning itself may also shorten to a tighter spoken form like `Warning: May be out of date.` or `Предупреждение: Ответ может быть неактуален.`
+- Provenance-style warnings about local sources or model knowledge may also switch to a lighter spoken prefix like `Note:` or `Примечание:` in those heavier cases.
 - If the spoken answer references repo-relative paths like `docs/clarification_rules.md` or contains light markdown formatting, TTS should still say a short clean phrase such as `clarification_rules.md`, not read slashes, backticks, or formatting markers aloud.
 - If the spoken answer includes a website URL, TTS should prefer a short host like `docs.python.org` instead of reading `https://...` literally.
 - If QA/debug noise leaks into the answer text, spoken output should drop tails like `Debug:`, `Traceback`, `request_id=...`, or `latency_ms=...` instead of reading them aloud.
+- If voice/TTS is running with an explicit locale hint, utterance locale selection should keep that explicit locale even when the spoken message itself is mixed-language or Cyrillic-heavy.
 - For longer spoken answers, TTS may end with a short prompt like `Say "say more" if you want more detail.` or `Скажи подробнее, если хочешь больше деталей.`
 - Repeat with:
   - follow-up reply or second fresh `voice` turn: `какой источник`

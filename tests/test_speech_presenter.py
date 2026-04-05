@@ -62,8 +62,42 @@ class SpeechPresenterTests(unittest.TestCase):
         self.assertEqual(
             interaction_speech_utterance(result, preferred_locale="ru-RU"),
             SpeechUtterance(
-                text="Relevant sources: clarification_rules.md.",
+                text="Источник: clarification_rules.md.",
                 locale="ru-RU",
+            ),
+        )
+
+    def test_utterance_preserves_explicit_english_locale_variant(self) -> None:
+        result = SimpleNamespace(
+            interaction_mode="question",
+            visibility={
+                "interaction_mode": "question",
+                "answer_text": "Relevant sources: docs/clarification_rules.md.",
+            },
+        )
+
+        self.assertEqual(
+            interaction_speech_utterance(result, preferred_locale="en-GB"),
+            SpeechUtterance(
+                text="Relevant sources: clarification_rules.md.",
+                locale="en-GB",
+            ),
+        )
+
+    def test_explicit_english_locale_wins_over_cyrillic_message_detection(self) -> None:
+        result = SimpleNamespace(
+            interaction_mode="question",
+            visibility={
+                "interaction_mode": "question",
+                "answer_text": "Сейчас используется папка /tmp/demo.",
+            },
+        )
+
+        self.assertEqual(
+            interaction_speech_utterance(result, preferred_locale="en-US"),
+            SpeechUtterance(
+                text="Сейчас используется папка demo.",
+                locale="en-US",
             ),
         )
 
@@ -218,6 +252,495 @@ class SpeechPresenterTests(unittest.TestCase):
         self.assertEqual(
             interaction_speech_message(result, preferred_locale="en-US"),
             "Relevant sources: clarification_rules.md, runtime_flow.md.",
+        )
+
+    def test_single_source_phrase_is_localized_for_spoken_russian_output(self) -> None:
+        result = SimpleNamespace(
+            interaction_mode="question",
+            visibility={
+                "interaction_mode": "question",
+                "answer_text": (
+                    "The relevant source is "
+                    "/Users/arseniyabramidze/JARVIS/docs/clarification_rules.md."
+                ),
+            },
+        )
+
+        self.assertEqual(
+            interaction_speech_message(result, preferred_locale="ru-RU"),
+            "Источник: clarification_rules.md.",
+        )
+
+    def test_two_source_phrase_is_localized_for_spoken_russian_output(self) -> None:
+        result = SimpleNamespace(
+            interaction_mode="question",
+            visibility={
+                "interaction_mode": "question",
+                "answer_text": "Relevant sources: docs/clarification_rules.md, docs/runtime_flow.md.",
+            },
+        )
+
+        self.assertEqual(
+            interaction_speech_message(result, preferred_locale="ru-RU"),
+            "Источники: clarification_rules.md, runtime_flow.md.",
+        )
+
+    def test_mixed_two_source_phrase_uses_natural_english_conjunction(self) -> None:
+        result = SimpleNamespace(
+            interaction_mode="question",
+            visibility={
+                "interaction_mode": "question",
+                "answer_text": (
+                    "Relevant sources: docs/clarification_rules.md, "
+                    "https://docs.python.org/3/library/pathlib.html."
+                ),
+            },
+        )
+
+        self.assertEqual(
+            interaction_speech_message(result, preferred_locale="en-US"),
+            "Relevant sources: clarification_rules.md and docs.python.org.",
+        )
+
+    def test_mixed_two_source_phrase_uses_natural_russian_conjunction(self) -> None:
+        result = SimpleNamespace(
+            interaction_mode="question",
+            visibility={
+                "interaction_mode": "question",
+                "answer_text": (
+                    "Relevant sources: docs/clarification_rules.md, "
+                    "https://docs.python.org/3/library/pathlib.html."
+                ),
+            },
+        )
+
+        self.assertEqual(
+            interaction_speech_message(result, preferred_locale="ru-RU"),
+            "Источники: clarification_rules.md и docs.python.org.",
+        )
+
+    def test_long_source_list_is_summarized_for_spoken_english_output(self) -> None:
+        result = SimpleNamespace(
+            interaction_mode="question",
+            visibility={
+                "interaction_mode": "question",
+                "answer_text": (
+                    "Relevant sources: docs/clarification_rules.md, docs/runtime_flow.md, "
+                    "docs/manual_voice_verification.md, docs/voiceover_plan.md."
+                ),
+            },
+        )
+
+        self.assertEqual(
+            interaction_speech_message(result, preferred_locale="en-US"),
+            "Relevant sources: clarification_rules.md, runtime_flow.md, and 2 more.",
+        )
+
+    def test_long_source_list_is_summarized_for_spoken_russian_output(self) -> None:
+        result = SimpleNamespace(
+            interaction_mode="question",
+            visibility={
+                "interaction_mode": "question",
+                "answer_text": (
+                    "Relevant sources: docs/clarification_rules.md, docs/runtime_flow.md, "
+                    "docs/manual_voice_verification.md, docs/voiceover_plan.md."
+                ),
+            },
+        )
+
+        self.assertEqual(
+            interaction_speech_message(result, preferred_locale="ru-RU"),
+            "Источники: clarification_rules.md, runtime_flow.md и ещё 2 источника.",
+        )
+
+    def test_mixed_file_and_host_source_list_handles_oxford_comma_for_english_output(self) -> None:
+        result = SimpleNamespace(
+            interaction_mode="question",
+            visibility={
+                "interaction_mode": "question",
+                "answer_text": (
+                    "Relevant sources: docs/clarification_rules.md, https://docs.python.org/3/library/pathlib.html, "
+                    "and docs/runtime_flow.md."
+                ),
+            },
+        )
+
+        self.assertEqual(
+            interaction_speech_message(result, preferred_locale="en-US"),
+            "Relevant sources: clarification_rules.md, docs.python.org, and 1 more.",
+        )
+
+    def test_mixed_file_and_host_source_list_handles_oxford_comma_for_russian_output(self) -> None:
+        result = SimpleNamespace(
+            interaction_mode="question",
+            visibility={
+                "interaction_mode": "question",
+                "answer_text": (
+                    "Relevant sources: docs/clarification_rules.md, https://docs.python.org/3/library/pathlib.html, "
+                    "and docs/runtime_flow.md."
+                ),
+            },
+        )
+
+        self.assertEqual(
+            interaction_speech_message(result, preferred_locale="ru-RU"),
+            "Источники: clarification_rules.md, docs.python.org и ещё 1 источник.",
+        )
+
+    def test_embedded_source_cue_is_appended_to_spoken_english_answer_summary(self) -> None:
+        result = SimpleNamespace(
+            interaction_mode="question",
+            visibility={
+                "interaction_mode": "question",
+                "answer_text": (
+                    "Use pathlib for file-system paths. Relevant sources: "
+                    "docs/clarification_rules.md, https://docs.python.org/3/library/pathlib.html."
+                ),
+            },
+        )
+
+        self.assertEqual(
+            interaction_speech_message(result, preferred_locale="en-US"),
+            "Use pathlib for file-system paths. Sources: clarification_rules.md and docs.python.org.",
+        )
+
+    def test_embedded_source_cue_is_appended_to_spoken_russian_answer_summary(self) -> None:
+        result = SimpleNamespace(
+            interaction_mode="question",
+            visibility={
+                "interaction_mode": "question",
+                "answer_summary": "Используй pathlib для работы с путями.",
+                "answer_text": (
+                    "Используй pathlib для работы с путями. Relevant sources: "
+                    "docs/clarification_rules.md, https://docs.python.org/3/library/pathlib.html."
+                ),
+            },
+        )
+
+        self.assertEqual(
+            interaction_speech_message(result, preferred_locale="ru-RU"),
+            "Используй pathlib для работы с путями. Источники: clarification_rules.md и docs.python.org.",
+        )
+
+    def test_summary_drops_embedded_source_marker_before_appending_english_source_cue(self) -> None:
+        result = SimpleNamespace(
+            interaction_mode="question",
+            visibility={
+                "interaction_mode": "question",
+                "answer_text": (
+                    "Use pathlib for file-system paths; Relevant sources: "
+                    "docs/clarification_rules.md, https://docs.python.org/3/library/pathlib.html."
+                ),
+            },
+        )
+
+        self.assertEqual(
+            interaction_speech_message(result, preferred_locale="en-US"),
+            "Use pathlib for file-system paths. Sources: clarification_rules.md and docs.python.org.",
+        )
+
+    def test_summary_drops_embedded_source_marker_before_appending_russian_source_cue(self) -> None:
+        result = SimpleNamespace(
+            interaction_mode="question",
+            visibility={
+                "interaction_mode": "question",
+                "answer_text": (
+                    "Используй pathlib для работы с путями; Relevant sources: "
+                    "docs/clarification_rules.md, https://docs.python.org/3/library/pathlib.html."
+                ),
+            },
+        )
+
+        self.assertEqual(
+            interaction_speech_message(result, preferred_locale="ru-RU"),
+            "Используй pathlib для работы с путями. Источники: clarification_rules.md и docs.python.org.",
+        )
+
+    def test_summary_drops_parenthesized_source_marker_before_appending_english_source_cue(self) -> None:
+        result = SimpleNamespace(
+            interaction_mode="question",
+            visibility={
+                "interaction_mode": "question",
+                "answer_text": (
+                    "Use pathlib for file-system paths (Relevant sources: "
+                    "docs/clarification_rules.md, https://docs.python.org/3/library/pathlib.html)."
+                ),
+            },
+        )
+
+        self.assertEqual(
+            interaction_speech_message(result, preferred_locale="en-US"),
+            "Use pathlib for file-system paths. Sources: clarification_rules.md and docs.python.org.",
+        )
+
+    def test_summary_drops_em_dash_source_marker_before_appending_russian_source_cue(self) -> None:
+        result = SimpleNamespace(
+            interaction_mode="question",
+            visibility={
+                "interaction_mode": "question",
+                "answer_text": (
+                    "Используй pathlib для работы с путями — Relevant sources: "
+                    "docs/clarification_rules.md, https://docs.python.org/3/library/pathlib.html."
+                ),
+            },
+        )
+
+        self.assertEqual(
+            interaction_speech_message(result, preferred_locale="ru-RU"),
+            "Используй pathlib для работы с путями. Источники: clarification_rules.md и docs.python.org.",
+        )
+
+    def test_summary_drops_quoted_source_marker_before_appending_english_source_cue(self) -> None:
+        result = SimpleNamespace(
+            interaction_mode="question",
+            visibility={
+                "interaction_mode": "question",
+                "answer_text": (
+                    'Use pathlib for file-system paths "Relevant sources: '
+                    'docs/clarification_rules.md, <https://docs.python.org/3/library/pathlib.html>".'
+                ),
+            },
+        )
+
+        self.assertEqual(
+            interaction_speech_message(result, preferred_locale="en-US"),
+            "Use pathlib for file-system paths. Sources: clarification_rules.md and docs.python.org.",
+        )
+
+    def test_summary_drops_guillemet_source_marker_before_appending_russian_source_cue(self) -> None:
+        result = SimpleNamespace(
+            interaction_mode="question",
+            visibility={
+                "interaction_mode": "question",
+                "answer_text": (
+                    "Используй pathlib для работы с путями «Relevant sources: "
+                    "docs/clarification_rules.md, <https://docs.python.org/3/library/pathlib.html>»."
+                ),
+            },
+        )
+
+        self.assertEqual(
+            interaction_speech_message(result, preferred_locale="ru-RU"),
+            "Используй pathlib для работы с путями. Источники: clarification_rules.md и docs.python.org.",
+        )
+
+    def test_russian_source_prefix_is_supported_for_source_only_answer(self) -> None:
+        result = SimpleNamespace(
+            interaction_mode="question",
+            visibility={
+                "interaction_mode": "question",
+                "answer_text": "Источники: docs/clarification_rules.md, https://docs.python.org/3/library/pathlib.html.",
+            },
+        )
+
+        self.assertEqual(
+            interaction_speech_message(result, preferred_locale="ru-RU"),
+            "Источники: clarification_rules.md и docs.python.org.",
+        )
+
+    def test_russian_source_prefix_is_supported_for_embedded_source_cue(self) -> None:
+        result = SimpleNamespace(
+            interaction_mode="question",
+            visibility={
+                "interaction_mode": "question",
+                "answer_text": (
+                    "Используй pathlib для работы с путями. Источники: "
+                    "docs/clarification_rules.md, https://docs.python.org/3/library/pathlib.html."
+                ),
+            },
+        )
+
+        self.assertEqual(
+            interaction_speech_message(result, preferred_locale="ru-RU"),
+            "Используй pathlib для работы с путями. Источники: clarification_rules.md и docs.python.org.",
+        )
+
+    def test_english_sources_dash_prefix_is_supported_for_embedded_source_cue(self) -> None:
+        result = SimpleNamespace(
+            interaction_mode="question",
+            visibility={
+                "interaction_mode": "question",
+                "answer_text": (
+                    "Use pathlib for file-system paths. Sources - "
+                    "docs/clarification_rules.md, https://docs.python.org/3/library/pathlib.html."
+                ),
+            },
+        )
+
+        self.assertEqual(
+            interaction_speech_message(result, preferred_locale="en-US"),
+            "Use pathlib for file-system paths. Sources: clarification_rules.md and docs.python.org.",
+        )
+
+    def test_russian_sources_em_dash_prefix_is_supported_for_embedded_source_cue(self) -> None:
+        result = SimpleNamespace(
+            interaction_mode="question",
+            visibility={
+                "interaction_mode": "question",
+                "answer_text": (
+                    "Используй pathlib для работы с путями. Источники — "
+                    "docs/clarification_rules.md, https://docs.python.org/3/library/pathlib.html."
+                ),
+            },
+        )
+
+        self.assertEqual(
+            interaction_speech_message(result, preferred_locale="ru-RU"),
+            "Используй pathlib для работы с путями. Источники: clarification_rules.md и docs.python.org.",
+        )
+
+    def test_russian_single_source_dash_prefix_is_supported_for_source_only_answer(self) -> None:
+        result = SimpleNamespace(
+            interaction_mode="question",
+            visibility={
+                "interaction_mode": "question",
+                "answer_text": "Источник - docs/clarification_rules.md.",
+            },
+        )
+
+        self.assertEqual(
+            interaction_speech_message(result, preferred_locale="ru-RU"),
+            "Источник: clarification_rules.md.",
+        )
+
+    def test_warning_follows_embedded_source_cue_for_spoken_english_answer(self) -> None:
+        result = SimpleNamespace(
+            interaction_mode="question",
+            visibility={
+                "interaction_mode": "question",
+                "answer_text": (
+                    "Use pathlib for file-system paths. Relevant sources: "
+                    "docs/clarification_rules.md, https://docs.python.org/3/library/pathlib.html."
+                ),
+                "answer_warning": "This answer may be out of date for changing public facts.",
+            },
+        )
+
+        self.assertEqual(
+            interaction_speech_message(result, preferred_locale="en-US"),
+            (
+                "Use pathlib for file-system paths. Sources: clarification_rules.md and docs.python.org. "
+                "Warning: May be out of date."
+            ),
+        )
+
+    def test_warning_follows_embedded_source_cue_for_spoken_russian_answer(self) -> None:
+        result = SimpleNamespace(
+            interaction_mode="question",
+            visibility={
+                "interaction_mode": "question",
+                "answer_summary": "Используй pathlib для работы с путями.",
+                "answer_text": (
+                    "Используй pathlib для работы с путями. Relevant sources: "
+                    "docs/clarification_rules.md, https://docs.python.org/3/library/pathlib.html."
+                ),
+                "answer_warning": "This answer may be out of date for changing public facts.",
+            },
+        )
+
+        self.assertEqual(
+            interaction_speech_message(result, preferred_locale="ru-RU"),
+            (
+                "Используй pathlib для работы с путями. Источники: clarification_rules.md и docs.python.org. "
+                "Предупреждение: Ответ может быть неактуален."
+            ),
+        )
+
+    def test_long_answer_with_source_and_warning_uses_compact_english_more_detail_prompt(self) -> None:
+        result = SimpleNamespace(
+            interaction_mode="question",
+            visibility={
+                "interaction_mode": "question",
+                "answer_summary": "Pathlib helps with cross-platform path handling.",
+                "answer_text": (
+                    "Pathlib helps with cross-platform path handling. "
+                    "It gives you higher-level path operations, cleaner path joins, and safer file-name handling in Python projects. "
+                    "It also makes it easier to work with files, folders, and path normalization across operating systems. "
+                    "Relevant sources: docs/clarification_rules.md, https://docs.python.org/3/library/pathlib.html."
+                ),
+                "answer_warning": "This answer may be out of date for changing public facts.",
+            },
+        )
+
+        self.assertEqual(
+            interaction_speech_message(result, preferred_locale="en-US"),
+            (
+                "Pathlib helps with cross-platform path handling. "
+                "Sources: clarification_rules.md and docs.python.org. "
+                "Warning: May be out of date. "
+                'Say "say more" for details.'
+            ),
+        )
+
+    def test_long_answer_with_source_and_warning_uses_compact_russian_more_detail_prompt(self) -> None:
+        result = SimpleNamespace(
+            interaction_mode="question",
+            visibility={
+                "interaction_mode": "question",
+                "answer_summary": "Pathlib помогает работать с путями в разных системах.",
+                "answer_text": (
+                    "Pathlib помогает работать с путями в разных системах. "
+                    "Он даёт более высокий уровень абстракции для путей, упрощает соединение сегментов и делает код с файлами чище. "
+                    "Также с ним удобнее работать с файлами, папками и нормализацией путей в проектах на Python. "
+                    "Relevant sources: docs/clarification_rules.md, https://docs.python.org/3/library/pathlib.html."
+                ),
+                "answer_warning": "This answer may be out of date for changing public facts.",
+            },
+        )
+
+        self.assertEqual(
+            interaction_speech_message(result, preferred_locale="ru-RU"),
+            (
+                "Pathlib помогает работать с путями в разных системах. "
+                "Источники: clarification_rules.md и docs.python.org. "
+                "Предупреждение: Ответ может быть неактуален. "
+                "Скажи подробнее, если нужны детали."
+            ),
+        )
+
+    def test_compact_local_sources_warning_uses_note_prefix_for_spoken_english_answer(self) -> None:
+        result = SimpleNamespace(
+            interaction_mode="question",
+            visibility={
+                "interaction_mode": "question",
+                "answer_text": (
+                    "Use pathlib for file-system paths. Relevant sources: "
+                    "docs/clarification_rules.md, https://docs.python.org/3/library/pathlib.html."
+                ),
+                "answer_warning": "Answer is limited to grounded local sources.",
+            },
+        )
+
+        self.assertEqual(
+            interaction_speech_message(result, preferred_locale="en-US"),
+            (
+                "Use pathlib for file-system paths. Sources: clarification_rules.md and docs.python.org. "
+                "Note: Local sources only."
+            ),
+        )
+
+    def test_compact_model_knowledge_warning_uses_note_prefix_for_spoken_russian_answer(self) -> None:
+        result = SimpleNamespace(
+            interaction_mode="question",
+            visibility={
+                "interaction_mode": "question",
+                "answer_summary": "Это общий ответ про тему.",
+                "answer_text": (
+                    "Это общий ответ про тему. "
+                    "Он даёт обзор и дополнительные детали по теме, чтобы можно было продолжить вопрос следующим уточнением. "
+                    "Он также остаётся достаточно длинным, чтобы speech layer предложил короткий follow-up prompt."
+                ),
+                "answer_warning": "This answer is based on model knowledge, not local sources.",
+            },
+        )
+
+        self.assertEqual(
+            interaction_speech_message(result, preferred_locale="ru-RU"),
+            (
+                "Это общий ответ про тему. "
+                "Примечание: Основано на знаниях модели, не на локальных источниках. "
+                "Скажи подробнее, если нужны детали."
+            ),
         )
 
     def test_markdown_formatting_is_removed_from_spoken_question_output(self) -> None:
