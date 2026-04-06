@@ -14,7 +14,7 @@ from time import perf_counter
 from context.session_context import SessionContext
 from input.voice_input import VoiceInputError
 from interaction.interaction_manager import InteractionManager
-from interaction.interaction_router import route_interaction
+from interaction.interaction_router import looks_like_fresh_interaction_input, route_interaction
 from qa.beta_release_review import (
     beta_release_review_artifact_consistency,
     beta_release_review_pending_checks,
@@ -253,7 +253,7 @@ def _handle_cli_command(
             _write_voice_telemetry(telemetry)
             return False, speak_enabled
 
-        if lowered in {"voice", "/voice"}:
+        if lowered in {"voice", "/voice", "voice on", "/voice on"}:
             active_interaction_manager = interaction_manager or _build_default_interaction_manager(runtime_manager)
             active_tts_provider = (tts_provider or build_default_tts_provider()) if speak_enabled else None
             active_earcon_provider = build_default_earcon_provider() if voice_earcons_enabled() else None
@@ -387,6 +387,13 @@ def _dispatch_and_render_voice_turn(
             filler_worker,
             tts_provider=tts_provider,
             telemetry=telemetry,
+            voice_session_state=voice_session_state,
+            interruption_locale=str(
+                getattr(voice_turn, "locale_hint", None)
+                or getattr(voice_turn, "detected_locale", None)
+                or ""
+            ).strip()
+            or None,
         )
     if voice_session_state is not None:
         voice_session_state.record_dispatch(voice_dispatch.voice_turn)
@@ -447,17 +454,26 @@ def _stop_voice_latency_filler(
     *,
     tts_provider: TTSProvider | None = None,
     telemetry: VoiceTelemetryCollector | None = None,
+    voice_session_state: VoiceSessionState | None = None,
+    interruption_locale: str | None = None,
 ) -> None:
     """Stop one pending latency filler worker and wait for it to settle."""
     if worker_state is None:
         return
     stop_event, worker = worker_state
     stop_event.set()
-    if stop_speech_if_supported(tts_provider) and telemetry is not None:
+    interrupted = stop_speech_if_supported(tts_provider)
+    if interrupted and telemetry is not None:
         telemetry.record_speech_interruption(
             reason="final_answer_start",
             phase="response",
         )
+    if interrupted:
+        if voice_session_state is not None:
+            voice_session_state.record_interruption(
+                reason="final_answer_start",
+                locale=interruption_locale,
+            )
     worker.join()
 
 
@@ -471,6 +487,7 @@ def _prepare_voice_capture_transition(
     interruption_locale: str | None = None,
 ) -> None:
     """Stop active speech before the next listening phase begins."""
+    normalized_reason = str(interruption_reason or "").strip() or "capture_start"
     interrupted = False
     if audio_policy is None:
         interrupted = stop_speech_if_supported(tts_provider)
@@ -480,10 +497,21 @@ def _prepare_voice_capture_transition(
                 stop_active_speech=lambda: stop_speech_if_supported(tts_provider)
             )
         except AudioPolicyError as exc:
+            if telemetry is not None:
+                telemetry.record_speech_interrupt_conflict(
+                    reason=normalized_reason,
+                    phase="capture",
+                    error_message=str(exc),
+                )
+            if voice_session_state is not None:
+                voice_session_state.record_interruption_conflict(
+                    reason=normalized_reason,
+                    locale=interruption_locale,
+                    error_message=str(exc),
+                )
             raise VoiceInputError("AUDIO_POLICY_CONFLICT", str(exc)) from exc
     if not interrupted:
         return
-    normalized_reason = str(interruption_reason or "").strip() or "capture_start"
     if telemetry is not None:
         telemetry.record_speech_interruption(
             reason=normalized_reason,
@@ -595,6 +623,31 @@ def _run_voice_command(
             telemetry=telemetry,
             earcon_provider=earcon_provider,
         )
+        retry_locales = _alternate_voice_locales(current_turn)
+        if _should_retry_initial_voice_capture(
+            current_turn,
+            interaction_manager=interaction_manager,
+            session_context=session_context,
+        ) and retry_locales:
+            print("voice: didn't catch that clearly. speak again.")
+            _prepare_voice_capture_transition(
+                audio_policy=audio_policy,
+                tts_provider=tts_provider,
+                telemetry=telemetry,
+                voice_session_state=voice_session_state,
+                interruption_reason="initial_capture_retry",
+            )
+            print("voice: listening again... speak now.")
+            _play_voice_earcon(earcon_provider, "listening_start")
+            current_turn = _capture_voice_turn_with_telemetry(
+                capture_fn=capture_voice_turn,
+                phase="initial_retry",
+                timeout_seconds=_VOICE_CAPTURE_TIMEOUT_SECONDS,
+                preferred_locales=retry_locales,
+                audio_policy=audio_policy,
+                telemetry=telemetry,
+                earcon_provider=earcon_provider,
+            )
         current_dispatch = _dispatch_and_render_voice_turn(
             current_turn,
             interaction_manager=interaction_manager,
@@ -651,6 +704,42 @@ def _run_voice_command(
         )
 
 
+def _should_retry_initial_voice_capture(
+    voice_turn: VoiceTurn | object,
+    *,
+    interaction_manager: InteractionManager,
+    session_context: SessionContext,
+) -> bool:
+    """Retry one initial voice capture when the transcript looks like locale-noise gibberish."""
+    interaction_input = str(
+        getattr(voice_turn, "interaction_input", None)
+        or getattr(voice_turn, "normalized_text", None)
+        or getattr(voice_turn, "normalized_transcript", "")
+        or ""
+    ).strip()
+    if not interaction_input:
+        return False
+    if looks_like_fresh_interaction_input(interaction_input):
+        return False
+
+    decision = route_interaction(
+        interaction_input,
+        session_context=session_context,
+        runtime_state=getattr(interaction_manager.runtime_manager, "current_state", None),
+    )
+    decision_kind = str(getattr(getattr(decision, "kind", None), "value", getattr(decision, "kind", "")) or "").strip()
+    decision_reason = str(getattr(decision, "reason", "") or "").strip()
+    return decision_kind == "command" and decision_reason == "fallback_command"
+
+
+def _alternate_voice_locales(voice_turn: VoiceTurn | object) -> tuple[str, ...]:
+    """Swap the current locale order for one retry when the first capture looked unclear."""
+    preferred_locales = tuple(getattr(voice_turn, "preferred_locales", ()) or ())
+    if len(preferred_locales) < 2:
+        return ()
+    return (*preferred_locales[1:], preferred_locales[0])
+
+
 def _auto_follow_up_request(voice_dispatch: object):
     """Return one blocking follow-up capture request for the explicit voice shell path."""
     if not continuous_voice_mode_enabled():
@@ -692,7 +781,7 @@ def _capture_voice_turn_with_telemetry(
             )
         raise
     finally:
-        if phase in {"initial", "follow_up"}:
+        if phase in {"initial", "initial_retry", "follow_up"}:
             _play_voice_earcon(earcon_provider, "listening_stop")
     if telemetry is not None:
         telemetry.record_capture(

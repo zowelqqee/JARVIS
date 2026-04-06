@@ -174,4 +174,14 @@ class LlmAnswerBackend:
 
 def _supports_deterministic_fallback(question: QuestionRequest) -> bool:
     question_type = getattr(question, "question_type", None)
+    if question_type == QuestionType.ANSWER_FOLLOW_UP:
+        context_refs = getattr(question, "context_refs", {}) or {}
+        if isinstance(context_refs, dict):
+            follow_up_kind = str(context_refs.get("follow_up_kind", "") or "").strip()
+            answer_kind = str(context_refs.get("answer_kind", "") or "").strip()
+            answer_provenance = str(context_refs.get("answer_provenance", "") or "").strip()
+            if follow_up_kind in {"explain_more", "why"} and (
+                answer_kind == "open_domain_model" or answer_provenance == "model_knowledge"
+            ):
+                return False
     return question_type != QuestionType.OPEN_DOMAIN_GENERAL

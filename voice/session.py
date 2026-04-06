@@ -51,6 +51,7 @@ class VoiceTurn:
     normalized_transcript: str
     detected_locale: str
     locale_hint: str | None = None
+    preferred_locales: tuple[str, ...] = ()
     recognition_status: str = "recognized"
     lifecycle_state: str = "routing"
     interaction_input: str | None = None
@@ -122,6 +123,7 @@ class SingleTurnVoiceSession:
             normalized_transcript=captured_turn.normalized_text,
             detected_locale=detected_locale,
             locale_hint=captured_turn.locale_hint,
+            preferred_locales=tuple(getattr(captured_turn, "preferred_locales", ()) or ()),
         )
 
     def _transition_to(self, next_state: str) -> None:

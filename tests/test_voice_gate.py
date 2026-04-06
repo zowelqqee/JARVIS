@@ -98,9 +98,10 @@ class VoiceReadinessGateTests(unittest.TestCase):
         self.assertEqual(report.telemetry_follow_up_dismiss_count, 1)
         self.assertEqual(report.telemetry_max_follow_up_chain_length, 2)
         self.assertEqual(report.telemetry_follow_up_limit_hit_count, 1)
+        self.assertEqual(report.telemetry_speech_interrupt_conflict_count, 0)
         self.assertEqual(
             report.telemetry_note,
-            "latest session telemetry artifact is recorded (follow-up relisten=0, dismiss=1, max_chain=2, limit_hits=1)",
+            "latest session telemetry artifact is recorded (follow-up relisten=0, dismiss=1, max_chain=2, limit_hits=1, interrupt_conflicts=0)",
         )
 
     def test_format_mentions_gate_status_and_next_step(self) -> None:
@@ -123,6 +124,7 @@ class VoiceReadinessGateTests(unittest.TestCase):
         self.assertIn("telemetry follow-up dismiss count: n/a", rendered)
         self.assertIn("telemetry max follow-up chain length: n/a", rendered)
         self.assertIn("telemetry follow-up limit hit count: n/a", rendered)
+        self.assertIn("telemetry speech interrupt conflict count: n/a", rendered)
         self.assertIn("telemetry note: advisory only; record a session snapshot before live sign-off with voice telemetry write", rendered)
         self.assertIn("next step: complete_manual_voice_verification", rendered)
 

@@ -269,4 +269,16 @@ def _truncate(text: str, *, limit: int) -> str:
 
 def _uses_open_domain_contract(question: QuestionRequest | None) -> bool:
     question_type = getattr(getattr(question, "question_type", None), "value", getattr(question, "question_type", None))
-    return str(question_type or "").strip() == "open_domain_general"
+    if str(question_type or "").strip() == "open_domain_general":
+        return True
+    if str(question_type or "").strip() != "answer_follow_up":
+        return False
+    context_refs = getattr(question, "context_refs", {}) or {}
+    if not isinstance(context_refs, dict):
+        return False
+    follow_up_kind = str(context_refs.get("follow_up_kind", "") or "").strip()
+    answer_kind = str(context_refs.get("answer_kind", "") or "").strip()
+    answer_provenance = str(context_refs.get("answer_provenance", "") or "").strip()
+    return follow_up_kind in {"explain_more", "why"} and (
+        answer_kind == "open_domain_model" or answer_provenance == "model_knowledge"
+    )

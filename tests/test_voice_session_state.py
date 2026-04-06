@@ -85,6 +85,22 @@ class VoiceSessionStateTests(unittest.TestCase):
         self.assertIn("detected locale: ru-RU", rendered)
         self.assertIn("interruption reason: follow_up_capture_start", rendered)
 
+    def test_record_interruption_conflict_reports_last_failed_interruption_event(self) -> None:
+        state = VoiceSessionState()
+
+        state.record_interruption_conflict(
+            reason="initial_capture_start",
+            locale="en-US",
+            error_message="Cannot interrupt active speech for capture.",
+        )
+        rendered = format_voice_last_event(state)
+
+        self.assertIn("event kind: interruption_conflict", rendered)
+        self.assertIn('raw transcript: ""', rendered)
+        self.assertIn("detected locale: en-US", rendered)
+        self.assertIn("interruption reason: initial_capture_start", rendered)
+        self.assertIn("interruption error: Cannot interrupt active speech for capture.", rendered)
+
 
 if __name__ == "__main__":
     unittest.main()

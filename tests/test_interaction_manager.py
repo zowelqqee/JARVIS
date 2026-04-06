@@ -184,6 +184,19 @@ class InteractionManagerTests(unittest.TestCase):
         self.assertIsNone(result.runtime_result)
         self.assertIn("confirm", getattr(result.answer_result, "answer_text", "").lower())
 
+    def test_generic_question_escapes_clarification_blocked_state_after_invalid_command(self) -> None:
+        blocked = self.manager.handle_input("voice on", session_context=self.session_context)
+
+        self.assertEqual(getattr(blocked.interaction_mode, "value", ""), "command")
+        self.assertEqual(getattr(self.manager.runtime_manager.current_state, "value", self.manager.runtime_manager.current_state), "awaiting_clarification")
+
+        result = self.manager.handle_input("What can you do?", session_context=self.session_context)
+
+        self.assertEqual(getattr(result.interaction_mode, "value", ""), "question")
+        self.assertIsNotNone(result.answer_result)
+        self.assertIsNone(result.runtime_result)
+        self.assertIn("open_app", getattr(result.answer_result, "answer_text", ""))
+
     def test_recent_runtime_question_reports_last_command_summary(self) -> None:
         self.manager.runtime_manager.current_state = "completed"
         self.manager.runtime_manager.active_command = parse_command("open Safari", self.session_context)
@@ -215,6 +228,16 @@ class InteractionManagerTests(unittest.TestCase):
         self.assertIsNotNone(result.answer_result)
         self.assertIn("docs/clarification_rules.md", getattr(result.answer_result, "answer_text", ""))
         self.assertIsNone(result.runtime_result)
+
+    def test_russian_follow_up_question_reuses_recent_answer_context(self) -> None:
+        self.manager.handle_input("What can you do?", session_context=self.session_context)
+
+        result = self.manager.handle_input("подробнее", session_context=self.session_context)
+
+        self.assertEqual(getattr(result.interaction_mode, "value", ""), "question")
+        self.assertIsNotNone(result.answer_result)
+        self.assertIsNone(result.runtime_result)
+        self.assertIn("open_app", getattr(result.answer_result, "answer_text", ""))
 
     def test_debug_mode_attaches_structured_question_debug_metadata(self) -> None:
         with patch.dict("os.environ", {"JARVIS_QA_DEBUG": "1"}, clear=False):
@@ -303,6 +326,47 @@ class InteractionManagerTests(unittest.TestCase):
         self.assertEqual(getattr(getattr(repeated.answer_result, "answer_kind", None), "value", getattr(repeated.answer_result, "answer_kind", None)), "open_domain_model")
         self.assertEqual(getattr(getattr(repeated.answer_result, "provenance", None), "value", getattr(repeated.answer_result, "provenance", None)), "model_knowledge")
         self.assertEqual(list(getattr(repeated.answer_result, "sources", []) or []), [])
+
+    def test_open_domain_explain_more_follow_up_uses_model_backend_without_sources(self) -> None:
+        class _ExplainMoreProvider(_FakeOpenDomainProvider):
+            def answer(self, question, **kwargs):
+                if str(getattr(question, "raw_input", "")).strip() == "Explain more":
+                    self.last_grounding_sources = list(getattr(kwargs.get("grounding_bundle"), "source_paths", []) or [])
+                    return SimpleNamespace(
+                        answer_text="Ada Lovelace is often discussed in more detail as an early computing figure associated with analytical-engine notes and later historical debate.",
+                        sources=[],
+                        source_attributions=[],
+                        confidence=0.74,
+                        warning="May be out of date for changing facts.",
+                        answer_kind="open_domain_model",
+                        provenance="model_knowledge",
+                        interaction_mode="question",
+                    )
+                return super().answer(question, **kwargs)
+
+        manager = InteractionManager(
+            answer_backend_config=AnswerBackendConfig(
+                backend_kind=AnswerBackendKind.LLM,
+                llm=LlmBackendConfig(
+                    enabled=True,
+                    provider=LlmProviderKind.OPENAI_RESPONSES,
+                    open_domain_enabled=True,
+                    fallback_enabled=False,
+                ),
+            )
+        )
+
+        provider = _ExplainMoreProvider()
+        with patch.dict("qa.llm_backend._PROVIDERS", {LlmProviderKind.OPENAI_RESPONSES: provider}, clear=False):
+            first = manager.handle_input("Who is Ada Lovelace?", session_context=self.session_context)
+            expanded = manager.handle_input("Explain more", session_context=self.session_context)
+
+        self.assertEqual(getattr(first.interaction_mode, "value", ""), "question")
+        self.assertEqual(getattr(expanded.interaction_mode, "value", ""), "question")
+        self.assertIn("Ada Lovelace", getattr(expanded.answer_result, "answer_text", ""))
+        self.assertEqual(getattr(expanded.answer_result, "answer_kind", ""), "open_domain_model")
+        self.assertEqual(list(getattr(expanded.answer_result, "sources", []) or []), [])
+        self.assertEqual(getattr(provider, "last_grounding_sources", []), [])
 
     def test_russian_quantitative_open_domain_question_routes_to_model_answer(self) -> None:
         manager = InteractionManager(

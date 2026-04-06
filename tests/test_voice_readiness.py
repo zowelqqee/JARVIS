@@ -130,6 +130,7 @@ class VoiceReadinessTests(unittest.TestCase):
         self.assertEqual(record.telemetry_follow_up_dismiss_count, 1)
         self.assertEqual(record.telemetry_max_follow_up_chain_length, 2)
         self.assertEqual(record.telemetry_follow_up_limit_hit_count, 1)
+        self.assertEqual(record.telemetry_speech_interrupt_conflict_count, 0)
 
     def test_format_mentions_flag_doc_and_next_step(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -152,6 +153,7 @@ class VoiceReadinessTests(unittest.TestCase):
         self.assertIn("telemetry follow-up dismiss count: n/a", rendered)
         self.assertIn("telemetry max follow-up chain length: n/a", rendered)
         self.assertIn("telemetry follow-up limit hit count: n/a", rendered)
+        self.assertIn("telemetry speech interrupt conflict count: n/a", rendered)
         self.assertIn("telemetry note: advisory only; record a session snapshot before live sign-off with voice telemetry write", rendered)
         self.assertIn("next step: complete_manual_voice_verification", rendered)
 
@@ -180,6 +182,11 @@ class VoiceReadinessTests(unittest.TestCase):
                 action="listen_again",
             )
             telemetry.record_follow_up_loop(completed_turns=2, limit_hit=False)
+            telemetry.record_speech_interrupt_conflict(
+                reason="follow_up_capture_start",
+                phase="capture",
+                error_message="Cannot interrupt active speech for capture.",
+            )
             write_voice_telemetry_artifact(
                 telemetry.snapshot(),
                 artifact_path=telemetry_artifact_path,
@@ -196,8 +203,9 @@ class VoiceReadinessTests(unittest.TestCase):
         self.assertIn("telemetry follow-up dismiss count: 0", rendered)
         self.assertIn("telemetry max follow-up chain length: 2", rendered)
         self.assertIn("telemetry follow-up limit hit count: 0", rendered)
+        self.assertIn("telemetry speech interrupt conflict count: 1", rendered)
         self.assertIn(
-            "telemetry note: latest session telemetry artifact is recorded (follow-up relisten=1, dismiss=0, max_chain=2, limit_hits=0)",
+            "telemetry note: latest session telemetry artifact is recorded (follow-up relisten=1, dismiss=0, max_chain=2, limit_hits=0, interrupt_conflicts=1)",
             rendered,
         )
 

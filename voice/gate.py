@@ -26,6 +26,7 @@ class VoiceReadinessGateReport:
     telemetry_follow_up_dismiss_count: int | None
     telemetry_max_follow_up_chain_length: int | None
     telemetry_follow_up_limit_hit_count: int | None
+    telemetry_speech_interrupt_conflict_count: int | None
     telemetry_note: str
     next_step_kind: str
     next_step_reason: str
@@ -45,6 +46,7 @@ class VoiceReadinessGateReport:
             "telemetry_follow_up_dismiss_count": self.telemetry_follow_up_dismiss_count,
             "telemetry_max_follow_up_chain_length": self.telemetry_max_follow_up_chain_length,
             "telemetry_follow_up_limit_hit_count": self.telemetry_follow_up_limit_hit_count,
+            "telemetry_speech_interrupt_conflict_count": self.telemetry_speech_interrupt_conflict_count,
             "telemetry_note": self.telemetry_note,
             "next_step_kind": self.next_step_kind,
             "next_step_reason": self.next_step_reason,
@@ -80,7 +82,8 @@ def build_voice_readiness_gate_report(
         f" (follow-up relisten={readiness.telemetry_follow_up_relisten_count or 0},"
         f" dismiss={readiness.telemetry_follow_up_dismiss_count or 0},"
         f" max_chain={readiness.telemetry_max_follow_up_chain_length or 0},"
-        f" limit_hits={readiness.telemetry_follow_up_limit_hit_count or 0})"
+        f" limit_hits={readiness.telemetry_follow_up_limit_hit_count or 0},"
+        f" interrupt_conflicts={readiness.telemetry_speech_interrupt_conflict_count or 0})"
         if readiness.telemetry_artifact_status == "ready"
         else f"advisory only; record a session snapshot before live sign-off with {readiness.telemetry_artifact_command}"
     )
@@ -96,6 +99,7 @@ def build_voice_readiness_gate_report(
         telemetry_follow_up_dismiss_count=readiness.telemetry_follow_up_dismiss_count,
         telemetry_max_follow_up_chain_length=readiness.telemetry_max_follow_up_chain_length,
         telemetry_follow_up_limit_hit_count=readiness.telemetry_follow_up_limit_hit_count,
+        telemetry_speech_interrupt_conflict_count=readiness.telemetry_speech_interrupt_conflict_count,
         telemetry_note=telemetry_note,
         next_step_kind=readiness.next_step_kind,
         next_step_reason=readiness.next_step_reason,
@@ -119,6 +123,7 @@ def format_voice_readiness_gate_report(report: VoiceReadinessGateReport) -> str:
             f"telemetry follow-up dismiss count: {_telemetry_metric_text(report.telemetry_follow_up_dismiss_count)}",
             f"telemetry max follow-up chain length: {_telemetry_metric_text(report.telemetry_max_follow_up_chain_length)}",
             f"telemetry follow-up limit hit count: {_telemetry_metric_text(report.telemetry_follow_up_limit_hit_count)}",
+            f"telemetry speech interrupt conflict count: {_telemetry_metric_text(report.telemetry_speech_interrupt_conflict_count)}",
             f"telemetry note: {report.telemetry_note}",
             f"next step: {report.next_step_kind}",
             f"next step reason: {report.next_step_reason}",

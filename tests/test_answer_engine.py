@@ -6,6 +6,7 @@ import os
 import sys
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 _TYPES_PATH = Path(__file__).resolve().parents[1] / "types"
@@ -41,6 +42,18 @@ class AnswerEngineTests(unittest.TestCase):
 
     def test_greeting_routes_to_capabilities_family(self) -> None:
         question = classify_question("hello jarvis")
+
+        self.assertEqual(getattr(question.question_type, "value", ""), "capabilities")
+        self.assertEqual(question.scope, "capabilities")
+
+    def test_bare_wake_word_routes_to_capabilities_family(self) -> None:
+        question = classify_question("Джарвис")
+
+        self.assertEqual(getattr(question.question_type, "value", ""), "capabilities")
+        self.assertEqual(question.scope, "capabilities")
+
+    def test_short_jarvis_greeting_misrecognition_routes_to_capabilities_family(self) -> None:
+        question = classify_question("Previous Jarvis")
 
         self.assertEqual(getattr(question.question_type, "value", ""), "capabilities")
         self.assertEqual(question.scope, "capabilities")
@@ -183,6 +196,25 @@ class AnswerEngineTests(unittest.TestCase):
         self.assertIn("clarification happens", result.answer_text.lower())
         self.assertGreaterEqual(len(result.sources), 2)
 
+    def test_russian_answer_follow_up_surface_is_canonicalized_for_text_cli(self) -> None:
+        session_context = SessionContext()
+        session_context.set_recent_answer_context(
+            topic="clarification",
+            scope="docs",
+            sources=[
+                str(self.repo_root / "docs/clarification_rules.md"),
+                str(self.repo_root / "docs/runtime_flow.md"),
+            ],
+        )
+
+        question = classify_question("подробнее", session_context=session_context)
+        result = answer_question("подробнее", session_context=session_context)
+
+        self.assertEqual(getattr(question.question_type, "value", ""), "answer_follow_up")
+        self.assertEqual(question.raw_input, "Explain more")
+        self.assertIn("clarification happens", result.answer_text.lower())
+        self.assertGreaterEqual(len(result.sources), 2)
+
     def test_repeat_follow_up_reuses_recent_open_domain_answer_text(self) -> None:
         session_context = SessionContext()
         session_context.set_recent_answer_context(
@@ -204,6 +236,58 @@ class AnswerEngineTests(unittest.TestCase):
         self.assertEqual(getattr(result.answer_kind, "value", result.answer_kind), "open_domain_model")
         self.assertEqual(getattr(result.provenance, "value", result.provenance), "model_knowledge")
         self.assertAlmostEqual(result.confidence, 0.72)
+
+    def test_open_domain_explain_more_follow_up_uses_llm_backend_without_fake_sources(self) -> None:
+        class _FakeExplainMoreProvider:
+            def answer(self, question, **kwargs):
+                self.raw_input = str(getattr(question, "raw_input", "") or "")
+                self.sources = list(getattr(kwargs.get("grounding_bundle"), "source_paths", []) or [])
+                return SimpleNamespace(
+                    answer_text="Tony Stark is a Marvel character and central MCU protagonist whose arc mixes engineering, trauma, and heroism.",
+                    sources=[],
+                    source_attributions=[],
+                    confidence=0.74,
+                    warning="May be out of date for changing facts.",
+                    answer_kind="open_domain_model",
+                    provenance="model_knowledge",
+                )
+
+        from qa.answer_config import AnswerBackendConfig, LlmBackendConfig
+        from qa.llm_provider import LlmProviderKind
+
+        provider = _FakeExplainMoreProvider()
+        session_context = SessionContext()
+        session_context.set_recent_answer_context(
+            topic="open_domain_general",
+            scope="open_domain",
+            sources=[],
+            answer_text="Tony Stark is a fictional Marvel character.",
+            answer_warning="May be out of date for changing facts.",
+            answer_kind="open_domain_model",
+            answer_provenance="model_knowledge",
+            answer_confidence=0.72,
+        )
+
+        with patch.dict("qa.llm_backend._PROVIDERS", {LlmProviderKind.OPENAI_RESPONSES: provider}, clear=False):
+            result = answer_question(
+                "Explain more",
+                session_context=session_context,
+                backend_config=AnswerBackendConfig(
+                    backend_kind=AnswerBackendKind.DETERMINISTIC,
+                    llm=LlmBackendConfig(
+                        enabled=True,
+                        provider=LlmProviderKind.OPENAI_RESPONSES,
+                        open_domain_enabled=True,
+                        fallback_enabled=False,
+                    ),
+                ),
+            )
+
+        self.assertEqual(provider.raw_input, "Explain more")
+        self.assertEqual(provider.sources, [])
+        self.assertIn("Tony Stark", result.answer_text)
+        self.assertEqual(getattr(result.answer_kind, "value", result.answer_kind), "open_domain_model")
+        self.assertEqual(getattr(result.provenance, "value", result.provenance), "model_knowledge")
 
     def test_runtime_status_can_use_recent_folder_context(self) -> None:
         session_context = SessionContext()
@@ -247,6 +331,19 @@ class AnswerEngineTests(unittest.TestCase):
     def test_open_domain_question_routes_to_general_family_when_enabled(self) -> None:
         question = classify_question(
             "Who is the president of France?",
+            backend_config=AnswerBackendConfig(
+                backend_kind=AnswerBackendKind.LLM,
+                llm=LlmBackendConfig(enabled=True, open_domain_enabled=True),
+            ),
+        )
+
+        self.assertEqual(getattr(question.question_type, "value", ""), "open_domain_general")
+        self.assertEqual(question.scope, "open_domain")
+        self.assertFalse(question.requires_grounding)
+
+    def test_compare_question_routes_to_open_domain_family_when_enabled(self) -> None:
+        question = classify_question(
+            "Сравни ChatGPT и Claude",
             backend_config=AnswerBackendConfig(
                 backend_kind=AnswerBackendKind.LLM,
                 llm=LlmBackendConfig(enabled=True, open_domain_enabled=True),

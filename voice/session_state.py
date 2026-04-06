@@ -20,6 +20,7 @@ class VoiceSessionEvent:
     spoken_response: str | None = None
     control_action: str | None = None
     interruption_reason: str | None = None
+    interruption_error: str | None = None
 
 
 class VoiceSessionState:
@@ -83,6 +84,23 @@ class VoiceSessionState:
             interruption_reason=str(reason or "").strip() or None,
         )
 
+    def record_interruption_conflict(
+        self,
+        *,
+        reason: str,
+        locale: str | None = None,
+        error_message: str | None = None,
+    ) -> None:
+        """Store the last failed speech interruption event observed before capture."""
+        self._last_event = VoiceSessionEvent(
+            event_kind="interruption_conflict",
+            raw_transcript="",
+            normalized_transcript="",
+            detected_locale=str(locale or "").strip() or None,
+            interruption_reason=str(reason or "").strip() or None,
+            interruption_error=str(error_message or "").strip() or None,
+        )
+
 
 def build_default_voice_session_state() -> VoiceSessionState:
     """Build the default current-session voice event tracker."""
@@ -108,6 +126,8 @@ def format_voice_last_event(voice_session_state: VoiceSessionState | None) -> st
         lines.append(f"control action: {last_event.control_action}")
     if last_event.interruption_reason:
         lines.append(f"interruption reason: {last_event.interruption_reason}")
+    if last_event.interruption_error:
+        lines.append(f"interruption error: {last_event.interruption_error}")
     if last_event.interaction_summary:
         lines.append(f"interaction summary: {last_event.interaction_summary}")
     if last_event.spoken_response:

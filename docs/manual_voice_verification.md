@@ -41,6 +41,10 @@
 - `voice telemetry` now also shows `follow-up relisten count` and `follow-up dismiss count` for `listen again` / `stop speaking` style control replies.
 - `voice telemetry` also shows `max follow-up chain length` and `follow-up limit hit count` for the bounded multi-turn loop.
 - `voice telemetry` now also shows `speech interrupt count` for any local TTS interruption in the session and `speech interrupt for capture count` for the narrower case where the next listening phase barges in on active speech.
+- `voice telemetry` also separates `speech interrupt for response count`, so interrupted latency fillers are visible apart from capture-side barging.
+- If a new capture cannot interrupt active speech, CLI should print `voice: Cannot interrupt active speech for capture.`, `voice telemetry` should increment `speech interrupt conflict count`, and `voice last` should show an `interruption_conflict` event.
+- If a latency filler is interrupted because the final spoken answer is ready, `voice last` should show an `interruption` event with reason `final_answer_start`.
+- After `voice telemetry write`, the saved telemetry artifact is also surfaced by `voice readiness` and `voice gate`, including `speech interrupt conflict count` for failed barge-in attempts during live QA.
 - To inspect the saved telemetry artifact later, run: `voice telemetry artifact` inside CLI or `python3 -m voice.telemetry`
 - To persist the current session snapshot to `tmp/qa`, run: `voice telemetry write`
 - After saving telemetry, `voice readiness` and `voice gate` will also surface the saved follow-up relisten/dismiss counts as rollout evidence.
@@ -52,6 +56,7 @@
 ## Expected General Behavior
 - `voice` prints `voice: listening... speak now.`
 - After capture, CLI prints one normalized `recognized: "..."` line.
+- If the first initial capture looks like locale-noise fallback gibberish, CLI may ask once more with `voice: didn't catch that clearly. speak again.` and retry the initial capture with the alternate locale order before routing.
 - If `JARVIS_VOICE_CONTINUOUS_MODE=1` and a voice turn ends in blocking clarification or confirmation, CLI should print `voice: follow-up... speak now.` and may continue for up to two extra follow-up replies in the same bounded loop.
 - If `JARVIS_VOICE_CONTINUOUS_MODE=1`, `speak on` is enabled, and a question answer is short enough, CLI may keep the bounded loop alive for one more immediate answer follow-up.
 - If the bounded loop still wants another follow-up after those two extra turns, CLI should stop cleanly with `voice: follow-up limit reached.`

@@ -94,6 +94,7 @@ _SOURCE_PREFIX_PATTERN = (
     r"|Sources?(?::|\s*[-\u2013\u2014])\s*"
     r"|(?:The relevant source is|Relevant source)\s+"
     r"|Источники?(?::|\s*[-\u2013\u2014])\s*"
+    r"|Источник(?::|\s*[-\u2013\u2014])\s*"
     r")"
 )
 _SOURCE_LIST_ANSWER_RE = re.compile(

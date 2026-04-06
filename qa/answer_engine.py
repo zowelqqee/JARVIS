@@ -35,6 +35,34 @@ _BACKENDS = {
     AnswerBackendKind.DETERMINISTIC: DeterministicAnswerBackend(),
     AnswerBackendKind.LLM: LlmAnswerBackend(),
 }
+_ANSWER_FOLLOW_UP_CANONICAL_MAP = {
+    "подробнее": "Explain more",
+    "скажи подробнее": "Explain more",
+    "объясни подробнее": "Explain more",
+    "расскажи подробнее": "Explain more",
+    "say more": "Explain more",
+    "tell me more": "Explain more",
+    "go on": "Explain more",
+    "какой источник": "Which source?",
+    "какие источники": "Which sources?",
+    "which source": "Which source?",
+    "what source": "Which source?",
+    "which sources": "Which sources?",
+    "what sources": "Which sources?",
+    "где это написано": "Where is that written",
+    "where is that from": "Where is that written",
+    "почему": "Why is that",
+    "почему это так": "Why is that",
+    "почему так": "Why so",
+    "повтори": "Repeat that",
+    "повтори это": "Repeat that",
+    "повтори ответ": "Repeat that",
+    "скажи еще раз": "Repeat that",
+    "скажи ещё раз": "Repeat that",
+    "repeat": "Repeat that",
+    "say that again": "Repeat that",
+    "tell me again": "Repeat that",
+}
 
 
 def classify_question(
@@ -45,6 +73,7 @@ def classify_question(
 ) -> QuestionRequest:
     """Classify a normalized question into one supported question family."""
     normalized = normalize_input(raw_input)
+    normalized = _canonicalize_answer_follow_up_surface(normalized)
     lowered = normalized.lower()
     follow_up_question = _classify_answer_follow_up(normalized, lowered, session_context=session_context, debug_trace=debug_trace)
     if follow_up_question is not None:
@@ -191,8 +220,16 @@ def _resolve_answer_backend_config(
 def _backend_kind_for_question(question: QuestionRequest, config: AnswerBackendConfig) -> AnswerBackendKind | str:
     if getattr(question, "question_type", None) == QuestionType.ANSWER_FOLLOW_UP:
         context_refs = getattr(question, "context_refs", {}) or {}
-        if isinstance(context_refs, dict) and str(context_refs.get("follow_up_kind", "") or "").strip() == "repeat":
-            return AnswerBackendKind.DETERMINISTIC
+        if isinstance(context_refs, dict):
+            follow_up_kind = str(context_refs.get("follow_up_kind", "") or "").strip()
+            answer_kind = str(context_refs.get("answer_kind", "") or "").strip()
+            answer_provenance = str(context_refs.get("answer_provenance", "") or "").strip()
+            if follow_up_kind == "repeat":
+                return AnswerBackendKind.DETERMINISTIC
+            if follow_up_kind in {"explain_more", "why"} and (
+                answer_kind == "open_domain_model" or answer_provenance == "model_knowledge"
+            ) and open_domain_general_enabled(config):
+                return AnswerBackendKind.LLM
     configured_backend = getattr(getattr(config, "backend_kind", None), "value", getattr(config, "backend_kind", None))
     if str(configured_backend or "").strip() == AnswerBackendKind.LLM.value:
         return config.backend_kind
@@ -264,18 +301,81 @@ def _looks_like_capabilities_question(text: str) -> bool:
 
 def _looks_like_greeting(text: str) -> bool:
     normalized = text.strip(" \t\r\n,.;:!?")
-    return normalized in {
+    if normalized in {
         "hello",
         "hello jarvis",
         "hi",
         "hi jarvis",
         "hey",
         "hey jarvis",
+        "jarvis",
         "привет",
         "привет джарвис",
         "здравствуй",
         "здравствуй джарвис",
-    }
+        "джарвис",
+    }:
+        return True
+
+    tokens = normalized.split()
+    if not tokens:
+        return False
+    if len(tokens) > 2 or tokens[-1] not in {"jarvis", "джарвис"}:
+        return False
+    return not (
+        normalized.startswith(
+            (
+                "what ",
+                "how ",
+                "why ",
+                "which ",
+                "where ",
+                "when ",
+                "who ",
+                "compare ",
+                "explain ",
+                "help ",
+                "что ",
+                "как ",
+                "почему ",
+                "зачем ",
+                "где ",
+                "когда ",
+                "кто ",
+                "сколько ",
+                "какой ",
+                "какая ",
+                "какое ",
+                "какие ",
+                "сравни ",
+                "объясни ",
+                "помоги ",
+            )
+        )
+        or normalized.startswith(
+            (
+                "open ",
+                "launch ",
+                "start ",
+                "reopen ",
+                "run ",
+                "close ",
+                "list ",
+                "show ",
+                "find ",
+                "search ",
+                "prepare ",
+                "set up ",
+                "focus ",
+                "switch ",
+                "use ",
+                "confirm",
+                "cancel",
+                "yes",
+                "no",
+            )
+        )
+    )
 
 
 def _looks_like_repo_structure_question(text: str) -> bool:
@@ -433,6 +533,11 @@ def _follow_up_kind(text: str) -> str | None:
     }:
         return "repeat"
     return None
+
+
+def _canonicalize_answer_follow_up_surface(text: str) -> str:
+    lookup = str(text or "").strip().lower().rstrip("?.! ")
+    return _ANSWER_FOLLOW_UP_CANONICAL_MAP.get(lookup, text)
 
 
 def _record_question_classification(question: QuestionRequest, *, debug_trace: dict[str, Any] | None) -> None:

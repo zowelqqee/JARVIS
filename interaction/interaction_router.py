@@ -100,6 +100,7 @@ _QUESTION_STARTERS = (
     "where ",
     "when ",
     "who ",
+    "compare ",
     "explain ",
     "help ",
     "что ",
@@ -114,6 +115,7 @@ _QUESTION_STARTERS = (
     "какая ",
     "какое ",
     "какие ",
+    "сравни ",
     "объясни ",
     "помоги ",
 )
@@ -171,6 +173,53 @@ _BLOCKED_STATE_QUESTION_MARKERS = (
     "что именно тебе нужно подтвердить",
     "что тебе нужно подтвердить",
 )
+_ANSWER_FOLLOW_UP_SURFACES = frozenset(
+    {
+        "explain more",
+        "explain that more",
+        "explain it more",
+        "go deeper",
+        "more detail",
+        "more details",
+        "elaborate",
+        "say more",
+        "tell me more",
+        "go on",
+        "which source",
+        "which sources",
+        "what source",
+        "what sources",
+        "where is that written",
+        "where is it written",
+        "where is that documented",
+        "where is it documented",
+        "where is that from",
+        "why",
+        "why is that",
+        "why so",
+        "why does that apply",
+        "repeat that",
+        "repeat the answer",
+        "say that again",
+        "say it again",
+        "repeat",
+        "подробнее",
+        "скажи подробнее",
+        "объясни подробнее",
+        "расскажи подробнее",
+        "какой источник",
+        "какие источники",
+        "где это написано",
+        "почему",
+        "почему это так",
+        "почему так",
+        "повтори",
+        "повтори это",
+        "повтори ответ",
+        "скажи еще раз",
+        "скажи ещё раз",
+    }
+)
 _CHOICE_FILLER_PREFIXES = ("please ", "just ", "then ", "okay ", "ok ", "пожалуйста ", "тогда ", "ладно ")
 _ANSWER_CHOICE_PATTERNS = (
     re.compile(r"^(?:the\s+)?answer(?:\s+first)?$"),
@@ -201,23 +250,38 @@ def route_interaction(
     runtime_state: str | None = None,
 ) -> InteractionDecision:
     """Route one raw input into command mode, question mode, or routing clarification."""
-    del session_context  # reserved for future routing refinements
 
     normalized = _normalize_for_routing(raw_input)
     state_text = str(getattr(runtime_state, "value", runtime_state or "")).strip()
     if state_text in {"awaiting_confirmation", "awaiting_clarification"}:
-        if _looks_like_blocked_state_question(normalized):
+        if (
+            _looks_like_blocked_state_question(normalized)
+            or _looks_like_fresh_question_while_blocked(normalized)
+            or _looks_like_recent_answer_follow_up(normalized, session_context=session_context)
+        ):
             return InteractionDecision(
                 kind=InteractionKind.QUESTION,
                 normalized_input=normalized,
                 confidence=0.93,
-                reason="blocked_state_question",
+                reason=(
+                    "recent_answer_follow_up"
+                    if _looks_like_recent_answer_follow_up(normalized, session_context=session_context)
+                    else "blocked_state_question"
+                ),
             )
         return InteractionDecision(
             kind=InteractionKind.COMMAND,
             normalized_input=normalized,
             confidence=1.0,
             reason="blocked_state_priority",
+        )
+
+    if _looks_like_recent_answer_follow_up(normalized, session_context=session_context):
+        return InteractionDecision(
+            kind=InteractionKind.QUESTION,
+            normalized_input=normalized,
+            confidence=0.9,
+            reason="recent_answer_follow_up",
         )
 
     if _looks_like_polite_command(normalized):
@@ -345,8 +409,27 @@ def _looks_like_question(text: str) -> bool:
     return (
         lowered.endswith("?")
         or lowered.startswith(_QUESTION_STARTERS)
-        or lowered in _GREETING_QUESTION_MARKERS
+        or _looks_like_greeting_surface(lowered)
         or any(marker in lowered for marker in _QUESTION_MARKERS)
+    )
+
+
+def _looks_like_greeting_surface(text: str) -> bool:
+    normalized = text.strip(" \t\r\n,.;:!?")
+    if normalized in _GREETING_QUESTION_MARKERS:
+        return True
+
+    tokens = normalized.split()
+    if not tokens:
+        return False
+    if normalized in {"jarvis", "джарвис"}:
+        return True
+    if len(tokens) > 2 or tokens[-1] not in {"jarvis", "джарвис"}:
+        return False
+    return not (
+        normalized.startswith(_QUESTION_STARTERS)
+        or normalized.startswith(_COMMAND_STARTERS)
+        or normalized.startswith(_POLITE_COMMAND_PREFIXES)
     )
 
 
@@ -358,3 +441,29 @@ def _contains_embedded_command_request(text: str) -> bool:
 def _looks_like_blocked_state_question(text: str) -> bool:
     lowered = text.lower()
     return any(marker in lowered for marker in _BLOCKED_STATE_QUESTION_MARKERS)
+
+
+def _looks_like_fresh_question_while_blocked(text: str) -> bool:
+    lowered = text.lower()
+    if _looks_like_polite_command(text) or _looks_like_execution_command(text):
+        return False
+    if lowered.startswith(_QUESTION_STARTERS):
+        return True
+    if _looks_like_greeting_surface(lowered):
+        return True
+    if any(marker in lowered for marker in _QUESTION_MARKERS):
+        return True
+    return lowered.endswith("?") and len(lowered.split()) >= 3
+
+
+def _looks_like_recent_answer_follow_up(text: str, *, session_context: SessionContext | None) -> bool:
+    if session_context is None or not hasattr(session_context, "get_recent_answer_context"):
+        return False
+    try:
+        recent_answer_context = session_context.get_recent_answer_context()
+    except Exception:
+        return False
+    if not isinstance(recent_answer_context, dict) or not recent_answer_context:
+        return False
+    normalized = text.strip().lower().strip(" \t\r\n,.!?;:")
+    return normalized in _ANSWER_FOLLOW_UP_SURFACES

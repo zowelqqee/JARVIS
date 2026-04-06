@@ -58,7 +58,7 @@ class CliSmokeTests(unittest.TestCase):
         self.assertFalse(config.llm.strict_mode)
 
     def test_voice_aliases_capture_speech_before_runtime_dispatch(self) -> None:
-        for command in ("voice", "/voice"):
+        for command in ("voice", "/voice", "voice on", "/voice on"):
             with self.subTest(command=command):
                 with patch(
                     "cli.capture_voice_turn",
@@ -88,6 +88,157 @@ class CliSmokeTests(unittest.TestCase):
                     speak_enabled=False,
                 )
                 render_mock.assert_called_once()
+
+    def test_generic_question_escapes_clarification_state_after_invalid_command(self) -> None:
+        from context.session_context import SessionContext
+        from runtime.runtime_manager import RuntimeManager
+
+        runtime_manager = RuntimeManager()
+        session_context = SessionContext()
+        buffer = io.StringIO()
+
+        with redirect_stdout(buffer):
+            should_exit, speak_enabled = cli._handle_cli_command(
+                "htlp",
+                runtime_manager=runtime_manager,
+                session_context=session_context,
+                speak_enabled=False,
+            )
+            self.assertFalse(should_exit)
+            self.assertFalse(speak_enabled)
+
+            should_exit, speak_enabled = cli._handle_cli_command(
+                "What can you do?",
+                runtime_manager=runtime_manager,
+                session_context=session_context,
+                speak_enabled=False,
+            )
+
+        output = buffer.getvalue()
+        self.assertFalse(should_exit)
+        self.assertFalse(speak_enabled)
+        self.assertNotIn("Speech output enabled.", output)
+        self.assertIn("command: clarify: htlp", output)
+        self.assertIn("mode: question", output)
+        self.assertIn("answer:", output)
+
+    def test_russian_text_follow_up_escapes_command_clarify_after_answer(self) -> None:
+        from context.session_context import SessionContext
+        from runtime.runtime_manager import RuntimeManager
+
+        runtime_manager = RuntimeManager()
+        session_context = SessionContext()
+        buffer = io.StringIO()
+
+        with redirect_stdout(buffer):
+            should_exit, speak_enabled = cli._handle_cli_command(
+                "Что ты умеешь?",
+                runtime_manager=runtime_manager,
+                session_context=session_context,
+                speak_enabled=False,
+            )
+            self.assertFalse(should_exit)
+            self.assertFalse(speak_enabled)
+
+            should_exit, speak_enabled = cli._handle_cli_command(
+                "подробнее",
+                runtime_manager=runtime_manager,
+                session_context=session_context,
+                speak_enabled=False,
+            )
+
+        output = buffer.getvalue()
+        self.assertFalse(should_exit)
+        self.assertFalse(speak_enabled)
+        self.assertEqual(output.count("mode: question"), 2)
+        self.assertNotIn("command: clarify: подробнее", output)
+        self.assertIn("answer:", output)
+
+    def test_voice_retries_initial_capture_with_alternate_locales_after_gibberish_fallback(self) -> None:
+        interaction_manager = MagicMock()
+        dispatch_result = SimpleNamespace(interaction=SimpleNamespace(visible_lines=(), speech_utterance=None))
+
+        with patch(
+            "cli.capture_voice_turn",
+            side_effect=[
+                VoiceCaptureTurn(
+                    raw_transcript="Войска из Blue Cristian",
+                    normalized_text="Войска из Blue Cristian",
+                    locale_hint="ru-RU",
+                    preferred_locales=("ru-RU", "en-US"),
+                ),
+                VoiceCaptureTurn(
+                    raw_transcript="Why sky is blue",
+                    normalized_text="Why sky is blue",
+                    locale_hint=None,
+                    preferred_locales=("en-US", "ru-RU"),
+                ),
+            ],
+        ) as capture_mock, patch(
+            "cli.dispatch_voice_turn",
+            return_value=dispatch_result,
+        ) as dispatch_mock, patch(
+            "cli.render_interaction_dispatch"
+        ) as render_mock, patch(
+            "cli._build_default_interaction_manager",
+            return_value=interaction_manager,
+        ):
+            should_exit, speak_enabled, output = self._run_command("voice", speak_enabled=False)
+
+        self.assertFalse(should_exit)
+        self.assertFalse(speak_enabled)
+        self.assertIn("voice: didn't catch that clearly. speak again.", output)
+        self.assertIn("voice: listening again... speak now.", output)
+        self.assertIn('recognized: "Why sky is blue"', output)
+        self.assertNotIn('recognized: "Войска из Blue Cristian"', output)
+        self.assertEqual(
+            capture_mock.call_args_list,
+            [
+                call(timeout_seconds=cli._VOICE_CAPTURE_TIMEOUT_SECONDS, audio_policy=ANY),
+                call(
+                    timeout_seconds=cli._VOICE_CAPTURE_TIMEOUT_SECONDS,
+                    preferred_locales=("en-US", "ru-RU"),
+                    audio_policy=ANY,
+                ),
+            ],
+        )
+        dispatch_mock.assert_called_once()
+        render_mock.assert_called_once()
+
+    def test_voice_does_not_retry_blocked_state_confirmation_reply(self) -> None:
+        interaction_manager = MagicMock()
+        interaction_manager.runtime_manager.current_state = "awaiting_confirmation"
+        dispatch_result = SimpleNamespace(interaction=SimpleNamespace(visible_lines=(), speech_utterance=None))
+
+        with patch(
+            "cli.capture_voice_turn",
+            return_value=VoiceCaptureTurn(
+                raw_transcript="да",
+                normalized_text="yes",
+                locale_hint="ru-RU",
+                preferred_locales=("ru-RU", "en-US"),
+            ),
+        ) as capture_mock, patch(
+            "cli.dispatch_voice_turn",
+            return_value=dispatch_result,
+        ) as dispatch_mock, patch(
+            "cli.render_interaction_dispatch"
+        ) as render_mock, patch(
+            "cli._build_default_interaction_manager",
+            return_value=interaction_manager,
+        ):
+            should_exit, speak_enabled, output = self._run_command("voice", speak_enabled=False)
+
+        self.assertFalse(should_exit)
+        self.assertFalse(speak_enabled)
+        self.assertIn('recognized: "yes"', output)
+        self.assertNotIn("voice: didn't catch that clearly. speak again.", output)
+        capture_mock.assert_called_once_with(
+            timeout_seconds=cli._VOICE_CAPTURE_TIMEOUT_SECONDS,
+            audio_policy=ANY,
+        )
+        dispatch_mock.assert_called_once()
+        render_mock.assert_called_once()
 
     def test_voice_question_emits_latency_filler_when_dispatch_is_slow_and_speech_is_enabled(self) -> None:
         interaction_manager = MagicMock()
@@ -507,6 +658,8 @@ class CliSmokeTests(unittest.TestCase):
 
     def test_voice_command_reports_audio_policy_conflict_when_speech_cannot_be_interrupted(self) -> None:
         interaction_manager = MagicMock()
+        telemetry = VoiceTelemetryCollector()
+        voice_session_state = VoiceSessionState()
         tts_provider = MagicMock()
         audio_policy = HalfDuplexAudioPolicy()
         buffer = io.StringIO()
@@ -525,12 +678,24 @@ class CliSmokeTests(unittest.TestCase):
                     speak_enabled=True,
                     tts_provider=tts_provider,
                     audio_policy=audio_policy,
+                    telemetry=telemetry,
+                    voice_session_state=voice_session_state,
                 )
 
         output = buffer.getvalue()
+        snapshot = telemetry.snapshot()
+        last_event = voice_session_state.last_event
         self.assertFalse(should_exit)
         self.assertTrue(speak_enabled)
         self.assertIn("voice: Cannot interrupt active speech for capture.", output)
+        self.assertEqual(snapshot.speech_interrupt_count, 0)
+        self.assertEqual(snapshot.speech_interrupt_for_capture_count, 0)
+        self.assertEqual(snapshot.speech_interrupt_conflict_count, 1)
+        self.assertIsNotNone(last_event)
+        assert last_event is not None
+        self.assertEqual(last_event.event_kind, "interruption_conflict")
+        self.assertEqual(last_event.interruption_reason, "initial_capture_start")
+        self.assertEqual(last_event.interruption_error, "Cannot interrupt active speech for capture.")
         capture_mock.assert_not_called()
 
     def test_voice_command_records_initial_speech_interruption_in_telemetry_and_session_state(self) -> None:
@@ -627,6 +792,7 @@ class CliSmokeTests(unittest.TestCase):
 
     def test_stop_voice_latency_filler_records_response_phase_interruption_in_telemetry(self) -> None:
         telemetry = VoiceTelemetryCollector()
+        voice_session_state = VoiceSessionState()
         tts_provider = MagicMock()
         stop_event = Event()
         worker = Thread(
@@ -643,12 +809,21 @@ class CliSmokeTests(unittest.TestCase):
                 (stop_event, worker),
                 tts_provider=tts_provider,
                 telemetry=telemetry,
+                voice_session_state=voice_session_state,
+                interruption_locale="ru-RU",
             )
 
         snapshot = telemetry.snapshot()
+        last_event = voice_session_state.last_event
 
         self.assertEqual(snapshot.speech_interrupt_count, 1)
         self.assertEqual(snapshot.speech_interrupt_for_capture_count, 0)
+        self.assertEqual(snapshot.speech_interrupt_for_response_count, 1)
+        self.assertIsNotNone(last_event)
+        assert last_event is not None
+        self.assertEqual(last_event.event_kind, "interruption")
+        self.assertEqual(last_event.interruption_reason, "final_answer_start")
+        self.assertEqual(last_event.detected_locale, "ru-RU")
         stop_mock.assert_called_once_with(tts_provider)
 
     def test_voice_command_normalizes_repeated_open_phrase(self) -> None:

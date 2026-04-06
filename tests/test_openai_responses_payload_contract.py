@@ -239,6 +239,49 @@ class OpenAIResponsesPayloadContractTests(unittest.TestCase):
         self.assertIn("Open the explanation with wording close to", input_text)
         self.assertIn("hard-boundary framing", input_text)
 
+    def test_model_knowledge_answer_follow_up_uses_open_domain_contract(self) -> None:
+        session_context = SessionContext()
+        session_context.set_recent_answer_context(
+            topic="open_domain_general",
+            scope="open_domain",
+            sources=[],
+            answer_text="Tony Stark is a fictional Marvel character.",
+            answer_warning="May be out of date for changing facts.",
+            answer_kind="open_domain_model",
+            answer_provenance="model_knowledge",
+        )
+        follow_up_question = QuestionRequest(
+            raw_input="Explain more",
+            question_type=QuestionType.ANSWER_FOLLOW_UP,
+            scope="open_domain",
+            confidence=0.92,
+            context_refs={
+                "follow_up_kind": "explain_more",
+                "answer_topic": "open_domain_general",
+                "answer_scope": "open_domain",
+                "answer_sources": [],
+                "answer_text": "Tony Stark is a fictional Marvel character.",
+                "answer_warning": "May be out of date for changing facts.",
+                "answer_kind": "open_domain_model",
+                "answer_provenance": "model_knowledge",
+            },
+        )
+        follow_up_bundle = build_grounding_bundle(follow_up_question, session_context=session_context)
+
+        payload = self.provider.build_request_payload(
+            follow_up_question,
+            grounding_bundle=follow_up_bundle,
+            config=self._config(),
+        )
+
+        metadata = payload.get("metadata") or {}
+        format_config = ((payload.get("text") or {}).get("format") or {})
+        input_text = str((((payload.get("input") or [])[0].get("content") or [])[0].get("text")) or "")
+        self.assertEqual(metadata.get("answer_mode"), "open_domain")
+        self.assertEqual(format_config.get("name"), GENERAL_ANSWER_SCHEMA_NAME)
+        self.assertIn("Local grounded sources: none for this answer mode. Do not invent citations.", input_text)
+        self.assertIn('"recent_answer_context"', input_text)
+
     def test_open_domain_payload_uses_general_schema_and_metadata(self) -> None:
         payload = self.provider.build_request_payload(
             self.open_domain_question,

@@ -76,6 +76,28 @@ class SourceSelectorTests(unittest.TestCase):
         self.assertTrue(bundle.source_paths[0].endswith("docs/clarification_rules.md"))
         self.assertEqual(bundle.sources[0].section_hint, "When Clarification Is Required")
 
+    def test_model_knowledge_explain_more_follow_up_can_build_empty_grounding_bundle(self) -> None:
+        question = QuestionRequest(
+            raw_input="Explain more",
+            question_type=QuestionType.ANSWER_FOLLOW_UP,
+            scope="open_domain",
+            context_refs={
+                "follow_up_kind": "explain_more",
+                "answer_topic": "open_domain_general",
+                "answer_scope": "open_domain",
+                "answer_sources": [],
+                "answer_kind": "open_domain_model",
+                "answer_provenance": "model_knowledge",
+                "answer_text": "Tony Stark is a fictional Marvel character.",
+            },
+            confidence=0.9,
+        )
+
+        bundle = build_grounding_bundle(question)
+
+        self.assertEqual(bundle.scope, "open_domain")
+        self.assertEqual(bundle.source_paths, [])
+
 
 if __name__ == "__main__":
     unittest.main()

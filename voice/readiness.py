@@ -42,6 +42,7 @@ class VoiceReadinessRecord:
     telemetry_follow_up_dismiss_count: int | None
     telemetry_max_follow_up_chain_length: int | None
     telemetry_follow_up_limit_hit_count: int | None
+    telemetry_speech_interrupt_conflict_count: int | None
     follow_up_session_available: bool
     manual_verification_doc: str
     manual_verification_doc_present: bool
@@ -73,6 +74,7 @@ class VoiceReadinessRecord:
             "telemetry_follow_up_dismiss_count": self.telemetry_follow_up_dismiss_count,
             "telemetry_max_follow_up_chain_length": self.telemetry_max_follow_up_chain_length,
             "telemetry_follow_up_limit_hit_count": self.telemetry_follow_up_limit_hit_count,
+            "telemetry_speech_interrupt_conflict_count": self.telemetry_speech_interrupt_conflict_count,
             "follow_up_session_available": self.follow_up_session_available,
             "manual_verification_doc": self.manual_verification_doc,
             "manual_verification_doc_present": self.manual_verification_doc_present,
@@ -150,6 +152,10 @@ def build_voice_readiness_record(
         telemetry_follow_up_dismiss_count=_telemetry_count(telemetry_snapshot, "follow_up_dismiss_count"),
         telemetry_max_follow_up_chain_length=_telemetry_count(telemetry_snapshot, "max_follow_up_chain_length"),
         telemetry_follow_up_limit_hit_count=_telemetry_count(telemetry_snapshot, "follow_up_limit_hit_count"),
+        telemetry_speech_interrupt_conflict_count=_telemetry_count(
+            telemetry_snapshot,
+            "speech_interrupt_conflict_count",
+        ),
         follow_up_session_available=follow_up_session_available,
         manual_verification_doc=_MANUAL_VERIFICATION_DOC,
         manual_verification_doc_present=manual_doc_present,
@@ -180,6 +186,7 @@ def format_voice_readiness_record(record: VoiceReadinessRecord) -> str:
         f"telemetry follow-up dismiss count: {_telemetry_metric_text(record.telemetry_follow_up_dismiss_count)}",
         f"telemetry max follow-up chain length: {_telemetry_metric_text(record.telemetry_max_follow_up_chain_length)}",
         f"telemetry follow-up limit hit count: {_telemetry_metric_text(record.telemetry_follow_up_limit_hit_count)}",
+        f"telemetry speech interrupt conflict count: {_telemetry_metric_text(record.telemetry_speech_interrupt_conflict_count)}",
         f"manual verification doc: {record.manual_verification_doc}",
         f"manual verification doc present: {'yes' if record.manual_verification_doc_present else 'no'}",
         f"manual verification recorded: {'yes' if record.manual_verification_recorded else 'no'}",
@@ -200,7 +207,8 @@ def format_voice_readiness_record(record: VoiceReadinessRecord) -> str:
             f" (follow-up relisten={record.telemetry_follow_up_relisten_count or 0},"
             f" dismiss={record.telemetry_follow_up_dismiss_count or 0},"
             f" max_chain={record.telemetry_max_follow_up_chain_length or 0},"
-            f" limit_hits={record.telemetry_follow_up_limit_hit_count or 0})"
+            f" limit_hits={record.telemetry_follow_up_limit_hit_count or 0},"
+            f" interrupt_conflicts={record.telemetry_speech_interrupt_conflict_count or 0})"
         )
     else:
         lines.append(

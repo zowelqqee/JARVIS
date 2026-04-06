@@ -204,14 +204,23 @@ class VoiceTelemetryTests(unittest.TestCase):
             reason="final_answer_start",
             phase="response",
         )
+        collector.record_speech_interrupt_conflict(
+            reason="follow_up_capture_start",
+            phase="capture",
+            error_message="Cannot interrupt active speech for capture.",
+        )
 
         snapshot = collector.snapshot()
         rendered = format_voice_telemetry_snapshot(snapshot)
 
         self.assertEqual(snapshot.speech_interrupt_count, 2)
         self.assertEqual(snapshot.speech_interrupt_for_capture_count, 1)
+        self.assertEqual(snapshot.speech_interrupt_for_response_count, 1)
+        self.assertEqual(snapshot.speech_interrupt_conflict_count, 1)
         self.assertIn("speech interrupt count: 2", rendered)
         self.assertIn("speech interrupt for capture count: 1", rendered)
+        self.assertIn("speech interrupt for response count: 1", rendered)
+        self.assertIn("speech interrupt conflict count: 1", rendered)
 
     def test_snapshot_can_be_written_and_reloaded_as_artifact(self) -> None:
         collector = VoiceTelemetryCollector()
@@ -305,6 +314,8 @@ class VoiceTelemetryTests(unittest.TestCase):
         self.assertEqual(snapshot.follow_up_dismiss_count, 0)
         self.assertEqual(snapshot.speech_interrupt_count, 0)
         self.assertEqual(snapshot.speech_interrupt_for_capture_count, 0)
+        self.assertEqual(snapshot.speech_interrupt_for_response_count, 0)
+        self.assertEqual(snapshot.speech_interrupt_conflict_count, 0)
 
     def test_module_can_render_explicit_saved_artifact_path(self) -> None:
         collector = VoiceTelemetryCollector()

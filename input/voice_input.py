@@ -67,6 +67,11 @@ def capture_voice_input(
     return recognized_text
 
 
+def resolve_capture_locales(preferred_locales: Sequence[str] | None = None) -> tuple[str, ...]:
+    """Expose the effective locale chain used by one voice capture."""
+    return _resolve_preferred_locales(preferred_locales)
+
+
 def _ensure_helper_binary(force_rebuild: bool = False) -> None:
     source_mtime = _HELPER_SOURCE.stat().st_mtime
     plist_mtime = _HELPER_INFO_PLIST.stat().st_mtime if _HELPER_INFO_PLIST.exists() else 0.0

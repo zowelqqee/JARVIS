@@ -25,6 +25,8 @@ def select_sources(question: QuestionRequest) -> list[GroundingSource]:
         sources = get_registered_sources_for_paths(_follow_up_sources(question))
         if not sources and _follow_up_kind_value(question) == "repeat":
             return []
+        if not sources and _follow_up_uses_model_knowledge(question) and _follow_up_kind_value(question) in {"explain_more", "why"}:
+            return []
         if not sources:
             follow_up_question_type = _follow_up_question_type(question)
             follow_up_topic = _follow_up_topic(question)
@@ -164,6 +166,15 @@ def _follow_up_question_type(question: QuestionRequest) -> QuestionType | None:
         return QuestionType(topic)
     except ValueError:
         return None
+
+
+def _follow_up_uses_model_knowledge(question: QuestionRequest) -> bool:
+    raw_context_refs = getattr(question, "context_refs", {}) or {}
+    if not isinstance(raw_context_refs, dict):
+        return False
+    answer_kind = str(raw_context_refs.get("answer_kind", "") or "").strip()
+    answer_provenance = str(raw_context_refs.get("answer_provenance", "") or "").strip()
+    return answer_kind == "open_domain_model" or answer_provenance == "model_knowledge"
 
 
 def _dedupe_sources(sources: list[GroundingSource]) -> list[GroundingSource]:

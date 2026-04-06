@@ -5,6 +5,7 @@ from __future__ import annotations
 import sys
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 
 from interaction.interaction_router import (
     RoutedInteraction,
@@ -61,6 +62,21 @@ class InteractionRouterTests(unittest.TestCase):
 
         self.assertEqual(decision.kind, InteractionKind.QUESTION)
 
+    def test_bare_wake_word_routes_to_question_instead_of_fallback_command(self) -> None:
+        decision = route_interaction("Джарвис")
+
+        self.assertEqual(decision.kind, InteractionKind.QUESTION)
+
+    def test_short_jarvis_greeting_misrecognition_routes_to_question(self) -> None:
+        decision = route_interaction("Previous Jarvis")
+
+        self.assertEqual(decision.kind, InteractionKind.QUESTION)
+
+    def test_compare_request_routes_to_question(self) -> None:
+        decision = route_interaction("Сравни ChatGPT с Claude")
+
+        self.assertEqual(decision.kind, InteractionKind.QUESTION)
+
     def test_mixed_question_and_command_routes_to_clarification(self) -> None:
         decision = route_interaction("What can you do and open Safari")
 
@@ -112,6 +128,40 @@ class InteractionRouterTests(unittest.TestCase):
 
         self.assertEqual(decision.kind, InteractionKind.QUESTION)
         self.assertEqual(decision.reason, "blocked_state_question")
+
+    def test_generic_question_escapes_clarification_blocked_state(self) -> None:
+        decision = route_interaction("What can you do?", runtime_state="awaiting_clarification")
+
+        self.assertEqual(decision.kind, InteractionKind.QUESTION)
+        self.assertEqual(decision.reason, "blocked_state_question")
+
+    def test_greeting_escapes_clarification_blocked_state(self) -> None:
+        decision = route_interaction("hello", runtime_state="awaiting_clarification")
+
+        self.assertEqual(decision.kind, InteractionKind.QUESTION)
+        self.assertEqual(decision.reason, "blocked_state_question")
+
+    def test_short_target_like_safari_question_mark_stays_command_in_clarification_state(self) -> None:
+        decision = route_interaction("Safari?", runtime_state="awaiting_clarification")
+
+        self.assertEqual(decision.kind, InteractionKind.COMMAND)
+        self.assertEqual(decision.reason, "blocked_state_priority")
+
+    def test_recent_answer_follow_up_routes_to_question_when_recent_context_exists(self) -> None:
+        session_context = SimpleNamespace(get_recent_answer_context=lambda: {"topic": "capabilities"})
+
+        decision = route_interaction("подробнее", session_context=session_context)
+
+        self.assertEqual(decision.kind, InteractionKind.QUESTION)
+        self.assertEqual(decision.reason, "recent_answer_follow_up")
+
+    def test_recent_answer_follow_up_stays_fallback_without_recent_context(self) -> None:
+        session_context = SimpleNamespace(get_recent_answer_context=lambda: None)
+
+        decision = route_interaction("подробнее", session_context=session_context)
+
+        self.assertEqual(decision.kind, InteractionKind.COMMAND)
+        self.assertEqual(decision.reason, "fallback_command")
 
     def test_blocked_state_priority_for_confirmation_reply_keeps_command_path(self) -> None:
         decision = route_interaction("yes", runtime_state="awaiting_confirmation")

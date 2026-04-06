@@ -23,6 +23,11 @@ class VoiceStatusTests(unittest.TestCase):
             reason="final_answer_start",
             phase="response",
         )
+        telemetry.record_speech_interrupt_conflict(
+            reason="follow_up_capture_start",
+            phase="capture",
+            error_message="Cannot interrupt active speech for capture.",
+        )
 
         status = build_voice_session_status(
             speak_enabled=True,
@@ -37,6 +42,8 @@ class VoiceStatusTests(unittest.TestCase):
         self.assertEqual(status.telemetry_follow_up_limit_hit_count, 1)
         self.assertEqual(status.telemetry_speech_interrupt_count, 2)
         self.assertEqual(status.telemetry_speech_interrupt_for_capture_count, 1)
+        self.assertEqual(status.telemetry_speech_interrupt_for_response_count, 1)
+        self.assertEqual(status.telemetry_speech_interrupt_conflict_count, 1)
 
     def test_build_voice_session_status_uses_empty_snapshot_when_missing(self) -> None:
         status = build_voice_session_status(
@@ -58,6 +65,11 @@ class VoiceStatusTests(unittest.TestCase):
             reason="initial_capture_start",
             phase="capture",
         )
+        telemetry.record_speech_interrupt_conflict(
+            reason="follow_up_capture_start",
+            phase="capture",
+            error_message="Cannot interrupt active speech for capture.",
+        )
 
         rendered = format_voice_session_status(
             build_voice_session_status(
@@ -75,6 +87,8 @@ class VoiceStatusTests(unittest.TestCase):
         self.assertIn("telemetry follow-up limit hit count: 1", rendered)
         self.assertIn("telemetry speech interrupt count: 1", rendered)
         self.assertIn("telemetry speech interrupt for capture count: 1", rendered)
+        self.assertIn("telemetry speech interrupt for response count: 0", rendered)
+        self.assertIn("telemetry speech interrupt conflict count: 1", rendered)
 
 
 if __name__ == "__main__":

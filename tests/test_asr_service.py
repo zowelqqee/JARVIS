@@ -21,9 +21,13 @@ class ASRServiceTests(unittest.TestCase):
                 raw_transcript="Джарвис, открой телеграм",
                 normalized_text="open telegram",
                 locale_hint="ru-RU",
+                preferred_locales=("ru-RU", "en-US"),
             ),
         )
-        capture_mock.assert_called_once_with(timeout_seconds=7.0, preferred_locales=None)
+        capture_mock.assert_called_once_with(
+            timeout_seconds=7.0,
+            preferred_locales=("ru-RU", "en-US"),
+        )
 
     def test_capture_voice_turn_normalizes_russian_notes_command(self) -> None:
         with patch("voice.asr_service.capture_voice_input", return_value="Джарвис, открой заметки"):
@@ -35,6 +39,7 @@ class ASRServiceTests(unittest.TestCase):
                 raw_transcript="Джарвис, открой заметки",
                 normalized_text="open notes",
                 locale_hint="ru-RU",
+                preferred_locales=("ru-RU", "en-US"),
             ),
         )
 
@@ -48,6 +53,7 @@ class ASRServiceTests(unittest.TestCase):
                 raw_transcript="What can you do what can you do",
                 normalized_text="What can you do",
                 locale_hint=None,
+                preferred_locales=("ru-RU", "en-US"),
             ),
         )
 
@@ -70,6 +76,7 @@ class ASRServiceTests(unittest.TestCase):
                 raw_transcript="да, подтверждаю",
                 normalized_text="confirm",
                 locale_hint="ru-RU",
+                preferred_locales=("ru-RU", "en-US"),
             ),
         )
 
@@ -83,6 +90,7 @@ class ASRServiceTests(unittest.TestCase):
                 raw_transcript="привет почему небо зелёное",
                 normalized_text="почему небо зелёное",
                 locale_hint="ru-RU",
+                preferred_locales=("ru-RU", "en-US"),
             ),
         )
 
@@ -96,6 +104,7 @@ class ASRServiceTests(unittest.TestCase):
                 raw_transcript="привет слушай а почему Lego так называется",
                 normalized_text="почему Lego так называется",
                 locale_hint="ru-RU",
+                preferred_locales=("ru-RU", "en-US"),
             ),
         )
 

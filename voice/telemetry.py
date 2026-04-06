@@ -44,6 +44,8 @@ class VoiceTelemetrySnapshot:
     follow_up_limit_hit_count: int = 0
     speech_interrupt_count: int = 0
     speech_interrupt_for_capture_count: int = 0
+    speech_interrupt_for_response_count: int = 0
+    speech_interrupt_conflict_count: int = 0
 
     def to_dict(self) -> dict[str, Any]:
         """Return a JSON-serializable snapshot representation."""
@@ -64,6 +66,8 @@ class VoiceTelemetrySnapshot:
             "follow_up_limit_hit_count": self.follow_up_limit_hit_count,
             "speech_interrupt_count": self.speech_interrupt_count,
             "speech_interrupt_for_capture_count": self.speech_interrupt_for_capture_count,
+            "speech_interrupt_for_response_count": self.speech_interrupt_for_response_count,
+            "speech_interrupt_conflict_count": self.speech_interrupt_conflict_count,
         }
 
 
@@ -219,6 +223,25 @@ class VoiceTelemetryCollector:
             )
         )
 
+    def record_speech_interrupt_conflict(
+        self,
+        *,
+        reason: str,
+        phase: str | None = None,
+        error_message: str | None = None,
+    ) -> None:
+        """Record that the voice layer wanted to interrupt speech but could not."""
+        self._events.append(
+            VoiceTelemetryEvent(
+                event_type="speech_interrupt_conflict",
+                payload={
+                    "reason": str(reason or "").strip() or None,
+                    "phase": str(phase or "").strip() or None,
+                    "error_message": str(error_message or "").strip() or None,
+                },
+            )
+        )
+
     def snapshot(self) -> VoiceTelemetrySnapshot:
         """Return the current derived voice metrics."""
         capture_events = [event.payload for event in self._events if event.event_type == "capture"]
@@ -227,6 +250,9 @@ class VoiceTelemetryCollector:
         follow_up_controls = [event.payload for event in self._events if event.event_type == "follow_up_control"]
         follow_up_loops = [event.payload for event in self._events if event.event_type == "follow_up_loop"]
         speech_interruptions = [event.payload for event in self._events if event.event_type == "speech_interruption"]
+        speech_interrupt_conflicts = [
+            event.payload for event in self._events if event.event_type == "speech_interrupt_conflict"
+        ]
         tts_events = [event.payload for event in self._events if event.event_type == "tts"]
         attempted_tts_events = [payload for payload in tts_events if bool(payload.get("attempted", False))]
         confirmation_requests = [
@@ -270,6 +296,9 @@ class VoiceTelemetryCollector:
         capture_interruptions = [
             payload for payload in speech_interruptions if str(payload.get("phase", "") or "").strip() == "capture"
         ]
+        response_interruptions = [
+            payload for payload in speech_interruptions if str(payload.get("phase", "") or "").strip() == "response"
+        ]
 
         return VoiceTelemetrySnapshot(
             capture_attempts=len(capture_events),
@@ -288,6 +317,8 @@ class VoiceTelemetryCollector:
             follow_up_limit_hit_count=len(limit_hits),
             speech_interrupt_count=len(speech_interruptions),
             speech_interrupt_for_capture_count=len(capture_interruptions),
+            speech_interrupt_for_response_count=len(response_interruptions),
+            speech_interrupt_conflict_count=len(speech_interrupt_conflicts),
         )
 
 
@@ -407,6 +438,8 @@ def format_voice_telemetry_snapshot(snapshot: VoiceTelemetrySnapshot) -> str:
             f"follow-up limit hit count: {snapshot.follow_up_limit_hit_count}",
             f"speech interrupt count: {snapshot.speech_interrupt_count}",
             f"speech interrupt for capture count: {snapshot.speech_interrupt_for_capture_count}",
+            f"speech interrupt for response count: {snapshot.speech_interrupt_for_response_count}",
+            f"speech interrupt conflict count: {snapshot.speech_interrupt_conflict_count}",
         ]
     )
 
