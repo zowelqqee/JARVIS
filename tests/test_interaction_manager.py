@@ -232,7 +232,7 @@ class InteractionManagerTests(unittest.TestCase):
     def test_russian_follow_up_question_reuses_recent_answer_context(self) -> None:
         self.manager.handle_input("What can you do?", session_context=self.session_context)
 
-        result = self.manager.handle_input("подробнее", session_context=self.session_context)
+        result = self.manager.handle_input("скажи подробнее", session_context=self.session_context)
 
         self.assertEqual(getattr(result.interaction_mode, "value", ""), "question")
         self.assertIsNotNone(result.answer_result)

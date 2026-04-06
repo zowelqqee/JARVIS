@@ -66,6 +66,7 @@ def build_general_user_text(question: QuestionRequest, *, grounding_bundle: Grou
         for section in (
             _question_section(question),
             _policy_section(policy),
+            _answer_follow_up_section(question, grounding_bundle=grounding_bundle),
             "Local grounded sources: none for this answer mode. Do not invent citations.",
             _json_section("Runtime facts", grounding_bundle.runtime_facts),
             _json_section("Session facts", grounding_bundle.session_facts),
@@ -89,6 +90,44 @@ def _policy_section(policy) -> str:
         lines.append("Policy guidance:")
         lines.extend(f"- {line}" for line in policy.guidance_lines)
     return "\n".join(lines)
+
+
+def _answer_follow_up_section(question: QuestionRequest, *, grounding_bundle: GroundingBundle) -> str:
+    question_type = getattr(getattr(question, "question_type", None), "value", getattr(question, "question_type", None))
+    if str(question_type or "").strip() != "answer_follow_up":
+        return ""
+
+    raw_context_refs = getattr(question, "context_refs", {}) or {}
+    context_refs = raw_context_refs if isinstance(raw_context_refs, dict) else {}
+    recent_answer_context = dict((grounding_bundle.session_facts or {}).get("recent_answer_context", {}) or {})
+    if not recent_answer_context:
+        return ""
+
+    follow_up_kind = str(context_refs.get("follow_up_kind", "") or "").strip()
+    answer_kind = str(recent_answer_context.get("answer_kind", "") or "").strip()
+    answer_provenance = str(recent_answer_context.get("answer_provenance", "") or "").strip()
+    answer_warning = str(recent_answer_context.get("answer_warning", "") or "").strip()
+    answer_text = str(recent_answer_context.get("answer_text", "") or "").strip()
+    uses_model_knowledge = answer_kind == "open_domain_model" or answer_provenance == "model_knowledge"
+
+    lines: list[str] = []
+    if uses_model_knowledge:
+        lines.append("This follow-up continues the previous model-knowledge answer, not a new unrelated question.")
+        lines.append("Use recent_answer_context.answer_text as the anchor and answer directly instead of asking what the user wants explained.")
+        lines.append("Keep the same topic unless the user explicitly changes it.")
+        if follow_up_kind == "explain_more":
+            lines.append("For explain_more, provide a fuller explanation of the same subject with extra detail, context, or examples.")
+        elif follow_up_kind == "why":
+            lines.append("For why follow-ups, explain the reasoning behind the previous answer directly.")
+        if answer_text:
+            lines.append(f"Recent answer anchor: {answer_text}")
+        if answer_warning:
+            lines.append("If the recent answer already carried a warning, preserve that warning unless the safety boundary changes.")
+        lines.append("Do not ask a clarification question unless the recent answer context is actually missing or unusable.")
+        lines.append("Do not invent citations or claim grounded local sources for this follow-up.")
+    if not lines:
+        return ""
+    return "Question-specific follow-up guidance:\n" + "\n".join(f"- {line}" for line in lines)
 
 
 def _json_section(title: str, data: dict[str, Any]) -> str:

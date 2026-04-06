@@ -27,10 +27,17 @@ class VoiceReadinessGateReport:
     telemetry_max_follow_up_chain_length: int | None
     telemetry_follow_up_limit_hit_count: int | None
     telemetry_speech_interrupt_conflict_count: int | None
+    native_tts_requested: bool
+    native_tts_status: str
+    native_tts_active_backend: str | None
+    native_tts_reason: str | None
+    native_tts_command: str | None
+    native_tts_detail_lines: list[str]
     telemetry_note: str
     next_step_kind: str
     next_step_reason: str
     next_step_command: str | None
+    next_step_detail_lines: list[str]
     blockers: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
@@ -47,10 +54,17 @@ class VoiceReadinessGateReport:
             "telemetry_max_follow_up_chain_length": self.telemetry_max_follow_up_chain_length,
             "telemetry_follow_up_limit_hit_count": self.telemetry_follow_up_limit_hit_count,
             "telemetry_speech_interrupt_conflict_count": self.telemetry_speech_interrupt_conflict_count,
+            "native_tts_requested": self.native_tts_requested,
+            "native_tts_status": self.native_tts_status,
+            "native_tts_active_backend": self.native_tts_active_backend or "",
+            "native_tts_reason": self.native_tts_reason or "",
+            "native_tts_command": self.native_tts_command or "",
+            "native_tts_detail_lines": list(self.native_tts_detail_lines),
             "telemetry_note": self.telemetry_note,
             "next_step_kind": self.next_step_kind,
             "next_step_reason": self.next_step_reason,
             "next_step_command": self.next_step_command or "",
+            "next_step_detail_lines": list(self.next_step_detail_lines),
             "blockers": list(self.blockers),
         }
 
@@ -100,10 +114,17 @@ def build_voice_readiness_gate_report(
         telemetry_max_follow_up_chain_length=readiness.telemetry_max_follow_up_chain_length,
         telemetry_follow_up_limit_hit_count=readiness.telemetry_follow_up_limit_hit_count,
         telemetry_speech_interrupt_conflict_count=readiness.telemetry_speech_interrupt_conflict_count,
+        native_tts_requested=readiness.native_tts_requested,
+        native_tts_status=readiness.native_tts_status,
+        native_tts_active_backend=readiness.native_tts_active_backend,
+        native_tts_reason=readiness.native_tts_reason,
+        native_tts_command=readiness.native_tts_command,
+        native_tts_detail_lines=list(readiness.native_tts_detail_lines),
         telemetry_note=telemetry_note,
         next_step_kind=readiness.next_step_kind,
         next_step_reason=readiness.next_step_reason,
         next_step_command=readiness.next_step_command,
+        next_step_detail_lines=list(readiness.next_step_detail_lines),
         blockers=blockers,
     )
 
@@ -124,12 +145,19 @@ def format_voice_readiness_gate_report(report: VoiceReadinessGateReport) -> str:
             f"telemetry max follow-up chain length: {_telemetry_metric_text(report.telemetry_max_follow_up_chain_length)}",
             f"telemetry follow-up limit hit count: {_telemetry_metric_text(report.telemetry_follow_up_limit_hit_count)}",
             f"telemetry speech interrupt conflict count: {_telemetry_metric_text(report.telemetry_speech_interrupt_conflict_count)}",
+            f"native tts requested in current env: {'yes' if report.native_tts_requested else 'no'}",
+            f"native tts smoke status: {report.native_tts_status}",
+            f"native tts active backend: {report.native_tts_active_backend or 'n/a'}",
+            f"native tts reason: {report.native_tts_reason or 'n/a'}",
+            f"native tts command: {report.native_tts_command or 'n/a'}",
             f"telemetry note: {report.telemetry_note}",
             f"next step: {report.next_step_kind}",
             f"next step reason: {report.next_step_reason}",
             f"next step command: {report.next_step_command or 'n/a'}",
             f"blockers: {', '.join(report.blockers) if report.blockers else 'none'}",
         ]
+        + [f"native tts detail: {detail}" for detail in report.native_tts_detail_lines]
+        + [f"next step detail: {detail}" for detail in report.next_step_detail_lines]
     )
 
 

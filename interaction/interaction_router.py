@@ -203,7 +203,6 @@ _ANSWER_FOLLOW_UP_SURFACES = frozenset(
         "say that again",
         "say it again",
         "repeat",
-        "подробнее",
         "скажи подробнее",
         "объясни подробнее",
         "расскажи подробнее",

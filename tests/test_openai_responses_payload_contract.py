@@ -279,6 +279,11 @@ class OpenAIResponsesPayloadContractTests(unittest.TestCase):
         input_text = str((((payload.get("input") or [])[0].get("content") or [])[0].get("text")) or "")
         self.assertEqual(metadata.get("answer_mode"), "open_domain")
         self.assertEqual(format_config.get("name"), GENERAL_ANSWER_SCHEMA_NAME)
+        self.assertIn("Question-specific follow-up guidance:", input_text)
+        self.assertIn("This follow-up continues the previous model-knowledge answer", input_text)
+        self.assertIn("answer directly instead of asking what the user wants explained", input_text)
+        self.assertIn("For explain_more, provide a fuller explanation of the same subject", input_text)
+        self.assertIn("Recent answer anchor: Tony Stark is a fictional Marvel character.", input_text)
         self.assertIn("Local grounded sources: none for this answer mode. Do not invent citations.", input_text)
         self.assertIn('"recent_answer_context"', input_text)
 

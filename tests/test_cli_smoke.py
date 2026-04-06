@@ -141,7 +141,7 @@ class CliSmokeTests(unittest.TestCase):
             self.assertFalse(speak_enabled)
 
             should_exit, speak_enabled = cli._handle_cli_command(
-                "подробнее",
+                "скажи подробнее",
                 runtime_manager=runtime_manager,
                 session_context=session_context,
                 speak_enabled=False,
@@ -151,7 +151,7 @@ class CliSmokeTests(unittest.TestCase):
         self.assertFalse(should_exit)
         self.assertFalse(speak_enabled)
         self.assertEqual(output.count("mode: question"), 2)
-        self.assertNotIn("command: clarify: подробнее", output)
+        self.assertNotIn("command: clarify: скажи подробнее", output)
         self.assertIn("answer:", output)
 
     def test_voice_retries_initial_capture_with_alternate_locales_after_gibberish_fallback(self) -> None:
@@ -3237,6 +3237,114 @@ class CliSmokeTests(unittest.TestCase):
             telemetry_snapshot=telemetry.snapshot.return_value,
         )
         format_mock.assert_called_once_with(session_status)
+        runtime_mock.assert_not_called()
+        capture_mock.assert_not_called()
+
+    def test_voice_tts_backend_helper_is_intercepted_before_runtime(self) -> None:
+        tts_provider = MagicMock()
+        backend_status = SimpleNamespace(backend_name="macos_say_legacy")
+
+        with patch("cli._handle_runtime_input") as runtime_mock, patch(
+            "cli.capture_voice_turn"
+        ) as capture_mock, patch(
+            "cli.build_default_tts_provider",
+            return_value=tts_provider,
+        ) as provider_mock, patch(
+            "cli.build_tts_backend_status",
+            return_value=backend_status,
+        ) as status_mock, patch(
+            "cli.format_tts_backend_status",
+            return_value="VOICE TTS BACKEND SUMMARY",
+        ) as format_mock:
+            should_exit, speak_enabled, output = self._run_command("voice tts backend", speak_enabled=False)
+
+        self.assertFalse(should_exit)
+        self.assertFalse(speak_enabled)
+        self.assertIn("VOICE TTS BACKEND SUMMARY", output)
+        provider_mock.assert_called_once_with()
+        status_mock.assert_called_once_with(tts_provider)
+        format_mock.assert_called_once_with(backend_status)
+        runtime_mock.assert_not_called()
+        capture_mock.assert_not_called()
+
+    def test_voice_tts_voices_helper_is_intercepted_before_runtime(self) -> None:
+        tts_provider = MagicMock()
+        voice_inventory = SimpleNamespace(voices=())
+
+        with patch("cli._handle_runtime_input") as runtime_mock, patch(
+            "cli.capture_voice_turn"
+        ) as capture_mock, patch(
+            "cli.build_default_tts_provider",
+            return_value=tts_provider,
+        ) as provider_mock, patch(
+            "cli.build_tts_voice_inventory",
+            return_value=voice_inventory,
+        ) as inventory_mock, patch(
+            "cli.format_tts_voice_inventory",
+            return_value="VOICE TTS VOICES SUMMARY",
+        ) as format_mock:
+            should_exit, speak_enabled, output = self._run_command("voice tts voices", speak_enabled=False)
+
+        self.assertFalse(should_exit)
+        self.assertFalse(speak_enabled)
+        self.assertIn("VOICE TTS VOICES SUMMARY", output)
+        provider_mock.assert_called_once_with()
+        inventory_mock.assert_called_once_with(tts_provider)
+        format_mock.assert_called_once_with(voice_inventory)
+        runtime_mock.assert_not_called()
+        capture_mock.assert_not_called()
+
+    def test_voice_tts_current_helper_is_intercepted_before_runtime(self) -> None:
+        tts_provider = MagicMock()
+        current_status = SimpleNamespace(resolutions=())
+
+        with patch("cli._handle_runtime_input") as runtime_mock, patch(
+            "cli.capture_voice_turn"
+        ) as capture_mock, patch(
+            "cli.build_default_tts_provider",
+            return_value=tts_provider,
+        ) as provider_mock, patch(
+            "cli.build_tts_current_status",
+            return_value=current_status,
+        ) as status_mock, patch(
+            "cli.format_tts_current_status",
+            return_value="VOICE TTS CURRENT SUMMARY",
+        ) as format_mock:
+            should_exit, speak_enabled, output = self._run_command("voice tts current", speak_enabled=False)
+
+        self.assertFalse(should_exit)
+        self.assertFalse(speak_enabled)
+        self.assertIn("VOICE TTS CURRENT SUMMARY", output)
+        provider_mock.assert_called_once_with()
+        status_mock.assert_called_once_with(tts_provider)
+        format_mock.assert_called_once_with(current_status)
+        runtime_mock.assert_not_called()
+        capture_mock.assert_not_called()
+
+    def test_voice_tts_doctor_helper_is_intercepted_before_runtime(self) -> None:
+        tts_provider = MagicMock()
+        doctor_status = SimpleNamespace(guidance=())
+
+        with patch("cli._handle_runtime_input") as runtime_mock, patch(
+            "cli.capture_voice_turn"
+        ) as capture_mock, patch(
+            "cli.build_default_tts_provider",
+            return_value=tts_provider,
+        ) as provider_mock, patch(
+            "cli.build_tts_doctor_status",
+            return_value=doctor_status,
+        ) as status_mock, patch(
+            "cli.format_tts_doctor_status",
+            return_value="VOICE TTS DOCTOR SUMMARY",
+        ) as format_mock:
+            should_exit, speak_enabled, output = self._run_command("voice tts doctor", speak_enabled=False)
+
+        self.assertFalse(should_exit)
+        self.assertFalse(speak_enabled)
+        self.assertIn("VOICE TTS DOCTOR SUMMARY", output)
+        provider_mock.assert_called_once_with()
+        status_mock.assert_called_once_with(tts_provider)
+        format_mock.assert_called_once_with(doctor_status)
         runtime_mock.assert_not_called()
         capture_mock.assert_not_called()
 

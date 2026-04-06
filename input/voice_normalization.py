@@ -111,7 +111,6 @@ _RUSSIAN_ANSWER_FOLLOW_UP_MAP = {
     "скажи подробнее": "Explain more",
     "объясни подробнее": "Explain more",
     "расскажи подробнее": "Explain more",
-    "подробнее": "Explain more",
     "какой источник": "Which source?",
     "какие источники": "Which sources?",
     "где это написано": "Where is that written",

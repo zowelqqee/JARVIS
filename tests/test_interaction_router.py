@@ -150,13 +150,21 @@ class InteractionRouterTests(unittest.TestCase):
     def test_recent_answer_follow_up_routes_to_question_when_recent_context_exists(self) -> None:
         session_context = SimpleNamespace(get_recent_answer_context=lambda: {"topic": "capabilities"})
 
-        decision = route_interaction("подробнее", session_context=session_context)
+        decision = route_interaction("скажи подробнее", session_context=session_context)
 
         self.assertEqual(decision.kind, InteractionKind.QUESTION)
         self.assertEqual(decision.reason, "recent_answer_follow_up")
 
     def test_recent_answer_follow_up_stays_fallback_without_recent_context(self) -> None:
         session_context = SimpleNamespace(get_recent_answer_context=lambda: None)
+
+        decision = route_interaction("скажи подробнее", session_context=session_context)
+
+        self.assertEqual(decision.kind, InteractionKind.COMMAND)
+        self.assertEqual(decision.reason, "fallback_command")
+
+    def test_bare_podrobnee_no_longer_routes_as_recent_answer_follow_up(self) -> None:
+        session_context = SimpleNamespace(get_recent_answer_context=lambda: {"topic": "capabilities"})
 
         decision = route_interaction("подробнее", session_context=session_context)
 

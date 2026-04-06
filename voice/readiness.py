@@ -6,17 +6,27 @@ import argparse
 import json
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
+import os
 from pathlib import Path
+import sys
 from typing import Any, Mapping
 
 from voice.flags import continuous_voice_mode_enabled
 from voice.session import build_follow_up_capture_request, capture_follow_up_voice_turn
+from voice.status import build_tts_backend_status
 from voice.telemetry import (
     VoiceTelemetrySnapshot,
     build_default_voice_telemetry,
     load_voice_telemetry_snapshot,
     voice_telemetry_artifact_path,
 )
+from voice.tts_operator_hints import (
+    NATIVE_TTS_DOCTOR_COMMAND,
+    NATIVE_TTS_TYPECHECK_COMMAND,
+    native_tts_follow_up_command,
+    native_tts_next_step_details,
+)
+from voice.tts_provider import build_default_tts_provider
 
 _REPO_ROOT = Path(__file__).resolve().parents[1]
 _VOICE_READINESS_ARTIFACT = _REPO_ROOT / "tmp" / "qa" / "voice_readiness.json"
@@ -24,6 +34,20 @@ _MANUAL_VERIFICATION_DOC = "docs/manual_voice_verification.md"
 _MANUAL_VERIFICATION_DOC_PATH = _REPO_ROOT / _MANUAL_VERIFICATION_DOC
 _VOICE_READINESS_GUIDE_COMMAND = "python3 -m voice.readiness"
 _VOICE_TELEMETRY_GUIDE_COMMAND = "voice telemetry write"
+_NATIVE_TTS_ENV = "JARVIS_TTS_MACOS_NATIVE"
+
+
+@dataclass(slots=True, frozen=True)
+class NativeTTSSmokeSummary:
+    """Operator-facing native macOS TTS smoke status for the current env."""
+
+    requested: bool
+    status: str
+    active_backend: str | None = None
+    error_code: str | None = None
+    reason: str | None = None
+    command: str | None = None
+    detail_lines: tuple[str, ...] = ()
 
 
 @dataclass(slots=True, frozen=True)
@@ -44,6 +68,12 @@ class VoiceReadinessRecord:
     telemetry_follow_up_limit_hit_count: int | None
     telemetry_speech_interrupt_conflict_count: int | None
     follow_up_session_available: bool
+    native_tts_requested: bool
+    native_tts_status: str
+    native_tts_active_backend: str | None
+    native_tts_reason: str | None
+    native_tts_command: str | None
+    native_tts_detail_lines: list[str]
     manual_verification_doc: str
     manual_verification_doc_present: bool
     manual_verification_recorded: bool
@@ -53,6 +83,7 @@ class VoiceReadinessRecord:
     next_step_kind: str
     next_step_reason: str
     next_step_command: str | None
+    next_step_detail_lines: list[str]
     blockers: list[str] = field(default_factory=list)
     notes: str | None = None
 
@@ -76,6 +107,12 @@ class VoiceReadinessRecord:
             "telemetry_follow_up_limit_hit_count": self.telemetry_follow_up_limit_hit_count,
             "telemetry_speech_interrupt_conflict_count": self.telemetry_speech_interrupt_conflict_count,
             "follow_up_session_available": self.follow_up_session_available,
+            "native_tts_requested": self.native_tts_requested,
+            "native_tts_status": self.native_tts_status,
+            "native_tts_active_backend": self.native_tts_active_backend or "",
+            "native_tts_reason": self.native_tts_reason or "",
+            "native_tts_command": self.native_tts_command or "",
+            "native_tts_detail_lines": list(self.native_tts_detail_lines),
             "manual_verification_doc": self.manual_verification_doc,
             "manual_verification_doc_present": self.manual_verification_doc_present,
             "manual_verification_recorded": self.manual_verification_recorded,
@@ -85,6 +122,7 @@ class VoiceReadinessRecord:
             "next_step_kind": self.next_step_kind,
             "next_step_reason": self.next_step_reason,
             "next_step_command": self.next_step_command or "",
+            "next_step_detail_lines": list(self.next_step_detail_lines),
             "voice_ready": self.voice_ready,
             "blockers": list(self.blockers),
             "notes": self.notes or "",
@@ -119,6 +157,7 @@ def build_voice_readiness_record(
     follow_up_session_available = callable(build_follow_up_capture_request) and callable(capture_follow_up_voice_turn)
     default_env_continuous_mode = continuous_voice_mode_enabled(environ={})
     current_env_continuous_mode = continuous_voice_mode_enabled(environ=environ)
+    native_tts_smoke = _native_tts_smoke_summary(environ=environ)
 
     blockers: list[str] = []
     if not manual_doc_present:
@@ -131,12 +170,15 @@ def build_voice_readiness_record(
         blockers.append("advanced voice follow-up is enabled by default")
     if not effective_manual_verified:
         blockers.append("manual voice verification is not recorded")
+    if native_tts_smoke.requested and native_tts_smoke.status == "blocked":
+        blockers.append(f"native macOS TTS smoke is blocked ({native_tts_smoke.reason or 'unknown reason'})")
 
-    next_step_kind, next_step_reason, next_step_command = _voice_readiness_next_step(
+    next_step_kind, next_step_reason, next_step_command, next_step_detail_lines = _voice_readiness_next_step(
         blockers=blockers,
         manual_verified=effective_manual_verified,
         artifact_status=artifact_status,
         artifact_payload=artifact_payload,
+        native_tts_smoke=native_tts_smoke,
     )
 
     return VoiceReadinessRecord(
@@ -157,6 +199,12 @@ def build_voice_readiness_record(
             "speech_interrupt_conflict_count",
         ),
         follow_up_session_available=follow_up_session_available,
+        native_tts_requested=native_tts_smoke.requested,
+        native_tts_status=native_tts_smoke.status,
+        native_tts_active_backend=native_tts_smoke.active_backend,
+        native_tts_reason=native_tts_smoke.reason,
+        native_tts_command=native_tts_smoke.command,
+        native_tts_detail_lines=list(native_tts_smoke.detail_lines),
         manual_verification_doc=_MANUAL_VERIFICATION_DOC,
         manual_verification_doc_present=manual_doc_present,
         manual_verification_recorded=effective_manual_verified,
@@ -166,6 +214,7 @@ def build_voice_readiness_record(
         next_step_kind=next_step_kind,
         next_step_reason=next_step_reason,
         next_step_command=next_step_command,
+        next_step_detail_lines=list(next_step_detail_lines),
         blockers=blockers,
         notes=str(notes or "").strip() or None,
     )
@@ -187,6 +236,11 @@ def format_voice_readiness_record(record: VoiceReadinessRecord) -> str:
         f"telemetry max follow-up chain length: {_telemetry_metric_text(record.telemetry_max_follow_up_chain_length)}",
         f"telemetry follow-up limit hit count: {_telemetry_metric_text(record.telemetry_follow_up_limit_hit_count)}",
         f"telemetry speech interrupt conflict count: {_telemetry_metric_text(record.telemetry_speech_interrupt_conflict_count)}",
+        f"native tts requested in current env: {'yes' if record.native_tts_requested else 'no'}",
+        f"native tts smoke status: {record.native_tts_status}",
+        f"native tts active backend: {record.native_tts_active_backend or 'n/a'}",
+        f"native tts reason: {record.native_tts_reason or 'n/a'}",
+        f"native tts command: {record.native_tts_command or 'n/a'}",
         f"manual verification doc: {record.manual_verification_doc}",
         f"manual verification doc present: {'yes' if record.manual_verification_doc_present else 'no'}",
         f"manual verification recorded: {'yes' if record.manual_verification_recorded else 'no'}",
@@ -201,6 +255,8 @@ def format_voice_readiness_record(record: VoiceReadinessRecord) -> str:
         f"next step command: {record.next_step_command or 'n/a'}",
         f"blockers: {', '.join(record.blockers) if record.blockers else 'none'}",
     ]
+    lines.extend(f"native tts detail: {detail}" for detail in record.native_tts_detail_lines)
+    lines.extend(f"next step detail: {detail}" for detail in record.next_step_detail_lines)
     if record.telemetry_artifact_status == "ready":
         lines.append(
             "telemetry note: latest session telemetry artifact is recorded"
@@ -379,35 +435,166 @@ def _telemetry_metric_text(value: int | None) -> str:
     return str(value)
 
 
+def _native_tts_smoke_summary(*, environ: Mapping[str, str] | None = None) -> NativeTTSSmokeSummary:
+    current_environ = dict(os.environ if environ is None else environ)
+    requested = _env_flag_enabled(current_environ.get(_NATIVE_TTS_ENV))
+    if not requested:
+        return NativeTTSSmokeSummary(
+            requested=False,
+            status="not_requested",
+            reason="native macOS TTS opt-in is disabled in the current env",
+            command=NATIVE_TTS_DOCTOR_COMMAND,
+        )
+    if sys.platform != "darwin":
+        return NativeTTSSmokeSummary(
+            requested=True,
+            status="blocked",
+            reason="UNSUPPORTED_PLATFORM: native macOS backend is darwin-only",
+        )
+
+    provider = build_default_tts_provider(environ=current_environ)
+    backend_status = build_tts_backend_status(provider)
+    native_diagnostic = next(
+        (diagnostic for diagnostic in backend_status.diagnostics if diagnostic.backend_name == "macos_native"),
+        None,
+    )
+    if native_diagnostic is None:
+        return NativeTTSSmokeSummary(
+            requested=True,
+            status="unknown",
+            active_backend=backend_status.backend_name,
+            reason="native macOS backend diagnostics are unavailable",
+            command=NATIVE_TTS_DOCTOR_COMMAND,
+        )
+    if native_diagnostic.available:
+        return NativeTTSSmokeSummary(
+            requested=True,
+            status="ready",
+            active_backend=backend_status.backend_name,
+            error_code=native_diagnostic.error_code,
+            reason="native macOS backend is available for manual smoke",
+            command="env JARVIS_TTS_MACOS_NATIVE=1 python3 cli.py",
+            detail_lines=native_diagnostic.detail_lines,
+        )
+    reason = _native_tts_reason(native_diagnostic.error_code, native_diagnostic.error_message)
+    return NativeTTSSmokeSummary(
+        requested=True,
+        status="blocked",
+        active_backend=backend_status.backend_name,
+        error_code=native_diagnostic.error_code,
+        reason=reason,
+        command=native_tts_follow_up_command(native_diagnostic.error_code),
+        detail_lines=native_diagnostic.detail_lines,
+    )
+
+
 def _voice_readiness_next_step(
     *,
     blockers: list[str],
     manual_verified: bool,
     artifact_status: str,
     artifact_payload: dict[str, Any] | None,
-) -> tuple[str, str, str | None]:
+    native_tts_smoke: NativeTTSSmokeSummary,
+) -> tuple[str, str, str | None, tuple[str, ...]]:
     if blockers:
         if not manual_verified:
             return (
                 "complete_manual_voice_verification",
                 "run the live voice verification checklist and then record readiness explicitly",
                 f"{_VOICE_READINESS_GUIDE_COMMAND} --manual-verified --write-artifact",
+                (),
             )
+        native_tts_next_step = _native_tts_next_step(
+            blockers=blockers,
+            native_tts_smoke=native_tts_smoke,
+        )
+        if native_tts_next_step is not None:
+            return native_tts_next_step
         return (
             "resolve_voice_rollout_blockers",
             "voice rollout prerequisites are still incomplete",
             None,
+            (),
         )
     if artifact_status == "ready" and _artifact_matches_current_readiness(artifact_payload):
         return (
             "voice_readiness_artifact_already_recorded",
             "current voice readiness artifact is already recorded and matches the current rollout prerequisites",
             None,
+            (),
         )
     return (
         "write_voice_readiness_artifact",
         "voice rollout prerequisites are satisfied; record the offline readiness artifact",
         f"{_VOICE_READINESS_GUIDE_COMMAND} --manual-verified --write-artifact",
+        (),
+    )
+
+
+def _env_flag_enabled(raw_value: object | None) -> bool:
+    value = str(raw_value or "").strip().lower()
+    return value in {"1", "true", "yes", "on"}
+
+
+def _native_tts_reason(error_code: str | None, error_message: str | None) -> str:
+    code = str(error_code or "").strip()
+    message = str(error_message or "").strip()
+    if code and message:
+        return f"{code}: {message}"
+    return message or code or "native macOS backend is unavailable"
+
+
+def _native_tts_next_step(
+    *,
+    blockers: list[str],
+    native_tts_smoke: NativeTTSSmokeSummary,
+) -> tuple[str, str, str | None, tuple[str, ...]] | None:
+    if not native_tts_smoke.requested or native_tts_smoke.status != "blocked":
+        return None
+    non_native_blockers = [
+        blocker
+        for blocker in blockers
+        if not blocker.startswith("native macOS TTS smoke is blocked")
+    ]
+    if non_native_blockers:
+        return None
+
+    reason = str(native_tts_smoke.reason or "").strip()
+    error_code = str(native_tts_smoke.error_code or "").strip()
+    command = native_tts_smoke.command
+    if error_code == "HOST_SDK_MISMATCH":
+        return (
+            "resolve_native_tts_sdk_mismatch",
+            "align local Xcode and Command Line Tools so the active Swift compiler matches the installed SDK before native smoke",
+            command or NATIVE_TTS_TYPECHECK_COMMAND,
+            native_tts_next_step_details(error_code),
+        )
+    if error_code == "HOST_TOOLCHAIN_MISSING":
+        return (
+            "restore_native_tts_toolchain",
+            "install or select a working Swift toolchain before retrying native macOS TTS smoke",
+            command or NATIVE_TTS_DOCTOR_COMMAND,
+            (),
+        )
+    if error_code == "HOST_SWIFT_BRIDGING_CONFLICT":
+        return (
+            "resolve_native_tts_swift_bridging_conflict",
+            "clear the local SwiftBridging module conflict before retrying native macOS TTS smoke",
+            command or NATIVE_TTS_TYPECHECK_COMMAND,
+            (),
+        )
+    if error_code == "HOST_COMPILE_FAILED":
+        return (
+            "resolve_native_tts_compile_failure",
+            "fix the native macOS host compile failure before retrying native TTS smoke",
+            command or NATIVE_TTS_TYPECHECK_COMMAND,
+            (),
+        )
+    return (
+        "resolve_native_tts_opt_in_blocker",
+        f"resolve the native macOS TTS opt-in blocker before retrying smoke ({reason or 'unknown reason'})",
+        command or NATIVE_TTS_DOCTOR_COMMAND,
+        (),
     )
 
 

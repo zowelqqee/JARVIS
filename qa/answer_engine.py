@@ -36,7 +36,6 @@ _BACKENDS = {
     AnswerBackendKind.LLM: LlmAnswerBackend(),
 }
 _ANSWER_FOLLOW_UP_CANONICAL_MAP = {
-    "подробнее": "Explain more",
     "скажи подробнее": "Explain more",
     "объясни подробнее": "Explain more",
     "расскажи подробнее": "Explain more",

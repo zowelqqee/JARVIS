@@ -75,7 +75,18 @@ from voice.session_state import (
     format_voice_last_event,
 )
 from voice.speech_presenter import latency_filler_utterance
-from voice.status import build_voice_session_status, format_voice_session_status
+from voice.status import (
+    build_tts_backend_status,
+    build_tts_current_status,
+    build_tts_doctor_status,
+    build_tts_voice_inventory,
+    build_voice_session_status,
+    format_tts_backend_status,
+    format_tts_current_status,
+    format_tts_doctor_status,
+    format_tts_voice_inventory,
+    format_voice_session_status,
+)
 from voice.telemetry import (
     VoiceTelemetryCollector,
     build_default_voice_telemetry,
@@ -233,6 +244,22 @@ def _handle_cli_command(
             _print_voice_status(speak_enabled=speak_enabled, telemetry=telemetry)
             return False, speak_enabled
 
+        if lowered in {"voice tts backend", "/voice tts backend"}:
+            _print_voice_tts_backend(tts_provider or build_default_tts_provider())
+            return False, speak_enabled
+
+        if lowered in {"voice tts voices", "/voice tts voices"}:
+            _print_voice_tts_voices(tts_provider or build_default_tts_provider())
+            return False, speak_enabled
+
+        if lowered in {"voice tts current", "/voice tts current"}:
+            _print_voice_tts_current(tts_provider or build_default_tts_provider())
+            return False, speak_enabled
+
+        if lowered in {"voice tts doctor", "/voice tts doctor"}:
+            _print_voice_tts_doctor(tts_provider or build_default_tts_provider())
+            return False, speak_enabled
+
         if lowered in {"voice gate", "/voice gate"}:
             _print_voice_gate()
             return False, speak_enabled
@@ -338,6 +365,14 @@ def _print_help() -> None:
     print("  /voice last      Show the last voice event in this CLI session.")
     print("  voice status     Show current CLI voice-session status and counters.")
     print("  /voice status    Show current CLI voice-session status and counters.")
+    print("  voice tts backend Show the active TTS backend and capabilities.")
+    print("  /voice tts backend Show the active TTS backend and capabilities.")
+    print("  voice tts voices Show voices visible to the active TTS backend.")
+    print("  /voice tts voices Show voices visible to the active TTS backend.")
+    print("  voice tts current Show current product-level TTS profile resolution.")
+    print("  /voice tts current Show current product-level TTS profile resolution.")
+    print("  voice tts doctor  Show aggregated TTS backend diagnostics and next steps.")
+    print("  /voice tts doctor Show aggregated TTS backend diagnostics and next steps.")
     print("  voice gate       Show the offline voice rollout gate verdict.")
     print("  /voice gate      Show the offline voice rollout gate verdict.")
     print("  voice telemetry  Show in-memory voice metrics for this CLI session.")
@@ -1410,6 +1445,26 @@ def _print_voice_status(
             )
         )
     )
+
+
+def _print_voice_tts_backend(tts_provider: TTSProvider | None) -> None:
+    """Print the active TTS backend capability summary."""
+    print(format_tts_backend_status(build_tts_backend_status(tts_provider)))
+
+
+def _print_voice_tts_voices(tts_provider: TTSProvider | None) -> None:
+    """Print the currently visible voices for the active TTS backend."""
+    print(format_tts_voice_inventory(build_tts_voice_inventory(tts_provider)))
+
+
+def _print_voice_tts_current(tts_provider: TTSProvider | None) -> None:
+    """Print current product-level profile resolution for the active TTS backend."""
+    print(format_tts_current_status(build_tts_current_status(tts_provider)))
+
+
+def _print_voice_tts_doctor(tts_provider: TTSProvider | None) -> None:
+    """Print aggregated TTS diagnostics and next-step hints."""
+    print(format_tts_doctor_status(build_tts_doctor_status(tts_provider)))
 
 
 def _write_voice_readiness() -> None:

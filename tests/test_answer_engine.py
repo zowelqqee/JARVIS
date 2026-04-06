@@ -196,7 +196,7 @@ class AnswerEngineTests(unittest.TestCase):
         self.assertIn("clarification happens", result.answer_text.lower())
         self.assertGreaterEqual(len(result.sources), 2)
 
-    def test_russian_answer_follow_up_surface_is_canonicalized_for_text_cli(self) -> None:
+    def test_russian_explicit_answer_follow_up_surface_is_canonicalized_for_text_cli(self) -> None:
         session_context = SessionContext()
         session_context.set_recent_answer_context(
             topic="clarification",
@@ -207,8 +207,8 @@ class AnswerEngineTests(unittest.TestCase):
             ],
         )
 
-        question = classify_question("подробнее", session_context=session_context)
-        result = answer_question("подробнее", session_context=session_context)
+        question = classify_question("скажи подробнее", session_context=session_context)
+        result = answer_question("скажи подробнее", session_context=session_context)
 
         self.assertEqual(getattr(question.question_type, "value", ""), "answer_follow_up")
         self.assertEqual(question.raw_input, "Explain more")

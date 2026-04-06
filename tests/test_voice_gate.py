@@ -6,6 +6,7 @@ import subprocess
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from voice.session import VoiceTurn
 from voice.gate import (
@@ -13,6 +14,7 @@ from voice.gate import (
     format_voice_readiness_gate_report,
 )
 from voice.readiness import build_voice_readiness_record, write_voice_readiness_artifact
+from voice.tts_models import BackendCapabilities, BackendRuntimeStatus
 from voice.telemetry import build_default_voice_telemetry, write_voice_telemetry_artifact
 
 
@@ -128,6 +130,88 @@ class VoiceReadinessGateTests(unittest.TestCase):
         self.assertIn("telemetry note: advisory only; record a session snapshot before live sign-off with voice telemetry write", rendered)
         self.assertIn("next step: complete_manual_voice_verification", rendered)
 
+    def test_gate_reports_native_tts_opt_in_blockers(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir, patch(
+            "voice.readiness.sys.platform",
+            "darwin",
+        ), patch(
+            "voice.readiness.build_default_tts_provider",
+            return_value=_SdkMismatchNativeOptInProvider(),
+        ):
+            artifact_path = Path(tmpdir) / "voice_readiness.json"
+            record = build_voice_readiness_record(
+                manual_verified=True,
+                artifact_path=artifact_path,
+            )
+            write_voice_readiness_artifact(record, artifact_path=artifact_path)
+            report = build_voice_readiness_gate_report(
+                artifact_path=artifact_path,
+                environ={"JARVIS_TTS_MACOS_NATIVE": "1"},
+            )
+
+        self.assertFalse(report.gate_ready)
+        self.assertEqual(report.native_tts_status, "blocked")
+        self.assertEqual(report.native_tts_active_backend, "macos_say_legacy")
+        self.assertEqual(report.next_step_kind, "resolve_native_tts_sdk_mismatch")
+        self.assertEqual(
+            report.next_step_reason,
+            "align local Xcode and Command Line Tools so the active Swift compiler matches the installed SDK before native smoke",
+        )
+        self.assertEqual(report.next_step_command, "xcrun swiftc -typecheck voice/native_hosts/macos_tts_host.swift")
+        self.assertEqual(
+            report.next_step_detail_lines,
+            [
+                "confirm active developer dir with: xcode-select -p",
+                "make the selected developer dir match the Xcode or Command Line Tools bundle behind the sdk toolchain detail above, then rerun the native typecheck",
+            ],
+        )
+        self.assertIn(
+            "native macOS TTS smoke is blocked (HOST_SDK_MISMATCH: Native macOS Swift compiler and SDK appear mismatched; align Xcode and Command Line Tools.)",
+            report.blockers,
+        )
+
+    def test_format_mentions_native_tts_block_details(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir, patch(
+            "voice.readiness.sys.platform",
+            "darwin",
+        ), patch(
+            "voice.readiness.build_default_tts_provider",
+            return_value=_SdkMismatchNativeOptInProvider(),
+        ):
+            artifact_path = Path(tmpdir) / "voice_readiness.json"
+            record = build_voice_readiness_record(
+                manual_verified=True,
+                artifact_path=artifact_path,
+            )
+            write_voice_readiness_artifact(record, artifact_path=artifact_path)
+            report = build_voice_readiness_gate_report(
+                artifact_path=artifact_path,
+                environ={"JARVIS_TTS_MACOS_NATIVE": "1"},
+            )
+
+        rendered = format_voice_readiness_gate_report(report)
+
+        self.assertIn("native tts requested in current env: yes", rendered)
+        self.assertIn("native tts smoke status: blocked", rendered)
+        self.assertIn("native tts active backend: macos_say_legacy", rendered)
+        self.assertIn(
+            "native tts reason: HOST_SDK_MISMATCH: Native macOS Swift compiler and SDK appear mismatched; align Xcode and Command Line Tools.",
+            rendered,
+        )
+        self.assertIn("native tts command: xcrun swiftc -typecheck voice/native_hosts/macos_tts_host.swift", rendered)
+        self.assertIn("native tts detail: sdk toolchain: Apple Swift version 6.2 effective-5.10", rendered)
+        self.assertIn("native tts detail: active compiler: Apple Swift version 6.2.4 effective-5.10", rendered)
+        self.assertIn("next step: resolve_native_tts_sdk_mismatch", rendered)
+        self.assertIn(
+            "next step reason: align local Xcode and Command Line Tools so the active Swift compiler matches the installed SDK before native smoke",
+            rendered,
+        )
+        self.assertIn("next step detail: confirm active developer dir with: xcode-select -p", rendered)
+        self.assertIn(
+            "next step detail: make the selected developer dir match the Xcode or Command Line Tools bundle behind the sdk toolchain detail above, then rerun the native typecheck",
+            rendered,
+        )
+
     def test_gate_shell_wrapper_reports_blocked_for_missing_artifact(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             artifact_path = Path(tmpdir) / "voice_readiness.json"
@@ -173,6 +257,51 @@ class VoiceReadinessGateTests(unittest.TestCase):
         self.assertEqual(completed.returncode, 0)
         self.assertIn("JARVIS Voice Readiness Gate", completed.stdout)
         self.assertIn("gate: ready", completed.stdout)
+
+class _SdkMismatchNativeOptInProvider:
+    def capabilities(self) -> BackendCapabilities:
+        return BackendCapabilities(
+            backend_name="macos_say_legacy",
+            supports_stop=True,
+            supports_voice_listing=True,
+            supports_voice_resolution=True,
+            supports_explicit_voice_id=True,
+            supports_rate=True,
+            is_fallback=True,
+        )
+
+    def is_available(self) -> bool:
+        return True
+
+    def backend_diagnostics(self) -> tuple[BackendRuntimeStatus, ...]:
+        return (
+            BackendRuntimeStatus(
+                backend_name="macos_native",
+                available=False,
+                selected=False,
+                error_code="HOST_SDK_MISMATCH",
+                error_message="Native macOS Swift compiler and SDK appear mismatched; align Xcode and Command Line Tools.",
+                detail_lines=(
+                    "sdk toolchain: Apple Swift version 6.2 effective-5.10",
+                    "active compiler: Apple Swift version 6.2.4 effective-5.10",
+                ),
+                capabilities=BackendCapabilities(
+                    backend_name="macos_native",
+                    supports_stop=True,
+                    supports_voice_listing=True,
+                    supports_voice_resolution=True,
+                    supports_explicit_voice_id=True,
+                    supports_rate=True,
+                    supports_volume=True,
+                ),
+            ),
+            BackendRuntimeStatus(
+                backend_name="macos_say_legacy",
+                available=True,
+                selected=True,
+                capabilities=self.capabilities(),
+            ),
+        )
 
 
 if __name__ == "__main__":

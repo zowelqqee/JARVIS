@@ -70,6 +70,9 @@ class VoiceNormalizationTests(unittest.TestCase):
             with self.subTest(raw_text=raw_text):
                 self.assertEqual(normalize_voice_command(raw_text), expected)
 
+    def test_bare_podrobnee_is_no_longer_canonicalized(self) -> None:
+        self.assertEqual(normalize_voice_command("подробнее"), "подробнее")
+
     def test_russian_listen_again_control_phrases_map_to_shell_control_surface(self) -> None:
         cases = {
             "слушай снова": "listen again",

@@ -13,6 +13,8 @@
 - Spoken output is optional and controlled by `speak on` / `speak off`.
 - Optional earcons can be enabled with `JARVIS_VOICE_EARCONS=1`.
 - Interruptible local TTS backends may now stop in-flight speech before a new listening phase begins.
+- macOS TTS now prefers livelier male-first English voices when they are installed locally.
+- Russian TTS now prefers a male-first voice chain when available locally, otherwise falls back to the installed Russian default voice.
 - Russian and English are both expected to work for the MVP voice surface.
 
 ## Current Limitations
@@ -28,11 +30,27 @@
 - Run: `python3 cli.py`
 - To verify automatic blocking follow-up, run: `JARVIS_VOICE_CONTINUOUS_MODE=1 python3 cli.py`
 - To verify optional earcons, run: `JARVIS_VOICE_EARCONS=1 python3 cli.py`
+- Optional TTS tuning:
+  - `JARVIS_TTS_MACOS_NATIVE=1` to opt into the experimental native macOS TTS backend with legacy `say` fallback
+  - `JARVIS_TTS_EN_VOICE` / `JARVIS_TTS_RU_VOICE` to override the selected macOS voice
+  - `JARVIS_TTS_RATE`, `JARVIS_TTS_EN_RATE`, `JARVIS_TTS_RU_RATE` to tune speaking rate
 - Optional offline rollout helpers:
   - `voice mode` inside CLI to inspect whether bounded advanced follow-up mode is currently enabled
   - `voice last` inside CLI to inspect the most recent voice dispatch, follow-up control, or speech interruption handled in this session
   - `voice status` inside CLI to inspect current session voice state, `speak on/off`, bounded-loop counters, and speech interruption counts
+  - `voice tts backend` inside CLI to inspect which TTS backend is currently active and which capabilities it reports
+  - for native macOS fallback debugging, `voice tts backend` may now also surface compact recovery guidance when the preferred backend is unavailable
+  - `voice tts voices` inside CLI to inspect voices visible to the active backend
+  - `voice tts current` inside CLI to inspect how core product-level voice profiles resolve right now
+  - `voice tts doctor` inside CLI to inspect fallback reasons, profile resolution, voice visibility, and suggested next checks in one place
+  - for native macOS fallback debugging, `voice tts doctor` may now report specific startup classes such as `HOST_TOOLCHAIN_MISSING`, `HOST_SDK_MISMATCH`, `HOST_SWIFT_BRIDGING_CONFLICT`, or `HOST_COMPILE_FAILED`
+  - for `HOST_SDK_MISMATCH`, helper output may now also show the exact `sdk toolchain` and `active compiler` pair taken from the local Swift diagnostics
+  - for `HOST_SDK_MISMATCH`, both `voice tts backend` and `voice tts doctor` may now suggest checking `xcode-select -p` so the active developer dir can be aligned with the reported SDK/compiler pair before rerunning typecheck
+  - if native macOS diagnostics point at toolchain or compile issues, run `xcrun swiftc -typecheck voice/native_hosts/macos_tts_host.swift` for one direct offline check of the active Swift toolchain
   - `voice readiness` inside CLI or `python3 -m voice.readiness`
+  - with `JARVIS_TTS_MACOS_NATIVE=1`, `voice readiness` and `voice gate` now also surface a separate `native tts smoke` status, reason, and diagnostic detail lines
+  - after manual verification is already recorded, those helpers may also switch `next step` directly to a native-specific recovery path such as `resolve_native_tts_sdk_mismatch`
+  - for `HOST_SDK_MISMATCH`, `voice readiness` and `voice gate` may also show `next step detail` lines such as `xcode-select -p` so the active developer dir can be aligned with the SDK/toolchain pair before rerunning typecheck
   - `voice readiness write` inside CLI to persist the final readiness artifact when unblocked
   - `voice gate` inside CLI or `python3 -m voice.gate`
   - shell wrapper: `scripts/run_voice_readiness_gate.sh`
@@ -88,7 +106,7 @@
 - Expected recognized text: `Кто президент Франции`
 - Expected result: question path, no command execution.
 - Important: answer freshness depends on the configured QA backend and environment.
-- If the spoken answer is long, TTS may shorten it and suggest a follow-up phrase like `подробнее` or `say more` instead of reading the whole answer aloud.
+- If the spoken answer is long, TTS may shorten it and suggest a follow-up phrase like `скажи подробнее` or `say more` instead of reading the whole answer aloud.
 - For unsafe or refusal question cases, spoken output should stay short; if the refusal includes immediate self-harm safety guidance, it may mention `988` briefly instead of reading a long policy-style answer aloud.
 
 ### 4) Fixed Russian capabilities prompt
