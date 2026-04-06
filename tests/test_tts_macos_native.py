@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import subprocess
 import unittest
 from unittest.mock import ANY, MagicMock, patch
 
+from voice.backends import macos_native
 from voice.backends.macos_native import MacOSNativeTTSBackend
 from voice.tts_provider import SpeechUtterance
 
@@ -27,6 +29,41 @@ class MacOSNativeTTSBackendTests(unittest.TestCase):
             self.assertTrue(backend.is_available())
 
         run_mock.assert_called_once()
+
+    def test_default_host_command_uses_writable_module_cache_for_ping(self) -> None:
+        backend = MacOSNativeTTSBackend(host_path="/tmp/macos_tts_host.swift")
+        ping_process = MagicMock()
+        ping_process.stdout = '{"ok": true, "backend_name": "macos_native"}'
+        ping_process.stderr = ""
+        ping_process.returncode = 0
+
+        with patch("voice.backends.macos_native.sys.platform", "darwin"), patch(
+            "pathlib.Path.exists",
+            return_value=True,
+        ), patch(
+            "pathlib.Path.mkdir",
+        ) as mkdir_mock, patch(
+            "voice.backends.macos_native.subprocess.run",
+            return_value=ping_process,
+        ) as run_mock:
+            self.assertTrue(backend.is_available())
+
+        mkdir_mock.assert_called_once_with(parents=True, exist_ok=True)
+        run_mock.assert_called_once_with(
+            [
+                "xcrun",
+                "swift",
+                "-module-cache-path",
+                str(macos_native._HOST_MODULE_CACHE_PATH),
+                "/tmp/macos_tts_host.swift",
+            ],
+            input='{"op": "ping"}\n',
+            stdout=ANY,
+            stderr=ANY,
+            text=True,
+            check=False,
+            timeout=15.0,
+        )
 
     def test_is_available_records_host_missing_reason(self) -> None:
         backend = MacOSNativeTTSBackend(host_path="/tmp/does-not-exist.swift")
@@ -66,10 +103,18 @@ class MacOSNativeTTSBackendTests(unittest.TestCase):
             "'Apple Swift version 5.9')."
         )
         ping_process.returncode = 1
+        developer_dir_process = MagicMock()
+        developer_dir_process.stdout = "/Library/Developer/CommandLineTools\n"
+        developer_dir_process.stderr = ""
+        developer_dir_process.returncode = 0
+        swiftc_path_process = MagicMock()
+        swiftc_path_process.stdout = "/Library/Developer/CommandLineTools/usr/bin/swiftc\n"
+        swiftc_path_process.stderr = ""
+        swiftc_path_process.returncode = 0
 
         with patch("voice.backends.macos_native.sys.platform", "darwin"), patch(
             "voice.backends.macos_native.subprocess.run",
-            return_value=ping_process,
+            side_effect=[ping_process, developer_dir_process, swiftc_path_process],
         ):
             self.assertFalse(backend.is_available())
 
@@ -85,6 +130,48 @@ class MacOSNativeTTSBackendTests(unittest.TestCase):
             (
                 "sdk toolchain: Apple Swift version 6.0 effective-5.10",
                 "active compiler: Apple Swift version 5.9",
+                "active developer dir: /Library/Developer/CommandLineTools",
+                "active swiftc: /Library/Developer/CommandLineTools/usr/bin/swiftc",
+            ),
+        )
+
+    def test_is_available_reports_developer_dir_override_when_set(self) -> None:
+        backend = MacOSNativeTTSBackend(host_command=["xcrun", "swift", "/tmp/macos_tts_host.swift"])
+        ping_process = MagicMock()
+        ping_process.stdout = ""
+        ping_process.stderr = (
+            "error: failed to build module 'CoreFoundation'; this SDK is not supported by the compiler "
+            "(the SDK is built with 'Apple Swift version 6.0 effective-5.10', while this compiler is "
+            "'Apple Swift version 5.9')."
+        )
+        ping_process.returncode = 1
+        developer_dir_process = MagicMock()
+        developer_dir_process.stdout = "/Applications/Xcode.app/Contents/Developer\n"
+        developer_dir_process.stderr = ""
+        developer_dir_process.returncode = 0
+        swiftc_path_process = MagicMock()
+        swiftc_path_process.stdout = "/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/swiftc\n"
+        swiftc_path_process.stderr = ""
+        swiftc_path_process.returncode = 0
+
+        with patch.dict(
+            "voice.backends.macos_native.os.environ",
+            {"DEVELOPER_DIR": "/Applications/Xcode.app/Contents/Developer"},
+            clear=False,
+        ), patch("voice.backends.macos_native.sys.platform", "darwin"), patch(
+            "voice.backends.macos_native.subprocess.run",
+            side_effect=[ping_process, developer_dir_process, swiftc_path_process],
+        ):
+            self.assertFalse(backend.is_available())
+
+        self.assertEqual(
+            backend.availability_detail_lines(),
+            (
+                "sdk toolchain: Apple Swift version 6.0 effective-5.10",
+                "active compiler: Apple Swift version 5.9",
+                "developer dir override: /Applications/Xcode.app/Contents/Developer",
+                "active developer dir: /Applications/Xcode.app/Contents/Developer",
+                "active swiftc: /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/swiftc",
             ),
         )
 
@@ -106,6 +193,42 @@ class MacOSNativeTTSBackendTests(unittest.TestCase):
             (
                 "HOST_SWIFT_BRIDGING_CONFLICT",
                 "Native macOS Swift toolchain reported a SwiftBridging module conflict.",
+            ),
+        )
+
+    def test_is_available_timeout_reports_runtime_toolchain_detail_lines(self) -> None:
+        backend = MacOSNativeTTSBackend(host_command=["xcrun", "swift", "/tmp/macos_tts_host.swift"])
+        developer_dir_process = MagicMock()
+        developer_dir_process.stdout = "/Library/Developer/CommandLineTools\n"
+        developer_dir_process.stderr = ""
+        developer_dir_process.returncode = 0
+        swiftc_path_process = MagicMock()
+        swiftc_path_process.stdout = "/Library/Developer/CommandLineTools/usr/bin/swiftc\n"
+        swiftc_path_process.stderr = ""
+        swiftc_path_process.returncode = 0
+
+        with patch("voice.backends.macos_native.sys.platform", "darwin"), patch(
+            "voice.backends.macos_native.subprocess.run",
+            side_effect=[
+                subprocess.TimeoutExpired(cmd=["xcrun", "swift", "/tmp/macos_tts_host.swift"], timeout=15.0),
+                developer_dir_process,
+                swiftc_path_process,
+            ],
+        ):
+            self.assertFalse(backend.is_available())
+
+        self.assertEqual(
+            backend.availability_diagnostic(),
+            (
+                "HOST_TIMEOUT",
+                "Native macOS TTS host ping timed out.",
+            ),
+        )
+        self.assertEqual(
+            backend.availability_detail_lines(),
+            (
+                "active developer dir: /Library/Developer/CommandLineTools",
+                "active swiftc: /Library/Developer/CommandLineTools/usr/bin/swiftc",
             ),
         )
 
@@ -134,6 +257,47 @@ class MacOSNativeTTSBackendTests(unittest.TestCase):
             (
                 "HOST_SWIFT_BRIDGING_CONFLICT",
                 "Native macOS Swift toolchain reported a SwiftBridging module conflict.",
+            ),
+        )
+
+    def test_is_available_compile_failed_reports_runtime_toolchain_context(self) -> None:
+        backend = MacOSNativeTTSBackend(host_command=["xcrun", "swift", "/tmp/macos_tts_host.swift"])
+        ping_process = MagicMock()
+        ping_process.stdout = ""
+        ping_process.stderr = "error: link command failed with exit code 1"
+        ping_process.returncode = 1
+        developer_dir_process = MagicMock()
+        developer_dir_process.stdout = "/tmp/jarvis-invalid-developer-dir\n"
+        developer_dir_process.stderr = ""
+        developer_dir_process.returncode = 0
+        swiftc_path_process = MagicMock()
+        swiftc_path_process.stdout = "/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/swiftc\n"
+        swiftc_path_process.stderr = ""
+        swiftc_path_process.returncode = 0
+
+        with patch.dict(
+            "voice.backends.macos_native.os.environ",
+            {"DEVELOPER_DIR": "/tmp/jarvis-invalid-developer-dir"},
+            clear=False,
+        ), patch("voice.backends.macos_native.sys.platform", "darwin"), patch(
+            "voice.backends.macos_native.subprocess.run",
+            side_effect=[ping_process, developer_dir_process, swiftc_path_process],
+        ):
+            self.assertFalse(backend.is_available())
+
+        self.assertEqual(
+            backend.availability_diagnostic(),
+            (
+                "HOST_COMPILE_FAILED",
+                "Native macOS TTS host failed to compile or start. First error: error: link command failed with exit code 1",
+            ),
+        )
+        self.assertEqual(
+            backend.availability_detail_lines(),
+            (
+                "developer dir override: /tmp/jarvis-invalid-developer-dir",
+                "active developer dir: /tmp/jarvis-invalid-developer-dir",
+                "active swiftc: /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/swiftc",
             ),
         )
 

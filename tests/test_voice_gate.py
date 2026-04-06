@@ -162,7 +162,7 @@ class VoiceReadinessGateTests(unittest.TestCase):
             report.next_step_detail_lines,
             [
                 "confirm active developer dir with: xcode-select -p",
-                "make the selected developer dir match the Xcode or Command Line Tools bundle behind the sdk toolchain detail above, then rerun the native typecheck",
+                "make the selected developer dir match the Xcode or Command Line Tools bundle behind the sdk toolchain, active compiler, active developer dir, and active swiftc details above, then rerun the native typecheck",
             ],
         )
         self.assertIn(
@@ -201,6 +201,8 @@ class VoiceReadinessGateTests(unittest.TestCase):
         self.assertIn("native tts command: xcrun swiftc -typecheck voice/native_hosts/macos_tts_host.swift", rendered)
         self.assertIn("native tts detail: sdk toolchain: Apple Swift version 6.2 effective-5.10", rendered)
         self.assertIn("native tts detail: active compiler: Apple Swift version 6.2.4 effective-5.10", rendered)
+        self.assertIn("native tts detail: active developer dir: /Library/Developer/CommandLineTools", rendered)
+        self.assertIn("native tts detail: active swiftc: /Library/Developer/CommandLineTools/usr/bin/swiftc", rendered)
         self.assertIn("next step: resolve_native_tts_sdk_mismatch", rendered)
         self.assertIn(
             "next step reason: align local Xcode and Command Line Tools so the active Swift compiler matches the installed SDK before native smoke",
@@ -208,7 +210,137 @@ class VoiceReadinessGateTests(unittest.TestCase):
         )
         self.assertIn("next step detail: confirm active developer dir with: xcode-select -p", rendered)
         self.assertIn(
-            "next step detail: make the selected developer dir match the Xcode or Command Line Tools bundle behind the sdk toolchain detail above, then rerun the native typecheck",
+            "next step detail: make the selected developer dir match the Xcode or Command Line Tools bundle behind the sdk toolchain, active compiler, active developer dir, and active swiftc details above, then rerun the native typecheck",
+            rendered,
+        )
+
+    def test_gate_uses_developer_dir_override_in_native_follow_up_commands(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir, patch(
+            "voice.readiness.sys.platform",
+            "darwin",
+        ), patch(
+            "voice.readiness.build_default_tts_provider",
+            return_value=_SdkMismatchNativeOptInProviderWithDeveloperDirOverride(),
+        ):
+            artifact_path = Path(tmpdir) / "voice_readiness.json"
+            record = build_voice_readiness_record(
+                manual_verified=True,
+                artifact_path=artifact_path,
+            )
+            write_voice_readiness_artifact(record, artifact_path=artifact_path)
+            report = build_voice_readiness_gate_report(
+                artifact_path=artifact_path,
+                environ={"JARVIS_TTS_MACOS_NATIVE": "1"},
+            )
+
+        self.assertEqual(
+            report.next_step_command,
+            "env DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcrun swiftc -typecheck voice/native_hosts/macos_tts_host.swift",
+        )
+        self.assertIn(
+            "current env override: DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer; if that override is intentional, keep using it on the next typecheck and CLI smoke, otherwise fix or unset it before retrying",
+            report.next_step_detail_lines,
+        )
+
+    def test_gate_reports_timeout_native_tts_opt_in_blockers(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir, patch(
+            "voice.readiness.sys.platform",
+            "darwin",
+        ), patch(
+            "voice.readiness.build_default_tts_provider",
+            return_value=_TimeoutNativeOptInProvider(),
+        ):
+            artifact_path = Path(tmpdir) / "voice_readiness.json"
+            record = build_voice_readiness_record(
+                manual_verified=True,
+                artifact_path=artifact_path,
+            )
+            write_voice_readiness_artifact(record, artifact_path=artifact_path)
+            report = build_voice_readiness_gate_report(
+                artifact_path=artifact_path,
+                environ={"JARVIS_TTS_MACOS_NATIVE": "1"},
+            )
+
+        self.assertFalse(report.gate_ready)
+        self.assertEqual(report.next_step_kind, "resolve_native_tts_host_timeout")
+        self.assertEqual(
+            report.next_step_reason,
+            "inspect the current native macOS toolchain selection and rerun the native doctor helper before retrying smoke",
+        )
+        self.assertEqual(
+            report.next_step_command,
+            "printf 'voice tts doctor\\nquit\\n' | env JARVIS_TTS_MACOS_NATIVE=1 python3 cli.py",
+        )
+        self.assertEqual(
+            report.next_step_detail_lines,
+            [
+                "confirm active developer dir with: xcode-select -p",
+                "if the native host keeps timing out, compare the active developer dir and active swiftc details above, then rerun the native doctor helper before retrying smoke",
+            ],
+        )
+
+    def test_gate_keeps_override_detail_for_compile_failed_native_blocker(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir, patch(
+            "voice.readiness.sys.platform",
+            "darwin",
+        ), patch(
+            "voice.readiness.build_default_tts_provider",
+            return_value=_CompileFailedNativeOptInProviderWithDeveloperDirOverride(),
+        ):
+            artifact_path = Path(tmpdir) / "voice_readiness.json"
+            record = build_voice_readiness_record(
+                manual_verified=True,
+                artifact_path=artifact_path,
+            )
+            write_voice_readiness_artifact(record, artifact_path=artifact_path)
+            report = build_voice_readiness_gate_report(
+                artifact_path=artifact_path,
+                environ={"JARVIS_TTS_MACOS_NATIVE": "1"},
+            )
+
+        self.assertEqual(report.next_step_kind, "resolve_native_tts_compile_failure")
+        self.assertEqual(
+            report.next_step_command,
+            "env DEVELOPER_DIR=/tmp/jarvis-invalid-developer-dir xcrun swiftc -typecheck voice/native_hosts/macos_tts_host.swift",
+        )
+        self.assertEqual(
+            report.next_step_detail_lines,
+            [
+                "current env override: DEVELOPER_DIR=/tmp/jarvis-invalid-developer-dir; if that override is intentional, keep using it on the next typecheck and CLI smoke, otherwise fix or unset it before retrying",
+            ],
+        )
+
+    def test_format_mentions_timeout_native_tts_block_details(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir, patch(
+            "voice.readiness.sys.platform",
+            "darwin",
+        ), patch(
+            "voice.readiness.build_default_tts_provider",
+            return_value=_TimeoutNativeOptInProvider(),
+        ):
+            artifact_path = Path(tmpdir) / "voice_readiness.json"
+            record = build_voice_readiness_record(
+                manual_verified=True,
+                artifact_path=artifact_path,
+            )
+            write_voice_readiness_artifact(record, artifact_path=artifact_path)
+            report = build_voice_readiness_gate_report(
+                artifact_path=artifact_path,
+                environ={"JARVIS_TTS_MACOS_NATIVE": "1"},
+            )
+
+        rendered = format_voice_readiness_gate_report(report)
+
+        self.assertIn("native tts reason: HOST_TIMEOUT: Native macOS TTS host ping timed out.", rendered)
+        self.assertIn(
+            "native tts command: printf 'voice tts doctor\\nquit\\n' | env JARVIS_TTS_MACOS_NATIVE=1 python3 cli.py",
+            rendered,
+        )
+        self.assertIn("native tts detail: active developer dir: /Library/Developer/CommandLineTools", rendered)
+        self.assertIn("native tts detail: active swiftc: /Library/Developer/CommandLineTools/usr/bin/swiftc", rendered)
+        self.assertIn("next step: resolve_native_tts_host_timeout", rendered)
+        self.assertIn(
+            "next step detail: if the native host keeps timing out, compare the active developer dir and active swiftc details above, then rerun the native doctor helper before retrying smoke",
             rendered,
         )
 
@@ -284,6 +416,149 @@ class _SdkMismatchNativeOptInProvider:
                 detail_lines=(
                     "sdk toolchain: Apple Swift version 6.2 effective-5.10",
                     "active compiler: Apple Swift version 6.2.4 effective-5.10",
+                    "active developer dir: /Library/Developer/CommandLineTools",
+                    "active swiftc: /Library/Developer/CommandLineTools/usr/bin/swiftc",
+                ),
+                capabilities=BackendCapabilities(
+                    backend_name="macos_native",
+                    supports_stop=True,
+                    supports_voice_listing=True,
+                    supports_voice_resolution=True,
+                    supports_explicit_voice_id=True,
+                    supports_rate=True,
+                    supports_volume=True,
+                ),
+            ),
+            BackendRuntimeStatus(
+                backend_name="macos_say_legacy",
+                available=True,
+                selected=True,
+                capabilities=self.capabilities(),
+            ),
+        )
+
+
+class _SdkMismatchNativeOptInProviderWithDeveloperDirOverride:
+    def capabilities(self) -> BackendCapabilities:
+        return BackendCapabilities(
+            backend_name="macos_say_legacy",
+            supports_stop=True,
+            supports_voice_listing=True,
+            supports_voice_resolution=True,
+            supports_explicit_voice_id=True,
+            supports_rate=True,
+            is_fallback=True,
+        )
+
+    def is_available(self) -> bool:
+        return True
+
+    def backend_diagnostics(self) -> tuple[BackendRuntimeStatus, ...]:
+        return (
+            BackendRuntimeStatus(
+                backend_name="macos_native",
+                available=False,
+                selected=False,
+                error_code="HOST_SDK_MISMATCH",
+                error_message="Native macOS Swift compiler and SDK appear mismatched; align Xcode and Command Line Tools.",
+                detail_lines=(
+                    "sdk toolchain: Apple Swift version 6.2 effective-5.10",
+                    "active compiler: Apple Swift version 6.2.4 effective-5.10",
+                    "developer dir override: /Applications/Xcode.app/Contents/Developer",
+                    "active developer dir: /Applications/Xcode.app/Contents/Developer",
+                    "active swiftc: /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/swiftc",
+                ),
+                capabilities=BackendCapabilities(
+                    backend_name="macos_native",
+                    supports_stop=True,
+                    supports_voice_listing=True,
+                    supports_voice_resolution=True,
+                    supports_explicit_voice_id=True,
+                    supports_rate=True,
+                    supports_volume=True,
+                ),
+            ),
+            BackendRuntimeStatus(
+                backend_name="macos_say_legacy",
+                available=True,
+                selected=True,
+                capabilities=self.capabilities(),
+            ),
+        )
+
+
+class _TimeoutNativeOptInProvider:
+    def capabilities(self) -> BackendCapabilities:
+        return BackendCapabilities(
+            backend_name="macos_say_legacy",
+            supports_stop=True,
+            supports_voice_listing=True,
+            supports_voice_resolution=True,
+            supports_explicit_voice_id=True,
+            supports_rate=True,
+            is_fallback=True,
+        )
+
+    def is_available(self) -> bool:
+        return True
+
+    def backend_diagnostics(self) -> tuple[BackendRuntimeStatus, ...]:
+        return (
+            BackendRuntimeStatus(
+                backend_name="macos_native",
+                available=False,
+                selected=False,
+                error_code="HOST_TIMEOUT",
+                error_message="Native macOS TTS host ping timed out.",
+                detail_lines=(
+                    "active developer dir: /Library/Developer/CommandLineTools",
+                    "active swiftc: /Library/Developer/CommandLineTools/usr/bin/swiftc",
+                ),
+                capabilities=BackendCapabilities(
+                    backend_name="macos_native",
+                    supports_stop=True,
+                    supports_voice_listing=True,
+                    supports_voice_resolution=True,
+                    supports_explicit_voice_id=True,
+                    supports_rate=True,
+                    supports_volume=True,
+                ),
+            ),
+            BackendRuntimeStatus(
+                backend_name="macos_say_legacy",
+                available=True,
+                selected=True,
+                capabilities=self.capabilities(),
+            ),
+        )
+
+
+class _CompileFailedNativeOptInProviderWithDeveloperDirOverride:
+    def capabilities(self) -> BackendCapabilities:
+        return BackendCapabilities(
+            backend_name="macos_say_legacy",
+            supports_stop=True,
+            supports_voice_listing=True,
+            supports_voice_resolution=True,
+            supports_explicit_voice_id=True,
+            supports_rate=True,
+            is_fallback=True,
+        )
+
+    def is_available(self) -> bool:
+        return True
+
+    def backend_diagnostics(self) -> tuple[BackendRuntimeStatus, ...]:
+        return (
+            BackendRuntimeStatus(
+                backend_name="macos_native",
+                available=False,
+                selected=False,
+                error_code="HOST_COMPILE_FAILED",
+                error_message="Native macOS TTS host failed to compile or start. First error: xcrun: error: missing DEVELOPER_DIR path: /tmp/jarvis-invalid-developer-dir",
+                detail_lines=(
+                    "developer dir override: /tmp/jarvis-invalid-developer-dir",
+                    "active developer dir: /tmp/jarvis-invalid-developer-dir",
                 ),
                 capabilities=BackendCapabilities(
                     backend_name="macos_native",

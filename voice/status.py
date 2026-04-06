@@ -687,7 +687,7 @@ def _backend_guidance(diagnostics: tuple[BackendRuntimeStatus, ...]) -> tuple[st
     for diagnostic in diagnostics:
         if diagnostic.backend_name != "macos_native" or diagnostic.available:
             continue
-        hints.extend(native_tts_doctor_guidance(diagnostic.error_code))
+        hints.extend(native_tts_doctor_guidance(diagnostic.error_code, detail_lines=diagnostic.detail_lines))
     return tuple(_dedupe_preserving_order(hints))
 
 

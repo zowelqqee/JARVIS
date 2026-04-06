@@ -483,7 +483,10 @@ def _native_tts_smoke_summary(*, environ: Mapping[str, str] | None = None) -> Na
         active_backend=backend_status.backend_name,
         error_code=native_diagnostic.error_code,
         reason=reason,
-        command=native_tts_follow_up_command(native_diagnostic.error_code),
+        command=native_tts_follow_up_command(
+            native_diagnostic.error_code,
+            detail_lines=native_diagnostic.detail_lines,
+        ),
         detail_lines=native_diagnostic.detail_lines,
     )
 
@@ -567,7 +570,7 @@ def _native_tts_next_step(
             "resolve_native_tts_sdk_mismatch",
             "align local Xcode and Command Line Tools so the active Swift compiler matches the installed SDK before native smoke",
             command or NATIVE_TTS_TYPECHECK_COMMAND,
-            native_tts_next_step_details(error_code),
+            native_tts_next_step_details(error_code, detail_lines=tuple(native_tts_smoke.detail_lines)),
         )
     if error_code == "HOST_TOOLCHAIN_MISSING":
         return (
@@ -588,7 +591,14 @@ def _native_tts_next_step(
             "resolve_native_tts_compile_failure",
             "fix the native macOS host compile failure before retrying native TTS smoke",
             command or NATIVE_TTS_TYPECHECK_COMMAND,
-            (),
+            native_tts_next_step_details(error_code, detail_lines=tuple(native_tts_smoke.detail_lines)),
+        )
+    if error_code == "HOST_TIMEOUT":
+        return (
+            "resolve_native_tts_host_timeout",
+            "inspect the current native macOS toolchain selection and rerun the native doctor helper before retrying smoke",
+            command or NATIVE_TTS_DOCTOR_COMMAND,
+            native_tts_next_step_details(error_code, detail_lines=tuple(native_tts_smoke.detail_lines)),
         )
     return (
         "resolve_native_tts_opt_in_blocker",

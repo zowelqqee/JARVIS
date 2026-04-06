@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 import re
 import subprocess
@@ -18,7 +19,9 @@ _HOST_SOURCE_PATH = Path(__file__).resolve().parents[1] / "native_hosts" / "maco
 _HOST_PING_TIMEOUT_SECONDS = 15.0
 _HOST_METADATA_TIMEOUT_SECONDS = 15.0
 _HOST_TYPECHECK_TIMEOUT_SECONDS = 3.0
-_HOST_TYPECHECK_MODULE_CACHE_PATH = Path(tempfile.gettempdir()) / "jarvis_swift_module_cache"
+_HOST_DEVELOPER_DIR_TIMEOUT_SECONDS = 1.0
+_HOST_SWIFTC_PATH_TIMEOUT_SECONDS = 1.0
+_HOST_MODULE_CACHE_PATH = Path(tempfile.gettempdir()) / "jarvis_swift_module_cache"
 
 
 class MacOSNativeTTSBackend:
@@ -37,8 +40,8 @@ class MacOSNativeTTSBackend:
         self._availability_error_message: str | None = None
         self._availability_detail_lines: tuple[str, ...] = ()
         self._host_path = Path(host_path) if host_path is not None else _HOST_SOURCE_PATH
-        self._host_command = tuple(str(part) for part in (host_command or ("xcrun", "swift", str(self._host_path))))
         self._has_explicit_host_command = host_command is not None
+        self._host_command = tuple(str(part) for part in (host_command or _default_host_command(self._host_path)))
 
     def speak(self, utterance: SpeechUtterance | None) -> TTSResult:
         """Speak one prepared utterance through the native Swift host."""
@@ -61,6 +64,7 @@ class MacOSNativeTTSBackend:
             )
 
         payload = _speak_payload(utterance)
+        self._ensure_host_module_cache_path()
         try:
             process = subprocess.Popen(
                 list(self._host_command),
@@ -182,6 +186,7 @@ class MacOSNativeTTSBackend:
     ) -> dict[str, object] | None:
         if sys.platform != "darwin" or not self._host_is_configured():
             return None
+        self._ensure_host_module_cache_path()
         try:
             result = subprocess.run(
                 list(self._host_command),
@@ -209,6 +214,7 @@ class MacOSNativeTTSBackend:
                 f"Native macOS TTS host not found at {self._host_path}.",
             )
             return False
+        self._ensure_host_module_cache_path()
         try:
             result = subprocess.run(
                 list(self._host_command),
@@ -220,20 +226,26 @@ class MacOSNativeTTSBackend:
                 timeout=_HOST_PING_TIMEOUT_SECONDS,
             )
         except subprocess.TimeoutExpired:
+            error_code, error_message = _classify_host_failure(
+                default_code="HOST_TIMEOUT",
+                default_message="Native macOS TTS host ping timed out.",
+            )
             self._set_availability_diagnostic(
-                *_classify_host_failure(
-                    default_code="HOST_TIMEOUT",
-                    default_message="Native macOS TTS host ping timed out.",
-                )
+                error_code,
+                error_message,
+                _diagnostic_detail_lines(error_code),
             )
             return False
         except OSError as exc:
+            error_code, error_message = _classify_host_failure(
+                stderr=str(exc),
+                default_code="HOST_UNAVAILABLE",
+                default_message=str(exc),
+            )
             self._set_availability_diagnostic(
-                *_classify_host_failure(
-                    stderr=str(exc),
-                    default_code="HOST_UNAVAILABLE",
-                    default_message=str(exc),
-                )
+                error_code,
+                error_message,
+                _diagnostic_detail_lines(error_code, stderr=str(exc)),
             )
             return False
 
@@ -250,16 +262,20 @@ class MacOSNativeTTSBackend:
             default_code=error_code,
             default_message=error_message or "Native macOS TTS host ping failed.",
         )
-        self._set_availability_diagnostic(
-            *self._refine_failure_with_typecheck(
-                classified_error_code,
-                classified_error_message,
-                detail_lines=_diagnostic_detail_lines(
-                    classified_error_code,
-                    stderr=result.stderr,
-                    stdout=result.stdout,
-                ),
+        refined_error_code, refined_error_message, refined_detail_lines = self._refine_failure_with_typecheck(
+            classified_error_code,
+            classified_error_message,
+        )
+        if not refined_detail_lines:
+            refined_detail_lines = _diagnostic_detail_lines(
+                refined_error_code or classified_error_code,
+                stderr=result.stderr,
+                stdout=result.stdout,
             )
+        self._set_availability_diagnostic(
+            refined_error_code,
+            refined_error_message,
+            refined_detail_lines,
         )
         return False
 
@@ -273,7 +289,7 @@ class MacOSNativeTTSBackend:
         if not _should_refine_failure_with_typecheck(error_code) or not self._can_typecheck_host_source():
             return error_code, error_message, detail_lines
         try:
-            _HOST_TYPECHECK_MODULE_CACHE_PATH.mkdir(parents=True, exist_ok=True)
+            _HOST_MODULE_CACHE_PATH.mkdir(parents=True, exist_ok=True)
             result = subprocess.run(
                 list(_typecheck_command(self._host_path)),
                 stdout=subprocess.PIPE,
@@ -324,6 +340,11 @@ class MacOSNativeTTSBackend:
 
     def _host_is_configured(self) -> bool:
         return self._has_explicit_host_command or self._host_path.exists()
+
+    def _ensure_host_module_cache_path(self) -> None:
+        if self._has_explicit_host_command:
+            return
+        _HOST_MODULE_CACHE_PATH.mkdir(parents=True, exist_ok=True)
 
     def _set_availability_diagnostic(
         self,
@@ -429,7 +450,8 @@ def _classify_host_failure(
     default_message: str | None = None,
 ) -> tuple[str | None, str | None]:
     error_code = str(default_code or "").strip() or "HOST_PING_FAILED"
-    detail = str(default_message or "").strip() or _first_meaningful_line(stderr) or _first_meaningful_line(stdout)
+    first_output_detail = _first_meaningful_line(stderr) or _first_meaningful_line(stdout)
+    detail = str(default_message or "").strip() or first_output_detail
     if error_code not in {"HOST_PING_FAILED", "HOST_UNAVAILABLE", "HOST_TIMEOUT", "HOST_COMPILE_FAILED"}:
         return error_code, detail or None
     if error_code == "HOST_TIMEOUT":
@@ -452,8 +474,12 @@ def _classify_host_failure(
             "Native macOS Swift compiler and SDK appear mismatched; align Xcode and Command Line Tools.",
         )
     if _looks_like_compile_failure(haystack):
-        if detail:
-            return "HOST_COMPILE_FAILED", f"Native macOS TTS host failed to compile or start. First error: {detail}"
+        compile_detail = first_output_detail or detail
+        if compile_detail:
+            return (
+                "HOST_COMPILE_FAILED",
+                f"Native macOS TTS host failed to compile or start. First error: {compile_detail}",
+            )
         return "HOST_COMPILE_FAILED", "Native macOS TTS host failed to compile or start."
     return error_code, detail or None
 
@@ -463,8 +489,18 @@ def _typecheck_command(host_path: Path) -> tuple[str, ...]:
         "xcrun",
         "swiftc",
         "-module-cache-path",
-        str(_HOST_TYPECHECK_MODULE_CACHE_PATH),
+        str(_HOST_MODULE_CACHE_PATH),
         "-typecheck",
+        str(host_path),
+    )
+
+
+def _default_host_command(host_path: Path) -> tuple[str, ...]:
+    return (
+        "xcrun",
+        "swift",
+        "-module-cache-path",
+        str(_HOST_MODULE_CACHE_PATH),
         str(host_path),
     )
 
@@ -506,8 +542,72 @@ def _diagnostic_detail_lines(
             lines.append(f"sdk toolchain: {sdk_toolchain}")
         if compiler_toolchain:
             lines.append(f"active compiler: {compiler_toolchain}")
+        lines.extend(_runtime_toolchain_detail_lines())
         return tuple(lines)
+    if code in {"HOST_TIMEOUT", "HOST_PING_FAILED", "HOST_UNAVAILABLE", "HOST_COMPILE_FAILED"}:
+        return _runtime_toolchain_detail_lines()
     return ()
+
+
+def _runtime_toolchain_detail_lines() -> tuple[str, ...]:
+    lines: list[str] = []
+    developer_dir_override = _developer_dir_override_line()
+    if developer_dir_override:
+        lines.append(developer_dir_override)
+    developer_dir = _active_developer_dir_line()
+    if developer_dir:
+        lines.append(developer_dir)
+    swiftc_path = _active_swiftc_path_line()
+    if swiftc_path:
+        lines.append(swiftc_path)
+    return tuple(lines)
+
+
+def _developer_dir_override_line() -> str | None:
+    developer_dir_override = str(os.environ.get("DEVELOPER_DIR", "") or "").strip()
+    if not developer_dir_override:
+        return None
+    return f"developer dir override: {developer_dir_override}"
+
+
+def _active_developer_dir_line() -> str | None:
+    try:
+        result = subprocess.run(
+            ["xcode-select", "-p"],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            check=False,
+            timeout=_HOST_DEVELOPER_DIR_TIMEOUT_SECONDS,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    if result.returncode != 0:
+        return None
+    developer_dir = _first_meaningful_line(result.stdout)
+    if not developer_dir:
+        return None
+    return f"active developer dir: {developer_dir}"
+
+
+def _active_swiftc_path_line() -> str | None:
+    try:
+        result = subprocess.run(
+            ["xcrun", "--find", "swiftc"],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            check=False,
+            timeout=_HOST_SWIFTC_PATH_TIMEOUT_SECONDS,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    if result.returncode != 0:
+        return None
+    swiftc_path = _first_meaningful_line(result.stdout)
+    if not swiftc_path:
+        return None
+    return f"active swiftc: {swiftc_path}"
 
 
 def _extract_sdk_mismatch_versions(text: str) -> tuple[str | None, str | None]:

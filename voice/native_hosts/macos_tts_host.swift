@@ -110,22 +110,22 @@ private func genderHint(from rawValue: Any?, id: String, displayName: String) ->
 }
 
 private func voiceDescriptor(from voice: NSSpeechSynthesizer.VoiceName) -> VoiceDescriptor? {
-    let voiceID = String(describing: voice)
+    let voiceID = voice.rawValue
     guard !voiceID.isEmpty else {
         return nil
     }
     let attributes = NSSpeechSynthesizer.attributes(forVoice: voice)
-    let displayName = (attributes?[.name] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
-    let locale = normalizedLocale(String(describing: attributes?[.localeIdentifier] ?? ""))
+    let displayName = (attributes[.name] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
+    let locale = normalizedLocale(String(describing: attributes[.localeIdentifier] ?? ""))
     let resolvedDisplayName = (displayName?.isEmpty == false ? displayName! : voiceID)
     return VoiceDescriptor(
         id: voiceID,
         displayName: resolvedDisplayName,
         locale: locale,
-        genderHint: genderHint(from: attributes?[.gender], id: voiceID, displayName: resolvedDisplayName),
+        genderHint: genderHint(from: attributes[.gender], id: voiceID, displayName: resolvedDisplayName),
         qualityHint: qualityHint(for: voiceID, displayName: resolvedDisplayName),
         source: backendName,
-        isDefault: NSSpeechSynthesizer.defaultVoice.map { String(describing: $0) == voiceID } ?? false
+        isDefault: NSSpeechSynthesizer.defaultVoice.rawValue == voiceID
     )
 }
 
@@ -199,14 +199,14 @@ private func resolveVoice(profile: String?, locale: String?) -> VoiceDescriptor?
 
 private func selectedVoice(explicitVoiceID: String?, profile: String?, locale: String?) -> (NSSpeechSynthesizer.VoiceName?, VoiceDescriptor?) {
     if let explicitVoiceID, !explicitVoiceID.isEmpty {
-        for voice in NSSpeechSynthesizer.availableVoices where String(describing: voice) == explicitVoiceID {
+        for voice in NSSpeechSynthesizer.availableVoices where voice.rawValue == explicitVoiceID {
             return (voice, voiceDescriptor(from: voice))
         }
     }
     guard let descriptor = resolveVoice(profile: profile, locale: locale) else {
         return (nil, nil)
     }
-    let voice = NSSpeechSynthesizer.availableVoices.first { String(describing: $0) == descriptor.id }
+    let voice = NSSpeechSynthesizer.availableVoices.first { $0.rawValue == descriptor.id }
     return (voice, descriptor)
 }
 

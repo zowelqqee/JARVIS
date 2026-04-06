@@ -107,9 +107,29 @@ class VoiceStatusTests(unittest.TestCase):
         self.assertIn("- macos_native: unavailable (HOST_SDK_MISMATCH: Native macOS Swift compiler and SDK appear mismatched; align Xcode and Command Line Tools.)", rendered)
         self.assertIn("detail: sdk toolchain: Apple Swift version 6.2 effective-5.10", rendered)
         self.assertIn("detail: active compiler: Apple Swift version 6.2.4 effective-5.10", rendered)
+        self.assertIn("detail: active developer dir: /Library/Developer/CommandLineTools", rendered)
+        self.assertIn("detail: active swiftc: /Library/Developer/CommandLineTools/usr/bin/swiftc", rendered)
         self.assertIn("guidance:", rendered)
         self.assertIn(
             "native macOS host hit a Swift compiler/SDK mismatch; align Xcode and Command Line Tools, then rerun `xcrun swiftc -typecheck voice/native_hosts/macos_tts_host.swift`.",
+            rendered,
+        )
+        self.assertIn(
+            "confirm the active developer dir with `xcode-select -p`.",
+            rendered,
+        )
+
+    def test_format_tts_backend_status_mentions_timeout_detail_lines(self) -> None:
+        provider = _TimeoutFallbackFakeTTSProvider()
+
+        rendered = format_tts_backend_status(build_tts_backend_status(provider))
+
+        self.assertIn("- macos_native: unavailable (HOST_TIMEOUT: Native macOS TTS host ping timed out.)", rendered)
+        self.assertIn("detail: active developer dir: /Library/Developer/CommandLineTools", rendered)
+        self.assertIn("detail: active swiftc: /Library/Developer/CommandLineTools/usr/bin/swiftc", rendered)
+        self.assertIn("guidance:", rendered)
+        self.assertIn(
+            "native macOS host could not start cleanly; check local `xcrun`/`swift` toolchain and Command Line Tools.",
             rendered,
         )
         self.assertIn(
@@ -176,11 +196,24 @@ class VoiceStatusTests(unittest.TestCase):
             rendered,
         )
         self.assertIn(
-            "make the selected developer dir match the Xcode or Command Line Tools bundle behind the `sdk toolchain` and `active compiler` detail lines above before retrying native smoke.",
+            "make the selected developer dir match the Xcode or Command Line Tools bundle behind the `sdk toolchain`, `active compiler`, `active developer dir`, and `active swiftc` detail lines above before retrying native smoke.",
             rendered,
         )
         self.assertIn("detail: sdk toolchain: Apple Swift version 6.2 effective-5.10", rendered)
         self.assertIn("detail: active compiler: Apple Swift version 6.2.4 effective-5.10", rendered)
+        self.assertIn("detail: active developer dir: /Library/Developer/CommandLineTools", rendered)
+        self.assertIn("detail: active swiftc: /Library/Developer/CommandLineTools/usr/bin/swiftc", rendered)
+
+    def test_format_tts_doctor_status_mentions_developer_dir_override_guidance(self) -> None:
+        provider = _SdkMismatchFallbackFakeTTSProviderWithDeveloperDirOverride()
+
+        rendered = format_tts_doctor_status(build_tts_doctor_status(provider))
+
+        self.assertIn("detail: developer dir override: /Applications/Xcode.app/Contents/Developer", rendered)
+        self.assertIn(
+            "current native diagnostics are running with `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer`; if that override is intentional, keep using it on the next typecheck and CLI smoke, otherwise fix or unset it before retrying.",
+            rendered,
+        )
 
     def test_format_tts_doctor_status_mentions_swift_bridging_guidance(self) -> None:
         provider = _SwiftBridgingFallbackFakeTTSProvider()
@@ -464,6 +497,75 @@ class _SdkMismatchFallbackFakeTTSProvider(_FakeTTSProvider):
                 detail_lines=(
                     "sdk toolchain: Apple Swift version 6.2 effective-5.10",
                     "active compiler: Apple Swift version 6.2.4 effective-5.10",
+                    "active developer dir: /Library/Developer/CommandLineTools",
+                    "active swiftc: /Library/Developer/CommandLineTools/usr/bin/swiftc",
+                ),
+                capabilities=BackendCapabilities(
+                    backend_name="macos_native",
+                    supports_stop=True,
+                    supports_voice_listing=True,
+                    supports_voice_resolution=True,
+                    supports_explicit_voice_id=True,
+                    supports_rate=True,
+                    supports_volume=True,
+                ),
+            ),
+            BackendRuntimeStatus(
+                backend_name="macos_say_legacy",
+                available=True,
+                selected=True,
+                capabilities=self.capabilities(),
+            ),
+        )
+
+
+class _SdkMismatchFallbackFakeTTSProviderWithDeveloperDirOverride(_FakeTTSProvider):
+    def backend_diagnostics(self) -> tuple[BackendRuntimeStatus, ...]:
+        return (
+            BackendRuntimeStatus(
+                backend_name="macos_native",
+                available=False,
+                selected=False,
+                error_code="HOST_SDK_MISMATCH",
+                error_message="Native macOS Swift compiler and SDK appear mismatched; align Xcode and Command Line Tools.",
+                detail_lines=(
+                    "sdk toolchain: Apple Swift version 6.2 effective-5.10",
+                    "active compiler: Apple Swift version 6.2.4 effective-5.10",
+                    "developer dir override: /Applications/Xcode.app/Contents/Developer",
+                    "active developer dir: /Applications/Xcode.app/Contents/Developer",
+                    "active swiftc: /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/swiftc",
+                ),
+                capabilities=BackendCapabilities(
+                    backend_name="macos_native",
+                    supports_stop=True,
+                    supports_voice_listing=True,
+                    supports_voice_resolution=True,
+                    supports_explicit_voice_id=True,
+                    supports_rate=True,
+                    supports_volume=True,
+                ),
+            ),
+            BackendRuntimeStatus(
+                backend_name="macos_say_legacy",
+                available=True,
+                selected=True,
+                capabilities=self.capabilities(),
+            ),
+        )
+
+
+class _TimeoutFallbackFakeTTSProvider(_FakeTTSProvider):
+    def backend_diagnostics(self) -> tuple[BackendRuntimeStatus, ...]:
+        return (
+            BackendRuntimeStatus(
+                backend_name="macos_native",
+                available=False,
+                selected=False,
+                error_code="HOST_TIMEOUT",
+                error_message="Native macOS TTS host ping timed out.",
+                detail_lines=(
+                    "active developer dir: /Library/Developer/CommandLineTools",
+                    "active swiftc: /Library/Developer/CommandLineTools/usr/bin/swiftc",
                 ),
                 capabilities=BackendCapabilities(
                     backend_name="macos_native",

@@ -44,13 +44,19 @@
   - `voice tts current` inside CLI to inspect how core product-level voice profiles resolve right now
   - `voice tts doctor` inside CLI to inspect fallback reasons, profile resolution, voice visibility, and suggested next checks in one place
   - for native macOS fallback debugging, `voice tts doctor` may now report specific startup classes such as `HOST_TOOLCHAIN_MISSING`, `HOST_SDK_MISMATCH`, `HOST_SWIFT_BRIDGING_CONFLICT`, or `HOST_COMPILE_FAILED`
-  - for `HOST_SDK_MISMATCH`, helper output may now also show the exact `sdk toolchain` and `active compiler` pair taken from the local Swift diagnostics
+  - for `HOST_SDK_MISMATCH`, helper output may now also show the exact `sdk toolchain`, `active compiler`, current `active developer dir`, and active `swiftc` path taken from local diagnostics
+  - when native smoke is running through an explicit `DEVELOPER_DIR=...` override, helper output may now also show `developer dir override: ...` so the current env-based workaround is visible without changing global `xcode-select`
+  - for `HOST_COMPILE_FAILED`, helper output may now also keep current runtime toolchain context such as `developer dir override`, `active developer dir`, and `active swiftc`
+  - when a native blocker already carries `developer dir override: ...`, helper follow-up commands may now also include the same `DEVELOPER_DIR=...` prefix automatically
+  - for `HOST_TIMEOUT`, helper output may now still show runtime toolchain details such as `active developer dir` and active `swiftc`, even when the native host never answers the initial ping
+  - for `HOST_TIMEOUT`, `voice readiness` and `voice gate` may now also switch to a timeout-specific `next step` that points back to the native doctor helper plus current toolchain details
   - for `HOST_SDK_MISMATCH`, both `voice tts backend` and `voice tts doctor` may now suggest checking `xcode-select -p` so the active developer dir can be aligned with the reported SDK/compiler pair before rerunning typecheck
   - if native macOS diagnostics point at toolchain or compile issues, run `xcrun swiftc -typecheck voice/native_hosts/macos_tts_host.swift` for one direct offline check of the active Swift toolchain
+  - for one non-invasive native smoke, you may also run CLI with `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer` before attempting any global `xcode-select` switch
   - `voice readiness` inside CLI or `python3 -m voice.readiness`
   - with `JARVIS_TTS_MACOS_NATIVE=1`, `voice readiness` and `voice gate` now also surface a separate `native tts smoke` status, reason, and diagnostic detail lines
   - after manual verification is already recorded, those helpers may also switch `next step` directly to a native-specific recovery path such as `resolve_native_tts_sdk_mismatch`
-  - for `HOST_SDK_MISMATCH`, `voice readiness` and `voice gate` may also show `next step detail` lines such as `xcode-select -p` so the active developer dir can be aligned with the SDK/toolchain pair before rerunning typecheck
+  - for `HOST_SDK_MISMATCH`, `voice readiness` and `voice gate` may also show `next step detail` lines such as `xcode-select -p` so the active developer dir can be aligned with the reported SDK/compiler/developer-dir/swiftc details before rerunning typecheck
   - `voice readiness write` inside CLI to persist the final readiness artifact when unblocked
   - `voice gate` inside CLI or `python3 -m voice.gate`
   - shell wrapper: `scripts/run_voice_readiness_gate.sh`
