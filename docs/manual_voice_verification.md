@@ -48,6 +48,7 @@
   - when native smoke is running through an explicit `DEVELOPER_DIR=...` override, helper output may now also show `developer dir override: ...` so the current env-based workaround is visible without changing global `xcode-select`
   - for `HOST_COMPILE_FAILED`, helper output may now also keep current runtime toolchain context such as `developer dir override`, `active developer dir`, and `active swiftc`
   - when a native blocker already carries `developer dir override: ...`, helper follow-up commands may now also include the same `DEVELOPER_DIR=...` prefix automatically
+  - when native smoke is already ready via `DEVELOPER_DIR=...`, `voice readiness` and `voice gate` may now also keep that override in the suggested CLI command instead of dropping back to a generic `python3 cli.py`
   - for `HOST_TIMEOUT`, helper output may now still show runtime toolchain details such as `active developer dir` and active `swiftc`, even when the native host never answers the initial ping
   - for `HOST_TIMEOUT`, `voice readiness` and `voice gate` may now also switch to a timeout-specific `next step` that points back to the native doctor helper plus current toolchain details
   - for `HOST_SDK_MISMATCH`, both `voice tts backend` and `voice tts doctor` may now suggest checking `xcode-select -p` so the active developer dir can be aligned with the reported SDK/compiler pair before rerunning typecheck

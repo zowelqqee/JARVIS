@@ -170,6 +170,44 @@ class VoiceReadinessGateTests(unittest.TestCase):
             report.blockers,
         )
 
+    def test_gate_keeps_developer_dir_override_for_ready_native_smoke(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir, patch(
+            "voice.readiness.sys.platform",
+            "darwin",
+        ), patch(
+            "voice.readiness.build_default_tts_provider",
+            return_value=_ReadyNativeOptInProvider(),
+        ):
+            artifact_path = Path(tmpdir) / "voice_readiness.json"
+            record = build_voice_readiness_record(
+                manual_verified=True,
+                artifact_path=artifact_path,
+                environ={
+                    "JARVIS_TTS_MACOS_NATIVE": "1",
+                    "DEVELOPER_DIR": "/Applications/Xcode.app/Contents/Developer",
+                },
+            )
+            write_voice_readiness_artifact(record, artifact_path=artifact_path)
+            report = build_voice_readiness_gate_report(
+                artifact_path=artifact_path,
+                environ={
+                    "JARVIS_TTS_MACOS_NATIVE": "1",
+                    "DEVELOPER_DIR": "/Applications/Xcode.app/Contents/Developer",
+                },
+            )
+
+        self.assertTrue(report.gate_ready)
+        self.assertEqual(report.native_tts_status, "ready")
+        self.assertEqual(report.native_tts_active_backend, "macos_native")
+        self.assertEqual(
+            report.native_tts_command,
+            "env DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer JARVIS_TTS_MACOS_NATIVE=1 python3 cli.py",
+        )
+        self.assertEqual(
+            report.native_tts_detail_lines,
+            ["developer dir override: /Applications/Xcode.app/Contents/Developer"],
+        )
+
     def test_format_mentions_native_tts_block_details(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir, patch(
             "voice.readiness.sys.platform",
@@ -434,6 +472,46 @@ class _SdkMismatchNativeOptInProvider:
                 available=True,
                 selected=True,
                 capabilities=self.capabilities(),
+            ),
+        )
+
+
+class _ReadyNativeOptInProvider:
+    def capabilities(self) -> BackendCapabilities:
+        return BackendCapabilities(
+            backend_name="macos_native",
+            supports_stop=True,
+            supports_voice_listing=True,
+            supports_voice_resolution=True,
+            supports_explicit_voice_id=True,
+            supports_rate=True,
+            supports_volume=True,
+        )
+
+    def is_available(self) -> bool:
+        return True
+
+    def backend_diagnostics(self) -> tuple[BackendRuntimeStatus, ...]:
+        return (
+            BackendRuntimeStatus(
+                backend_name="macos_native",
+                available=True,
+                selected=True,
+                capabilities=self.capabilities(),
+            ),
+            BackendRuntimeStatus(
+                backend_name="macos_say_legacy",
+                available=True,
+                selected=False,
+                capabilities=BackendCapabilities(
+                    backend_name="macos_say_legacy",
+                    supports_stop=True,
+                    supports_voice_listing=True,
+                    supports_voice_resolution=True,
+                    supports_explicit_voice_id=True,
+                    supports_rate=True,
+                    is_fallback=True,
+                ),
             ),
         )
 

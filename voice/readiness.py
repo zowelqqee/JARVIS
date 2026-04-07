@@ -23,6 +23,7 @@ from voice.telemetry import (
 from voice.tts_operator_hints import (
     NATIVE_TTS_DOCTOR_COMMAND,
     NATIVE_TTS_TYPECHECK_COMMAND,
+    native_tts_cli_smoke_command,
     native_tts_follow_up_command,
     native_tts_next_step_details,
 )
@@ -467,14 +468,20 @@ def _native_tts_smoke_summary(*, environ: Mapping[str, str] | None = None) -> Na
             command=NATIVE_TTS_DOCTOR_COMMAND,
         )
     if native_diagnostic.available:
+        ready_detail_lines = _native_tts_ready_detail_lines(
+            detail_lines=native_diagnostic.detail_lines,
+            developer_dir_override=current_environ.get("DEVELOPER_DIR"),
+        )
         return NativeTTSSmokeSummary(
             requested=True,
             status="ready",
             active_backend=backend_status.backend_name,
             error_code=native_diagnostic.error_code,
             reason="native macOS backend is available for manual smoke",
-            command="env JARVIS_TTS_MACOS_NATIVE=1 python3 cli.py",
-            detail_lines=native_diagnostic.detail_lines,
+            command=native_tts_cli_smoke_command(
+                developer_dir_override=str(current_environ.get("DEVELOPER_DIR", "") or "").strip() or None,
+            ),
+            detail_lines=ready_detail_lines,
         )
     reason = _native_tts_reason(native_diagnostic.error_code, native_diagnostic.error_message)
     return NativeTTSSmokeSummary(
@@ -545,6 +552,18 @@ def _native_tts_reason(error_code: str | None, error_message: str | None) -> str
     if code and message:
         return f"{code}: {message}"
     return message or code or "native macOS backend is unavailable"
+
+
+def _native_tts_ready_detail_lines(
+    *,
+    detail_lines: tuple[str, ...],
+    developer_dir_override: object | None,
+) -> tuple[str, ...]:
+    lines = [str(line or "").strip() for line in tuple(detail_lines or ()) if str(line or "").strip()]
+    override = str(developer_dir_override or "").strip()
+    if override and f"developer dir override: {override}" not in lines:
+        lines.insert(0, f"developer dir override: {override}")
+    return tuple(lines)
 
 
 def _native_tts_next_step(

@@ -7,6 +7,7 @@ import shlex
 NATIVE_TTS_DOCTOR_COMMAND = "printf 'voice tts doctor\\nquit\\n' | env JARVIS_TTS_MACOS_NATIVE=1 python3 cli.py"
 NATIVE_TTS_TYPECHECK_COMMAND = "xcrun swiftc -typecheck voice/native_hosts/macos_tts_host.swift"
 NATIVE_TTS_DEVELOPER_DIR_COMMAND = "xcode-select -p"
+NATIVE_TTS_CLI_COMMAND = "env JARVIS_TTS_MACOS_NATIVE=1 python3 cli.py"
 
 _TYPECHECK_ERROR_CODES = {
     "HOST_TOOLCHAIN_MISSING",
@@ -23,6 +24,14 @@ def native_tts_follow_up_command(error_code: str | None, *, detail_lines: tuple[
     if code in _TYPECHECK_ERROR_CODES:
         return _typecheck_command(developer_dir_override)
     return _doctor_command(developer_dir_override)
+
+
+def native_tts_cli_smoke_command(*, developer_dir_override: str | None = None) -> str:
+    """Return one CLI smoke command for the current native opt-in context."""
+    if not developer_dir_override:
+        return NATIVE_TTS_CLI_COMMAND
+    quoted_override = shlex.quote(developer_dir_override)
+    return f"env DEVELOPER_DIR={quoted_override} JARVIS_TTS_MACOS_NATIVE=1 python3 cli.py"
 
 
 def native_tts_doctor_guidance(error_code: str | None, *, detail_lines: tuple[str, ...] = ()) -> tuple[str, ...]:
