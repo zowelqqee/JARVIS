@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
 
+from qa.answer_summary import build_answer_summary
 from voice.language import detect_spoken_locale, prefers_russian_locale
 from voice.tts_provider import SpeechUtterance
 
@@ -117,9 +118,6 @@ _INTERNAL_DEBUG_MARKERS = (
     "structured_output=",
     "output_text=",
 )
-_LONG_ANSWER_PROMPT_MIN_CHARS = 220
-_LONG_ANSWER_PROMPT_MARGIN = 40
-_SUMMARY_SOURCE_CUE_TRIM_SUFFIX = " \t;,:-([{<'\"`«“\u2013\u2014"
 _COMMON_FILE_SUFFIXES = {
     ".c",
     ".cc",
@@ -348,38 +346,24 @@ def _question_speech_message(
         else None
     )
     summary = _question_summary(result=result, visibility=visibility)
-    has_more_detail = _question_has_more_detail(
-        result=result,
-        visibility=visibility,
-        summary=summary,
-        preferred_locale=preferred_locale,
-    )
     if summary:
         spoken_summary = source_override or _spoken_question_text(summary, preferred_locale=preferred_locale)
         warning = str(visibility.get("answer_warning", "") or "").strip()
         if not warning:
             answer_result = getattr(result, "answer_result", None)
             warning = str(getattr(answer_result, "warning", "") or "").strip()
-        prompt = (
-            _question_more_detail_prompt(
-                preferred_locale=preferred_locale,
-                compact=bool(embedded_source_cue or warning),
-            )
-            if has_more_detail and source_override is None
-            else ""
-        )
         if warning:
             spoken_warning = _spoken_question_warning(
                 warning,
                 preferred_locale=preferred_locale,
-                compact=bool(source_override or embedded_source_cue or prompt),
+                compact=bool(source_override or embedded_source_cue),
             )
             warning_sentence = (
                 f"{_warning_prefix(
                     preferred_locale,
                     spoken_summary,
                     spoken_warning,
-                    compact=bool(source_override or embedded_source_cue or prompt),
+                    compact=bool(source_override or embedded_source_cue),
                     warning_text=warning,
                 )}: {spoken_warning}"
             )
@@ -388,13 +372,9 @@ def _question_speech_message(
                 spoken_message = _join_sentences(spoken_message, embedded_source_cue)
             if not _messages_overlap(spoken_message, warning_sentence):
                 spoken_message = _join_sentences(spoken_message, warning_sentence)
-            if prompt:
-                return _join_sentences(spoken_message, prompt)
             return spoken_message
         if embedded_source_cue and not _messages_overlap(spoken_summary, embedded_source_cue):
             spoken_summary = _join_sentences(spoken_summary, embedded_source_cue)
-        if prompt:
-            return _join_sentences(spoken_summary, prompt)
         return spoken_summary
 
     if answer_text:
@@ -1145,40 +1125,6 @@ def _question_answer_text(*, result: object, visibility: dict[str, Any]) -> str:
     return str(getattr(answer_result, "answer_text", "") or "").strip()
 
 
-def _question_has_more_detail(
-    *,
-    result: object,
-    visibility: dict[str, Any],
-    summary: str,
-    preferred_locale: str | None = None,
-) -> bool:
-    normalized_summary = " ".join(str(summary or "").split()).strip()
-    if not normalized_summary:
-        return False
-
-    answer_text = _question_answer_text(result=result, visibility=visibility)
-    normalized_answer = " ".join(str(answer_text or "").split()).strip()
-    if not normalized_answer:
-        return False
-    if _spoken_question_refusal_text(normalized_answer, preferred_locale=preferred_locale):
-        return False
-    if normalized_answer == normalized_summary:
-        return False
-    if len(normalized_answer) < _LONG_ANSWER_PROMPT_MIN_CHARS:
-        return False
-    return len(normalized_answer) > len(normalized_summary) + _LONG_ANSWER_PROMPT_MARGIN
-
-
-def _question_more_detail_prompt(*, preferred_locale: str | None = None, compact: bool = False) -> str:
-    if prefers_russian_locale(preferred_locale):
-        if compact:
-            return "Скажи подробнее, если нужны детали."
-        return "Скажи подробнее, если хочешь больше деталей."
-    if compact:
-        return 'Say "say more" for details.'
-    return 'Say "say more" if you want more detail.'
-
-
 def _spoken_utterance_locale(message: str, *, preferred_locale: str | None = None) -> str:
     locale_text = str(preferred_locale or "").strip()
     if locale_text:
@@ -1192,28 +1138,7 @@ def _spoken_utterance_locale(message: str, *, preferred_locale: str | None = Non
 
 
 def _answer_summary(answer_text: str) -> str:
-    normalized = _summary_text_without_embedded_source(answer_text)
-    if not normalized:
-        return ""
-    for punctuation in (". ", "! ", "? "):
-        split_index = normalized.find(punctuation)
-        if 0 < split_index <= 110:
-            return normalized[: split_index + 1].strip()
-    if len(normalized) <= 110:
-        return normalized
-    clipped = normalized[:107].rsplit(" ", 1)[0].strip() or normalized[:107].strip()
-    return f"{clipped}..."
-
-
-def _summary_text_without_embedded_source(answer_text: str) -> str:
-    normalized = " ".join(str(answer_text or "").split()).strip()
-    if not normalized:
-        return ""
-    match = _EMBEDDED_SOURCE_LIST_ANSWER_RE.search(normalized)
-    if match is None or match.start() <= 0:
-        return normalized
-    trimmed = normalized[: match.start()].rstrip(_SUMMARY_SOURCE_CUE_TRIM_SUFFIX)
-    return trimmed or normalized
+    return build_answer_summary(answer_text) or ""
 
 
 def _interaction_visibility(result: object) -> dict[str, Any]:

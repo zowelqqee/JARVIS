@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import json
+import math
 import os
 from pathlib import Path
+import re
 import shutil
 import subprocess
 import sys
@@ -12,6 +14,7 @@ import tempfile
 from threading import Lock
 from typing import Any
 from typing import Mapping
+import wave
 
 from voice.tts_models import BackendCapabilities, VoiceDescriptor
 from voice.tts_provider import SpeechUtterance, TTSResult
@@ -30,6 +33,7 @@ _BINARY_ENV = "JARVIS_TTS_PIPER_BIN"
 _PLAYER_ENV = "JARVIS_TTS_PIPER_PLAYER"
 _RUNTIME_ROOT_ENV = "JARVIS_TTS_PIPER_ROOT"
 _DEFAULT_RUNTIME_ROOT = Path(__file__).resolve().parents[2] / "tmp" / "runtime" / "piper"
+_MANIFEST_RELATIVE_PATH = Path("manifest.json")
 _DEFAULT_BINARY_RELATIVE_CANDIDATES = (
     Path("venv/bin/piper"),
     Path("bin/piper"),
@@ -93,6 +97,14 @@ _DEFAULT_MODEL_SLOT_BY_ENV = {
         "gender_hint": None,
     },
 }
+_SLOT_KEY_BY_ENV = {
+    "JARVIS_TTS_PIPER_MODEL_RU_MALE": "ru_male",
+    "JARVIS_TTS_PIPER_MODEL_RU_FEMALE": "ru_female",
+    "JARVIS_TTS_PIPER_MODEL_RU": "ru",
+    "JARVIS_TTS_PIPER_MODEL_EN_MALE": "en_male",
+    "JARVIS_TTS_PIPER_MODEL_EN_FEMALE": "en_female",
+    "JARVIS_TTS_PIPER_MODEL_EN": "en",
+}
 _QUALITY_TOKENS = ("x_low", "low", "medium", "high")
 _PROFILE_FAMILY_BY_PROFILE = {
     VOICE_PROFILE_RU_ASSISTANT_MALE: "male",
@@ -110,6 +122,12 @@ _PROFILE_BY_LANGUAGE_AND_FAMILY = {
     ("en", "female"): VOICE_PROFILE_EN_ASSISTANT_FEMALE,
     ("en", "any"): VOICE_PROFILE_EN_ASSISTANT_ANY,
 }
+_ELLIPSIS_RE = re.compile(r"(?:\.{3,}|\u2026)+")
+_MULTISPACE_RE = re.compile(r"\s+")
+_SPACE_BEFORE_PUNCTUATION_RE = re.compile(r"\s+([,.;:!?])")
+_DASH_PAUSE_RE = re.compile(r"\s*[\u2013\u2014-]\s*")
+_DOUBLE_COMMA_RE = re.compile(r"(,\s*){2,}")
+_DOUBLE_SENTENCE_BREAK_RE = re.compile(r"([.!?])(?:\s*[,:;])+\s*")
 
 
 class PiperTTSBackend:
@@ -164,13 +182,24 @@ class PiperTTSBackend:
                 backend_name=_BACKEND_NAME,
             )
 
+        slot_config = self._slot_config_for_model_path(model_descriptor.id)
+        prepared_message = self._prepare_message_for_piper(
+            message,
+            locale=getattr(utterance, "locale", None),
+            slot_config=slot_config,
+        )
         with tempfile.NamedTemporaryFile(prefix="jarvis_piper_", suffix=".wav", delete=False) as handle:
             output_path = Path(handle.name)
 
         try:
+            generation_command = [binary_path, "--model", model_descriptor.id]
+            config_path = _model_config_path(model_descriptor.id)
+            if config_path is not None:
+                generation_command.extend(["--config", config_path])
+            generation_command.extend(["--output_file", str(output_path)])
             generation = subprocess.run(
-                [binary_path, "--model", model_descriptor.id, "--output_file", str(output_path)],
-                input=message,
+                generation_command,
+                input=prepared_message,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 text=True,
@@ -185,6 +214,7 @@ class PiperTTSBackend:
                     backend_name=_BACKEND_NAME,
                     voice_id=model_descriptor.id,
                 )
+            _postprocess_wav_file(output_path, slot_config=slot_config)
 
             process = subprocess.Popen(
                 [*player_command, str(output_path)],
@@ -431,16 +461,19 @@ class PiperTTSBackend:
         return tuple(root / candidate for candidate in _DEFAULT_BINARY_RELATIVE_CANDIDATES)
 
     def _default_model_slot_path(self, env_name: str) -> Path | None:
-        slot = _DEFAULT_MODEL_SLOT_BY_ENV.get(env_name)
+        slot = self._slot_config_for_env(env_name)
         if slot is None:
             return None
-        return self._runtime_root() / slot["path"]
+        path_value = slot.get("path")
+        if not isinstance(path_value, (str, Path)):
+            return None
+        return self._runtime_root() / Path(path_value)
 
     def _explicit_descriptor_for_env(self, env_name: str, *, locale: str | None) -> VoiceDescriptor | None:
         env_value = self._env(env_name)
         if not env_value:
             return None
-        slot = _DEFAULT_MODEL_SLOT_BY_ENV.get(env_name) or {}
+        slot = self._slot_config_for_env(env_name) or {}
         return _descriptor_from_model_path(
             env_value,
             locale=locale or str(slot.get("locale") or ""),
@@ -449,7 +482,7 @@ class PiperTTSBackend:
         )
 
     def _default_descriptor_for_env(self, env_name: str, *, locale: str | None) -> VoiceDescriptor | None:
-        slot = _DEFAULT_MODEL_SLOT_BY_ENV.get(env_name) or {}
+        slot = self._slot_config_for_env(env_name) or {}
         default_path = self._default_model_slot_path(env_name)
         model_path = str(default_path) if default_path is not None else ""
         return _descriptor_from_model_path(
@@ -458,6 +491,85 @@ class PiperTTSBackend:
             display_name=str(slot.get("display_name") or "").strip() or None,
             gender_hint=str(slot.get("gender_hint") or "").strip() or None,
         )
+
+    def _slot_config_for_env(self, env_name: str) -> Mapping[str, object] | None:
+        base_slot = _DEFAULT_MODEL_SLOT_BY_ENV.get(env_name)
+        manifest_slot = self._manifest_slot_for_env(env_name)
+        if base_slot is None:
+            return manifest_slot
+        if not manifest_slot:
+            return base_slot
+        merged = dict(base_slot)
+        merged.update(
+            {
+                key: value
+                for key, value in manifest_slot.items()
+                if key in {"path", "display_name", "locale", "gender_hint", "audio_postprocess"}
+            }
+        )
+        return merged
+
+    def _manifest_slot_for_env(self, env_name: str) -> Mapping[str, object] | None:
+        slot_key = _SLOT_KEY_BY_ENV.get(env_name)
+        if not slot_key:
+            return None
+        slots = self._manifest_slots()
+        raw_slot = slots.get(slot_key)
+        if isinstance(raw_slot, Mapping):
+            return raw_slot
+        return None
+
+    def _manifest_slots(self) -> dict[str, Mapping[str, object]]:
+        payload = _load_runtime_manifest(self._runtime_root())
+        raw_slots = payload.get("slots")
+        if not isinstance(raw_slots, Mapping):
+            return {}
+        normalized: dict[str, Mapping[str, object]] = {}
+        for key, value in raw_slots.items():
+            if isinstance(key, str) and isinstance(value, Mapping):
+                normalized[key] = value
+        return normalized
+
+    def _slot_config_for_model_path(self, model_path: str) -> Mapping[str, object] | None:
+        candidate = str(model_path or "").strip()
+        if not candidate:
+            return None
+        for env_name in _SLOT_KEY_BY_ENV:
+            explicit = self._explicit_descriptor_for_env(env_name, locale=None)
+            if explicit is not None and explicit.id == candidate:
+                return self._slot_config_for_env(env_name)
+            default = self._default_descriptor_for_env(env_name, locale=None)
+            if default is not None and default.id == candidate:
+                return self._slot_config_for_env(env_name)
+        return None
+
+    def _prepare_message_for_piper(
+        self,
+        message: str,
+        *,
+        locale: str | None,
+        slot_config: Mapping[str, object] | None,
+    ) -> str:
+        current = str(message or "").strip()
+        if not current:
+            return current
+        current = _ELLIPSIS_RE.sub(". ", current)
+        current = _DOUBLE_SENTENCE_BREAK_RE.sub(r"\1 ", current)
+        current = _DASH_PAUSE_RE.sub(", ", current)
+        current = _SPACE_BEFORE_PUNCTUATION_RE.sub(r"\1", current)
+        current = _DOUBLE_COMMA_RE.sub(", ", current)
+        current = _MULTISPACE_RE.sub(" ", current).strip()
+        slot_locale = ""
+        if isinstance(slot_config, Mapping):
+            slot_locale = str(slot_config.get("locale", "") or "").strip()
+        language = (
+            _language_from_locale(slot_locale)
+            or _dominant_language_from_text(current)
+            or _language_from_locale(locale)
+        )
+        if language == "ru":
+            current = _prepare_russian_piper_text(current)
+        return current.strip()
 
     def _set_availability(
         self,
@@ -604,6 +716,17 @@ def _load_model_sidecar(model_path: Path) -> dict[str, Any]:
     return {}
 
 
+def _load_runtime_manifest(runtime_root: Path) -> dict[str, Any]:
+    manifest_path = runtime_root / _MANIFEST_RELATIVE_PATH
+    try:
+        payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except (FileNotFoundError, IsADirectoryError, PermissionError, json.JSONDecodeError, OSError):
+        return {}
+    if isinstance(payload, dict):
+        return payload
+    return {}
+
+
 def _sidecar_display_name(payload: dict[str, Any]) -> str | None:
     for key in ("display_name", "name", "speaker", "speaker_name"):
         value = str(payload.get(key, "") or "").strip()
@@ -674,3 +797,123 @@ def _is_cyrillic(character: str) -> bool:
         return False
     codepoint = ord(character)
     return 0x0400 <= codepoint <= 0x04FF or 0x0500 <= codepoint <= 0x052F
+
+
+def _model_config_path(model_path: str | None) -> str | None:
+    candidate = str(model_path or "").strip()
+    if not candidate:
+        return None
+    path = Path(candidate).expanduser()
+    for config_path in (Path(f"{path}.json"), path.with_suffix(".json")):
+        if config_path.exists():
+            return str(config_path)
+    return None
+
+
+def _postprocess_wav_file(path: Path, *, slot_config: Mapping[str, object] | None) -> None:
+    options = _audio_postprocess_options(slot_config)
+    if not options:
+        return
+    try:
+        with wave.open(str(path), "rb") as reader:
+            nchannels = reader.getnchannels()
+            sampwidth = reader.getsampwidth()
+            framerate = reader.getframerate()
+            comptype = reader.getcomptype()
+            compname = reader.getcompname()
+            frames = reader.readframes(reader.getnframes())
+    except (wave.Error, OSError):
+        return
+    if sampwidth != 2 or not frames:
+        return
+
+    processed = _apply_pcm16_bass_boost(
+        frames,
+        nchannels=nchannels,
+        framerate=framerate,
+        bass_boost=options["bass_boost"],
+        bass_cutoff_hz=options["bass_cutoff_hz"],
+        output_gain=options["output_gain"],
+    )
+    if processed == frames:
+        return
+    try:
+        with wave.open(str(path), "wb") as writer:
+            writer.setnchannels(nchannels)
+            writer.setsampwidth(sampwidth)
+            writer.setframerate(framerate)
+            writer.setcomptype(comptype, compname)
+            writer.writeframes(processed)
+    except (wave.Error, OSError):
+        return
+
+
+def _audio_postprocess_options(slot_config: Mapping[str, object] | None) -> dict[str, float]:
+    if not isinstance(slot_config, Mapping):
+        return {}
+    raw_options = slot_config.get("audio_postprocess")
+    if not isinstance(raw_options, Mapping):
+        return {}
+    try:
+        bass_boost = float(raw_options.get("bass_boost", 0.0))
+        bass_cutoff_hz = float(raw_options.get("bass_cutoff_hz", 0.0))
+        output_gain = float(raw_options.get("output_gain", 1.0))
+    except (TypeError, ValueError):
+        return {}
+    if bass_boost <= 0.0 or bass_cutoff_hz <= 0.0 or output_gain <= 0.0:
+        return {}
+    return {
+        "bass_boost": bass_boost,
+        "bass_cutoff_hz": bass_cutoff_hz,
+        "output_gain": output_gain,
+    }
+
+
+def _apply_pcm16_bass_boost(
+    frames: bytes,
+    *,
+    nchannels: int,
+    framerate: int,
+    bass_boost: float,
+    bass_cutoff_hz: float,
+    output_gain: float,
+) -> bytes:
+    if nchannels <= 0 or framerate <= 0:
+        return frames
+    frame_size = nchannels * 2
+    if frame_size <= 0:
+        return frames
+    total_frames = len(frames) // frame_size
+    if total_frames <= 0:
+        return frames
+
+    dt = 1.0 / float(framerate)
+    rc = 1.0 / max(1.0, 2.0 * math.pi * bass_cutoff_hz)
+    alpha = dt / (rc + dt)
+    low_state = [0.0] * nchannels
+    data = bytearray(frames)
+    for frame_index in range(total_frames):
+        frame_offset = frame_index * frame_size
+        for channel_index in range(nchannels):
+            offset = frame_offset + (channel_index * 2)
+            sample = int.from_bytes(data[offset : offset + 2], byteorder="little", signed=True)
+            low_state[channel_index] += alpha * (sample - low_state[channel_index])
+            boosted = (sample + (low_state[channel_index] * bass_boost)) * output_gain
+            clamped = max(-32768, min(32767, int(round(boosted))))
+            data[offset : offset + 2] = clamped.to_bytes(2, byteorder="little", signed=True)
+    return bytes(data)
+
+
+def _prepare_russian_piper_text(message: str) -> str:
+    current = str(message or "").strip()
+    if not current:
+        return current
+    current = current.replace("JARVIS", "Джарвис")
+    current = current.replace("CLI", "си эль ай")
+    current = current.replace("MVP", "эм ви пи")
+    current = current.replace(": ", ". ")
+    current = current.replace(";", ",")
+    current = _MULTISPACE_RE.sub(" ", current).strip()
+    if current and current[-1] not in ".!?":
+        current = f"{current}."
+    return current

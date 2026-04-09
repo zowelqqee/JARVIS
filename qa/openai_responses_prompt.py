@@ -41,7 +41,7 @@ def build_instructions(*, config: AnswerBackendConfig) -> str:
         "and do not imply that any command was executed. If grounding is insufficient, set grounded to false and explain that in warning. "
         "If the supplied Runtime facts or Session facts directly answer the question, use those concrete values explicitly instead of replacing them with a generic summary. "
         f"Return schema_version exactly {ANSWER_SCHEMA_VERSION}. "
-        "Keep answer_text concise but complete, usually 1 to 4 short sentences. "
+        "Keep answer_text concise but complete in exactly 2 short sentences. "
         "Use enough source_attributions to support each distinct claim in answer_text; do not artificially cap citations when multiple grounded sources are materially relevant. "
         "In each source_attributions.source field, return only the raw source path, not the annotated kind/section text. "
         f"Keep each support field to one short factual sentence, and {strict_text}."

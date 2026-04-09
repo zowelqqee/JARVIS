@@ -260,7 +260,7 @@ Current shipped behavior:
 ## Visibility Rules
 Question-answer mode should expose:
 - `interaction_mode = question`
-- `answer_summary` for concise CLI/speech rendering
+- `answer_summary` for concise two-sentence CLI/speech rendering
 - `answer_text`
 - `answer_kind`
 - `answer_provenance`

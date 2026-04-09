@@ -284,8 +284,52 @@ class OpenAIResponsesPayloadContractTests(unittest.TestCase):
         self.assertIn("answer directly instead of asking what the user wants explained", input_text)
         self.assertIn("For explain_more, provide a fuller explanation of the same subject", input_text)
         self.assertIn("Recent answer anchor: Tony Stark is a fictional Marvel character.", input_text)
+        self.assertIn("Answer fully in English because the recent answer anchor is in English.", input_text)
         self.assertIn("Local grounded sources: none for this answer mode. Do not invent citations.", input_text)
         self.assertIn('"recent_answer_context"', input_text)
+
+    def test_russian_model_knowledge_follow_up_locks_response_language_to_russian(self) -> None:
+        session_context = SessionContext()
+        session_context.set_recent_answer_context(
+            topic="open_domain_general",
+            scope="open_domain",
+            sources=[],
+            answer_text=(
+                "Интернет вещей — это сеть устройств, которые подключаются к интернету и обмениваются данными без участия человека."
+            ),
+            answer_kind="open_domain_model",
+            answer_provenance="model_knowledge",
+        )
+        follow_up_question = QuestionRequest(
+            raw_input="Explain more",
+            question_type=QuestionType.ANSWER_FOLLOW_UP,
+            scope="open_domain",
+            confidence=0.92,
+            context_refs={
+                "follow_up_kind": "explain_more",
+                "answer_topic": "open_domain_general",
+                "answer_scope": "open_domain",
+                "answer_sources": [],
+                "answer_text": (
+                    "Интернет вещей — это сеть устройств, которые подключаются к интернету и обмениваются данными без участия человека."
+                ),
+                "answer_kind": "open_domain_model",
+                "answer_provenance": "model_knowledge",
+            },
+        )
+        follow_up_bundle = build_grounding_bundle(follow_up_question, session_context=session_context)
+
+        payload = self.provider.build_request_payload(
+            follow_up_question,
+            grounding_bundle=follow_up_bundle,
+            config=self._config(),
+        )
+
+        instructions = str(payload.get("instructions", "") or "")
+        input_text = str((((payload.get("input") or [])[0].get("content") or [])[0].get("text")) or "")
+        self.assertIn("Keep answer_text in one language only", instructions)
+        self.assertIn("Answer fully in Russian because the recent answer anchor is in Russian.", input_text)
+        self.assertIn("Do not switch languages mid-answer", input_text)
 
     def test_open_domain_payload_uses_general_schema_and_metadata(self) -> None:
         payload = self.provider.build_request_payload(

@@ -132,7 +132,7 @@
 - Expected recognized text: `Кто президент Франции`
 - Expected result: question path, no command execution.
 - Important: answer freshness depends on the configured QA backend and environment.
-- If the spoken answer is long, TTS may shorten it and suggest a follow-up phrase like `скажи подробнее` or `say more` instead of reading the whole answer aloud.
+- Spoken answers should now return immediately as a short two-sentence summary instead of ending with a follow-up teaser phrase.
 - For unsafe or refusal question cases, spoken output should stay short; if the refusal includes immediate self-harm safety guidance, it may mention `988` briefly instead of reading a long policy-style answer aloud.
 
 ### 4) Fixed Russian capabilities prompt
@@ -190,14 +190,12 @@
 - The same cleanup should hold when the source cue appears after parentheses or dash-like punctuation, for example `(Relevant sources: ...)` or `— Relevant sources: ...`.
 - The same cleanup should also hold when the source cue is wrapped in quotes or guillemets, so spoken output does not keep stray quote characters around the summary or source labels.
 - If such an answer also carries a warning, spoken output should keep a natural order: answer first, then source cue, then warning.
-- In those heavier long-answer cases, the closing follow-up prompt may also switch to a shorter form like `Say "say more" for details.` or `Скажи подробнее, если нужны детали.`
 - In the same heavier cases, the warning itself may also shorten to a tighter spoken form like `Warning: May be out of date.` or `Предупреждение: Ответ может быть неактуален.`
 - Provenance-style warnings about local sources or model knowledge may also switch to a lighter spoken prefix like `Note:` or `Примечание:` in those heavier cases.
 - If the spoken answer references repo-relative paths like `docs/clarification_rules.md` or contains light markdown formatting, TTS should still say a short clean phrase such as `clarification_rules.md`, not read slashes, backticks, or formatting markers aloud.
 - If the spoken answer includes a website URL, TTS should prefer a short host like `docs.python.org` instead of reading `https://...` literally.
 - If QA/debug noise leaks into the answer text, spoken output should drop tails like `Debug:`, `Traceback`, `request_id=...`, or `latency_ms=...` instead of reading them aloud.
 - If voice/TTS is running with an explicit locale hint, utterance locale selection should keep that explicit locale even when the spoken message itself is mixed-language or Cyrillic-heavy.
-- For longer spoken answers, TTS may end with a short prompt like `Say "say more" if you want more detail.` or `Скажи подробнее, если хочешь больше деталей.`
 - Repeat with:
   - follow-up reply or second fresh `voice` turn: `какой источник`
 - Expected recognized text: `Which source?`

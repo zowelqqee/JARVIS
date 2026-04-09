@@ -87,6 +87,34 @@ class InteractionPresenterTests(unittest.TestCase):
             "Blue light scatters more strongly in the atmosphere than red light. Warning: This answer is based on model knowledge, not local sources.",
         )
 
+    def test_question_output_prefers_summary_over_long_answer_body(self) -> None:
+        result = SimpleNamespace(
+            interaction_mode=InteractionKind.QUESTION,
+            visibility={
+                "interaction_mode": "question",
+                "answer_text": (
+                    "Rayleigh scattering makes shorter wavelengths scatter more strongly. "
+                    "That is why the sky usually looks blue during the day. "
+                    "Dust, humidity, and sun angle also affect the exact color."
+                ),
+                "answer_summary": (
+                    "Rayleigh scattering makes shorter wavelengths scatter more strongly. "
+                    "That is why the sky usually looks blue during the day."
+                ),
+                "answer_sources": [],
+                "answer_source_labels": [],
+                "answer_source_attributions": [],
+            },
+        )
+
+        self.assertEqual(
+            interaction_output_lines(result),
+            [
+                "mode: question",
+                "summary: Rayleigh scattering makes shorter wavelengths scatter more strongly. That is why the sky usually looks blue during the day.",
+            ],
+        )
+
     def test_question_failure_falls_back_to_structured_error(self) -> None:
         error = JarvisError(
             category=ErrorCategory.ANSWER_ERROR,
@@ -111,7 +139,7 @@ class InteractionPresenterTests(unittest.TestCase):
         )
         self.assertEqual(
             interaction_speech_message(result),
-            "UNSUPPORTED_QUESTION: Question is outside the supported v1 grounded QA scope.",
+            "I can't answer that in the current mode.",
         )
 
     def test_clarification_output_uses_visibility_fields(self) -> None:
@@ -182,7 +210,7 @@ class InteractionPresenterTests(unittest.TestCase):
         )
         self.assertEqual(
             interaction_speech_message(result),
-            "Do you want me to close Telegram?",
+            "Do you want me to close Telegram? Say yes or no.",
         )
 
 

@@ -3,11 +3,15 @@
 from __future__ import annotations
 
 import json
+import re
 import uuid
 from typing import Any
 
 from qa.general_qa_safety import inspect_general_qa_safety, policy_tags_text
 from qa.openai_responses_general_schema import GENERAL_ANSWER_SCHEMA_VERSION
+
+_CYRILLIC_RE = re.compile(r"[А-Яа-яЁё]")
+_LATIN_RE = re.compile(r"[A-Za-z]")
 
 if False:  # pragma: no cover
     from qa.answer_config import AnswerBackendConfig
@@ -52,8 +56,9 @@ def build_general_instructions(*, config: AnswerBackendConfig) -> str:
         "When a Warning hint is provided for an open_domain_model answer, copy that warning into the warning field verbatim instead of burying it only inside answer_text. "
         "If the request is unsafe or disallowed, return answer_kind refusal with a short refusal answer_text. "
         "For self-harm refusal scenarios, use brief supportive safety language and point the user toward immediate human help or crisis resources mentioned in Policy guidance. "
+        "Keep answer_text in one language only; do not mix Russian and English within the same answer unless a proper noun or acronym requires it. "
         f"Return schema_version exactly {GENERAL_ANSWER_SCHEMA_VERSION}. "
-        "Keep answer_text concise and under 120 words, and keep warning empty unless it is needed. "
+        "Keep answer_text concise in exactly 2 short sentences and under 120 words, and keep warning empty unless it is needed. "
         f"{strict_text}."
     )
 
@@ -121,6 +126,9 @@ def _answer_follow_up_section(question: QuestionRequest, *, grounding_bundle: Gr
             lines.append("For why follow-ups, explain the reasoning behind the previous answer directly.")
         if answer_text:
             lines.append(f"Recent answer anchor: {answer_text}")
+            language_lock = _answer_language_lock(answer_text)
+            if language_lock:
+                lines.append(language_lock)
         if answer_warning:
             lines.append("If the recent answer already carried a warning, preserve that warning unless the safety boundary changes.")
         lines.append("Do not ask a clarification question unless the recent answer context is actually missing or unusable.")
@@ -145,3 +153,20 @@ def _metadata(**values: object) -> dict[str, str]:
         if normalized:
             metadata[key] = normalized
     return metadata
+
+
+def _answer_language_lock(answer_text: str) -> str | None:
+    normalized = " ".join(str(answer_text or "").split()).strip()
+    if not normalized:
+        return None
+    if _CYRILLIC_RE.search(normalized):
+        return (
+            "Answer fully in Russian because the recent answer anchor is in Russian. "
+            "Do not switch languages mid-answer, do not insert stray foreign words, and do not transliterate."
+        )
+    if _LATIN_RE.search(normalized):
+        return (
+            "Answer fully in English because the recent answer anchor is in English. "
+            "Do not switch languages mid-answer."
+        )
+    return None

@@ -59,7 +59,7 @@ The UI must always let the user understand:
 - When it updates: once per answered question.
 
 ### 9. Answer summary
-- What it shows: one short summary line for the answered question, optimized for CLI history scanning and speech output.
+- What it shows: a short two-sentence summary for the answered question, optimized for CLI history scanning and speech output.
 - When it appears: in question mode on successful answer.
 - When it updates: once per answered question.
 
@@ -191,7 +191,7 @@ The UI must always let the user understand:
 
 ## Answer UI Rules
 - Answer text must be concise and direct.
-- Provide one short answer summary line suitable for CLI history scanning and speech output.
+- Provide one short two-sentence answer summary suitable for CLI history scanning and speech output.
 - If the answer is grounded in docs or runtime data, show the source set with readable labels and raw paths.
 - If the backend provides stronger per-source support mapping, show it without implying hidden retrieval.
 - If the answer is partial, show one bounded warning.

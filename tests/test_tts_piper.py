@@ -7,8 +7,9 @@ from pathlib import Path
 import tempfile
 import unittest
 from unittest.mock import ANY, MagicMock, patch
+import wave
 
-from voice.backends.piper import PiperTTSBackend, piper_backend_requested
+from voice.backends.piper import PiperTTSBackend, _postprocess_wav_file, piper_backend_requested
 from voice.tts_provider import SpeechUtterance
 
 
@@ -83,6 +84,41 @@ class PiperTTSBackendTests(unittest.TestCase):
         self.assertEqual(voices[0].display_name, "Dmitri")
         self.assertEqual(voices[0].id, str(model_path))
 
+    def test_backend_honors_repo_local_manifest_slot_override(self) -> None:
+        with tempfile.TemporaryDirectory() as runtime_root:
+            runtime_path = Path(runtime_root)
+            model_path = runtime_path / "models" / "ru_male_ruslan.onnx"
+            model_path.parent.mkdir(parents=True, exist_ok=True)
+            model_path.write_text("stub", encoding="utf-8")
+            (runtime_path / "bin").mkdir(parents=True, exist_ok=True)
+            (runtime_path / "bin" / "piper").write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+            (runtime_path / "manifest.json").write_text(
+                json.dumps(
+                    {
+                        "slots": {
+                            "ru_male": {
+                                "path": "models/ru_male_ruslan.onnx",
+                                "display_name": "Russian Male (Ruslan)",
+                                "gender_hint": "male",
+                                "locale": "ru-RU",
+                            }
+                        }
+                    }
+                ),
+                encoding="utf-8",
+            )
+            backend = PiperTTSBackend(
+                environ={"JARVIS_TTS_PIPER_ROOT": runtime_root},
+                player_command=("/usr/bin/afplay",),
+            )
+
+            descriptor = backend.resolve_voice("ru_assistant_male", "ru-RU")
+
+        self.assertIsNotNone(descriptor)
+        assert descriptor is not None
+        self.assertEqual(descriptor.id, str(model_path))
+        self.assertEqual(descriptor.display_name, "Russian Male (Ruslan)")
+
     def test_speak_generates_and_plays_audio_with_resolved_model(self) -> None:
         with tempfile.NamedTemporaryFile(suffix=".onnx") as model_file:
             backend = PiperTTSBackend(
@@ -112,7 +148,7 @@ class PiperTTSBackendTests(unittest.TestCase):
             run_mock.call_args.args[0][:3],
             ["/bin/echo", "--model", model_file.name],
         )
-        self.assertEqual(run_mock.call_args.kwargs["input"], "Привет")
+        self.assertEqual(run_mock.call_args.kwargs["input"], "Привет.")
         popen_mock.assert_called_once_with(
             ["/usr/bin/afplay", ANY],
             stdout=ANY,
@@ -159,6 +195,38 @@ class PiperTTSBackendTests(unittest.TestCase):
             run_mock.call_args.args[0][:3],
             ["/usr/bin/true", "--model", str(en_model)],
         )
+
+    def test_audio_postprocess_can_add_bass_to_pcm16_wav(self) -> None:
+        with tempfile.TemporaryDirectory() as tempdir:
+            wav_path = Path(tempdir) / "probe.wav"
+            with wave.open(str(wav_path), "wb") as writer:
+                writer.setnchannels(1)
+                writer.setsampwidth(2)
+                writer.setframerate(1000)
+                frames = (1000).to_bytes(2, byteorder="little", signed=True) * 200
+                writer.writeframes(frames)
+
+            _postprocess_wav_file(
+                wav_path,
+                slot_config={
+                    "audio_postprocess": {
+                        "bass_boost": 0.25,
+                        "bass_cutoff_hz": 140.0,
+                        "output_gain": 0.98,
+                    }
+                },
+            )
+
+            with wave.open(str(wav_path), "rb") as reader:
+                processed = reader.readframes(reader.getnframes())
+
+        samples = [
+            int.from_bytes(processed[index : index + 2], byteorder="little", signed=True)
+            for index in range(0, len(processed), 2)
+        ]
+        self.assertEqual(len(samples), 200)
+        self.assertGreater(samples[-1], 1000)
+        self.assertLessEqual(samples[-1], 32767)
 
     def test_list_voices_exposes_configured_models(self) -> None:
         with tempfile.TemporaryDirectory() as runtime_root, tempfile.NamedTemporaryFile(suffix=".onnx") as ru_model, tempfile.NamedTemporaryFile(

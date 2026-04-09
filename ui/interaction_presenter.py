@@ -6,6 +6,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
+from qa.answer_summary import build_answer_summary
 from voice.speech_presenter import interaction_speech_message as voice_interaction_speech_message
 
 _TYPES_PATH = Path(__file__).resolve().parents[1] / "types"
@@ -47,7 +48,7 @@ def _question_output_lines(*, result: object, visibility: dict[str, Any]) -> lis
     if not answer_text:
         answer_result = getattr(result, "answer_result", None)
         answer_text = str(getattr(answer_result, "answer_text", "") or "").strip()
-    if answer_text and answer_text != answer_summary:
+    if answer_text and not answer_summary:
         lines.append(f"answer: {answer_text}")
 
     sources = list(visibility.get("answer_sources", []) or [])
@@ -216,17 +217,7 @@ def _source_label(source: str) -> str:
 
 
 def _answer_summary(answer_text: str) -> str:
-    normalized = " ".join(str(answer_text or "").split()).strip()
-    if not normalized:
-        return ""
-    for punctuation in (". ", "! ", "? "):
-        split_index = normalized.find(punctuation)
-        if 0 < split_index <= 110:
-            return normalized[: split_index + 1].strip()
-    if len(normalized) <= 110:
-        return normalized
-    clipped = normalized[:107].rsplit(" ", 1)[0].strip() or normalized[:107].strip()
-    return f"{clipped}..."
+    return build_answer_summary(answer_text) or ""
 
 def _interaction_visibility(result: object) -> dict[str, Any]:
     result_visibility = dict(getattr(result, "visibility", {}) or {})

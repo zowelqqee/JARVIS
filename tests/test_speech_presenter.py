@@ -646,7 +646,7 @@ class SpeechPresenterTests(unittest.TestCase):
             ),
         )
 
-    def test_long_answer_with_source_and_warning_uses_compact_english_more_detail_prompt(self) -> None:
+    def test_long_answer_with_source_and_warning_drops_more_detail_prompt_in_english(self) -> None:
         result = SimpleNamespace(
             interaction_mode="question",
             visibility={
@@ -667,12 +667,11 @@ class SpeechPresenterTests(unittest.TestCase):
             (
                 "Pathlib helps with cross-platform path handling. "
                 "Sources: clarification_rules.md and docs.python.org. "
-                "Warning: May be out of date. "
-                'Say "say more" for details.'
+                "Warning: May be out of date."
             ),
         )
 
-    def test_long_answer_with_source_and_warning_uses_compact_russian_more_detail_prompt(self) -> None:
+    def test_long_answer_with_source_and_warning_drops_more_detail_prompt_in_russian(self) -> None:
         result = SimpleNamespace(
             interaction_mode="question",
             visibility={
@@ -693,8 +692,7 @@ class SpeechPresenterTests(unittest.TestCase):
             (
                 "Pathlib помогает работать с путями в разных системах. "
                 "Источники: clarification_rules.md и docs.python.org. "
-                "Предупреждение: Ответ может быть неактуален. "
-                "Скажи подробнее, если нужны детали."
+                "Предупреждение: Ответ может быть неактуален."
             ),
         )
 
@@ -738,8 +736,7 @@ class SpeechPresenterTests(unittest.TestCase):
             interaction_speech_message(result, preferred_locale="ru-RU"),
             (
                 "Это общий ответ про тему. "
-                "Примечание: Основано на знаниях модели, не на локальных источниках. "
-                "Скажи подробнее, если нужны детали."
+                "Предупреждение: Этот ответ основан на знаниях модели, а не на локальных источниках."
             ),
         )
 
@@ -802,7 +799,7 @@ class SpeechPresenterTests(unittest.TestCase):
             "Relevant source clarification_rules.md",
         )
 
-    def test_long_english_question_answer_suggests_say_more(self) -> None:
+    def test_long_english_question_answer_speaks_first_two_sentences(self) -> None:
         result = SimpleNamespace(
             interaction_mode="question",
             visibility={
@@ -819,11 +816,11 @@ class SpeechPresenterTests(unittest.TestCase):
             interaction_speech_message(result, preferred_locale="en-US"),
             (
                 "Rayleigh scattering makes shorter wavelengths of sunlight scatter more strongly in the atmosphere. "
-                'Say "say more" if you want more detail.'
+                "That is why blue light spreads across the sky more than red light during the day."
             ),
         )
 
-    def test_long_capability_answer_speaks_identifiers_without_underscores(self) -> None:
+    def test_long_capability_answer_speaks_two_sentence_summary_without_underscores(self) -> None:
         result = SimpleNamespace(
             interaction_mode="question",
             visibility={
@@ -845,16 +842,17 @@ class SpeechPresenterTests(unittest.TestCase):
             interaction_speech_message(result, preferred_locale="en-US"),
             (
                 "I support command intents for open app, open file, open folder, open website, "
-                'list windows, search local. Say "say more" if you want more detail.'
+                "list windows, search local, prepare workspace, close app, close window. "
+                "Safe command families include open app, open file, open folder, open website, "
+                "list windows, search local, prepare workspace."
             ),
         )
 
-    def test_long_russian_question_answer_suggests_podrobnee(self) -> None:
+    def test_long_russian_question_answer_speaks_first_two_sentences(self) -> None:
         result = SimpleNamespace(
             interaction_mode="question",
             visibility={
                 "interaction_mode": "question",
-                "answer_summary": "Рэйлиевское рассеяние объясняет, почему небо выглядит голубым.",
                 "answer_text": (
                     "Рэйлиевское рассеяние объясняет, почему небо выглядит голубым. "
                     "Короткие волны синего света рассеиваются в атмосфере сильнее, чем длинные волны красного света. "
@@ -865,7 +863,10 @@ class SpeechPresenterTests(unittest.TestCase):
 
         self.assertEqual(
             interaction_speech_message(result, preferred_locale="ru-RU"),
-            "Рэйлиевское рассеяние объясняет, почему небо выглядит голубым. Скажи подробнее, если хочешь больше деталей.",
+            (
+                "Рэйлиевское рассеяние объясняет, почему небо выглядит голубым. "
+                "Короткие волны синего света рассеиваются в атмосфере сильнее, чем длинные волны красного света."
+            ),
         )
 
     def test_short_question_answer_does_not_add_more_detail_prompt(self) -> None:

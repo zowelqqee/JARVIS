@@ -55,6 +55,29 @@ class InteractionVisibilityContractTests(unittest.TestCase):
         self.assertEqual(visibility.get("can_cancel"), False)
         self.assertNotIn("runtime_state", visibility)
 
+    def test_question_answer_payload_summarizes_to_first_two_sentences(self) -> None:
+        visibility = map_interaction_visibility(
+            interaction_mode=InteractionKind.QUESTION,
+            answer_result=SimpleNamespace(
+                answer_text=(
+                    "Rayleigh scattering makes shorter wavelengths scatter more strongly. "
+                    "That is why the sky usually looks blue during the day. "
+                    "Dust, humidity, and sun angle also affect the exact color."
+                ),
+                sources=[],
+                source_attributions=[],
+                warning=None,
+            ),
+        )
+
+        self.assertEqual(
+            visibility.get("answer_summary"),
+            (
+                "Rayleigh scattering makes shorter wavelengths scatter more strongly. "
+                "That is why the sky usually looks blue during the day."
+            ),
+        )
+
     def test_question_answer_payload_supports_model_answer_without_local_sources(self) -> None:
         visibility = map_interaction_visibility(
             interaction_mode=InteractionKind.QUESTION,

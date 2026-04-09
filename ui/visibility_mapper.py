@@ -6,6 +6,8 @@ import sys
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, TypedDict
 
+from qa.answer_summary import build_answer_summary
+
 if TYPE_CHECKING:
     from types.clarification_request import ClarificationRequest
     from types.command import Command
@@ -258,18 +260,7 @@ def _answer_source_attributions(answer_result: Any | None) -> list[dict[str, str
 
 
 def _answer_summary(answer_text: str | None) -> str | None:
-    text = str(answer_text or "").strip()
-    if not text:
-        return None
-    normalized = " ".join(text.split())
-    for punctuation in (". ", "! ", "? "):
-        split_index = normalized.find(punctuation)
-        if 0 < split_index <= 110:
-            return normalized[: split_index + 1].strip()
-    if len(normalized) <= 110:
-        return normalized
-    clipped = normalized[:107].rsplit(" ", 1)[0].strip() or normalized[:107].strip()
-    return f"{clipped}..."
+    return build_answer_summary(answer_text)
 
 
 def _answer_source_labels(sources: list[str]) -> list[str]:

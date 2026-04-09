@@ -44,6 +44,7 @@ class VoiceDispatcherTests(unittest.TestCase):
             SpeechUtterance(
                 text=(
                     "I can open apps and answer grounded questions. "
+                    "I stay read-only. "
                     "Warning: Answer is limited to grounded local sources."
                 ),
                 locale="en-US",
