@@ -171,8 +171,12 @@ def build_default_tts_manager(
 
 
 def _default_backends_for_platform(platform: str, *, environ: Mapping[str, str] | None = None) -> list[TTSBackend]:
+    backends: list[TTSBackend] = []
+    if _local_piper_backend_requested(environ):
+        from voice.backends.piper import PiperTTSBackend
+
+        backends.append(PiperTTSBackend(environ=environ))
     if platform == "darwin":
-        backends: list[TTSBackend] = []
         if _native_macos_backend_enabled(environ):
             from voice.backends.macos_native import MacOSNativeTTSBackend
 
@@ -181,7 +185,7 @@ def _default_backends_for_platform(platform: str, *, environ: Mapping[str, str] 
 
         backends.append(MacOSTTSProvider())
         return backends
-    return []
+    return backends
 
 
 def _backend_is_available(backend: TTSBackend) -> bool:
@@ -286,6 +290,12 @@ def _native_macos_backend_enabled(environ: Mapping[str, str] | None = None) -> b
     if value in {"1", "true", "yes", "on"}:
         return True
     return True
+
+
+def _local_piper_backend_requested(environ: Mapping[str, str] | None = None) -> bool:
+    from voice.backends.piper import piper_backend_requested
+
+    return piper_backend_requested(environ)
 
 
 def _resolution_note(

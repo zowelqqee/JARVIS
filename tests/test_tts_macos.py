@@ -228,6 +228,26 @@ class MacOSTTSProviderTests(unittest.TestCase):
         self.assertEqual(descriptor.id, "Milena")
         self.assertEqual(descriptor.locale, "ru-RU")
 
+    def test_resolve_voice_returns_raw_override_when_say_listing_does_not_include_it(self) -> None:
+        provider = MacOSTTSProvider()
+        listing_process = MagicMock()
+        listing_process.returncode = 0
+        listing_process.stdout = "Milena              ru_RU    # Здравствуйте! Меня зовут Милена.\n"
+
+        with patch.dict("voice.tts_macos.os.environ", {"JARVIS_TTS_RU_VOICE": "Siri Voice 1"}, clear=False), patch(
+            "voice.tts_macos.sys.platform",
+            "darwin",
+        ), patch(
+            "voice.tts_macos.subprocess.run",
+            return_value=listing_process,
+        ):
+            descriptor = provider.resolve_voice("ru_assistant_male", "ru-RU")
+
+        self.assertIsNotNone(descriptor)
+        self.assertEqual(descriptor.id, "Siri Voice 1")
+        self.assertEqual(descriptor.display_name, "Siri Voice 1")
+        self.assertEqual(descriptor.locale, "ru-RU")
+
     def test_stop_terminates_active_say_process(self) -> None:
         provider = MacOSTTSProvider()
         process = MagicMock()

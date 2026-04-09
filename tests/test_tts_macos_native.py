@@ -56,6 +56,57 @@ class MacOSNativeTTSBackendTests(unittest.TestCase):
 
         self.assertEqual(payload["rate"], 1.33)
 
+    def test_resolve_voice_prefers_env_override_display_name(self) -> None:
+        backend = MacOSNativeTTSBackend(host_command=["xcrun", "swift", "/tmp/macos_tts_host.swift"])
+        list_process = MagicMock()
+        list_process.stdout = (
+            '{"ok": true, "backend_name": "macos_native", "voices": ['
+            '{"id": "com.apple.voice.compact.en-GB.Daniel", "display_name": "Daniel", "locale": "en-GB", '
+            '"gender_hint": "male", "quality_hint": "compact", "source": "macos_native", "is_default": true}, '
+            '{"id": "com.apple.voice.compact.en-US.Samantha", "display_name": "Samantha", "locale": "en-US", '
+            '"gender_hint": "female", "quality_hint": "compact", "source": "macos_native", "is_default": false}'
+            ']}'
+        )
+        list_process.stderr = ""
+        list_process.returncode = 0
+
+        with patch.dict(
+            "voice.backends.macos_native.os.environ",
+            {"JARVIS_TTS_EN_VOICE": "Samantha"},
+            clear=False,
+        ), patch("voice.backends.macos_native.sys.platform", "darwin"), patch(
+            "voice.backends.macos_native.subprocess.run",
+            return_value=list_process,
+        ) as run_mock:
+            voice = backend.resolve_voice("en_assistant_male", "en-US")
+
+        self.assertIsNotNone(voice)
+        self.assertEqual(voice.id, "com.apple.voice.compact.en-US.Samantha")
+        self.assertEqual(voice.display_name, "Samantha")
+        self.assertEqual(run_mock.call_count, 1)
+
+    def test_resolve_voice_returns_raw_override_descriptor_when_voice_is_not_listed(self) -> None:
+        backend = MacOSNativeTTSBackend(host_command=["xcrun", "swift", "/tmp/macos_tts_host.swift"])
+        list_process = MagicMock()
+        list_process.stdout = '{"ok": true, "backend_name": "macos_native", "voices": []}'
+        list_process.stderr = ""
+        list_process.returncode = 0
+
+        with patch.dict(
+            "voice.backends.macos_native.os.environ",
+            {"JARVIS_TTS_RU_VOICE": "Siri Voice 1"},
+            clear=False,
+        ), patch("voice.backends.macos_native.sys.platform", "darwin"), patch(
+            "voice.backends.macos_native.subprocess.run",
+            return_value=list_process,
+        ):
+            voice = backend.resolve_voice("ru_assistant_male", "ru-RU")
+
+        self.assertIsNotNone(voice)
+        self.assertEqual(voice.id, "Siri Voice 1")
+        self.assertEqual(voice.display_name, "Siri Voice 1")
+        self.assertEqual(voice.locale, "ru-RU")
+
     def test_is_available_uses_ping_response(self) -> None:
         backend = MacOSNativeTTSBackend(host_command=["xcrun", "swift", "/tmp/macos_tts_host.swift"])
         ping_process = MagicMock()
@@ -414,6 +465,15 @@ class MacOSNativeTTSBackendTests(unittest.TestCase):
 
     def test_speak_returns_host_result_and_voice_id(self) -> None:
         backend = MacOSNativeTTSBackend(host_command=["xcrun", "swift", "/tmp/macos_tts_host.swift"])
+        resolve_process = MagicMock()
+        resolve_process.stdout = (
+            '{"ok": true, "backend_name": "macos_native", "voice": '
+            '{"id": "com.apple.voice.ru.assistant.male", "display_name": "Russian Assistant", '
+            '"locale": "ru-RU", "gender_hint": "male", "quality_hint": "assistant", '
+            '"source": "macos_native", "is_default": false}}'
+        )
+        resolve_process.stderr = ""
+        resolve_process.returncode = 0
         process = MagicMock()
         process.communicate.return_value = (
             '{"ok": true, "backend_name": "macos_native", "voice_id": "com.apple.voice.ru.assistant.male"}',
@@ -422,6 +482,9 @@ class MacOSNativeTTSBackendTests(unittest.TestCase):
         process.returncode = 0
 
         with patch("voice.backends.macos_native.sys.platform", "darwin"), patch(
+            "voice.backends.macos_native.subprocess.run",
+            return_value=resolve_process,
+        ), patch(
             "voice.backends.macos_native.subprocess.Popen",
             return_value=process,
         ) as popen_mock:
@@ -443,6 +506,85 @@ class MacOSNativeTTSBackendTests(unittest.TestCase):
             stderr=ANY,
             text=True,
         )
+
+    def test_speak_uses_env_voice_override_when_voice_id_is_not_explicit(self) -> None:
+        backend = MacOSNativeTTSBackend(host_command=["xcrun", "swift", "/tmp/macos_tts_host.swift"])
+        list_process = MagicMock()
+        list_process.stdout = (
+            '{"ok": true, "backend_name": "macos_native", "voices": ['
+            '{"id": "com.apple.voice.compact.en-US.Samantha", "display_name": "Samantha", "locale": "en-US", '
+            '"gender_hint": "female", "quality_hint": "compact", "source": "macos_native", "is_default": false}'
+            ']}'
+        )
+        list_process.stderr = ""
+        list_process.returncode = 0
+        process = MagicMock()
+        process.communicate.return_value = (
+            '{"ok": true, "backend_name": "macos_native", "voice_id": "com.apple.voice.compact.en-US.Samantha"}',
+            "",
+        )
+        process.returncode = 0
+
+        with patch.dict(
+            "voice.backends.macos_native.os.environ",
+            {"JARVIS_TTS_EN_VOICE": "Samantha"},
+            clear=False,
+        ), patch("voice.backends.macos_native.sys.platform", "darwin"), patch(
+            "voice.backends.macos_native.subprocess.run",
+            return_value=list_process,
+        ), patch(
+            "voice.backends.macos_native.subprocess.Popen",
+            return_value=process,
+        ):
+            result = backend.speak(
+                SpeechUtterance(
+                    text="Hello",
+                    locale="en-US",
+                )
+            )
+
+        self.assertTrue(result.ok)
+        self.assertEqual(result.voice_id, "com.apple.voice.compact.en-US.Samantha")
+        payload = macos_native._parse_host_response(process.communicate.call_args.args[0])
+        self.assertIsNotNone(payload)
+        self.assertEqual(payload["voice_id"], "com.apple.voice.compact.en-US.Samantha")
+
+    def test_speak_passes_raw_env_voice_override_through_to_host(self) -> None:
+        backend = MacOSNativeTTSBackend(host_command=["xcrun", "swift", "/tmp/macos_tts_host.swift"])
+        list_process = MagicMock()
+        list_process.stdout = '{"ok": true, "backend_name": "macos_native", "voices": []}'
+        list_process.stderr = ""
+        list_process.returncode = 0
+        process = MagicMock()
+        process.communicate.return_value = (
+            '{"ok": true, "backend_name": "macos_native", "voice_id": "Siri Voice 1"}',
+            "",
+        )
+        process.returncode = 0
+
+        with patch.dict(
+            "voice.backends.macos_native.os.environ",
+            {"JARVIS_TTS_RU_VOICE": "Siri Voice 1"},
+            clear=False,
+        ), patch("voice.backends.macos_native.sys.platform", "darwin"), patch(
+            "voice.backends.macos_native.subprocess.run",
+            return_value=list_process,
+        ), patch(
+            "voice.backends.macos_native.subprocess.Popen",
+            return_value=process,
+        ):
+            result = backend.speak(
+                SpeechUtterance(
+                    text="Привет",
+                    locale="ru-RU",
+                )
+            )
+
+        self.assertTrue(result.ok)
+        self.assertEqual(result.voice_id, "Siri Voice 1")
+        payload = macos_native._parse_host_response(process.communicate.call_args.args[0])
+        self.assertIsNotNone(payload)
+        self.assertEqual(payload["voice_id"], "Siri Voice 1")
 
     def test_stop_terminates_active_host_process(self) -> None:
         backend = MacOSNativeTTSBackend(host_command=["xcrun", "swift", "/tmp/macos_tts_host.swift"])

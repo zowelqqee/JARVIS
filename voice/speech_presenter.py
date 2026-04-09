@@ -83,6 +83,7 @@ _URL_RE = re.compile(r"(?P<url>https?://[^\s)]+)")
 _ABSOLUTE_PATH_RE = re.compile(r"(?P<path>/[A-Za-z0-9._-]+(?:/[A-Za-z0-9._-]+)+)")
 _RELATIVE_PATH_RE = re.compile(r"(?P<path>(?:[A-Za-z0-9._-]+/)+[A-Za-z0-9._-]+)")
 _SPOKEN_MARKDOWN_RE = re.compile(r"(```|`|\*\*|__)")
+_SPOKEN_SNAKE_CASE_RE = re.compile(r"(?<![./])\b[a-z][a-z0-9]*(?:_[a-z0-9]+)+\b(?!\.[A-Za-z0-9])")
 _QUESTION_REFUSAL_RE = re.compile(r"\bI can['’]t help with\b", flags=re.IGNORECASE)
 _QUESTION_SELF_HARM_REFUSAL_RE = re.compile(
     r"\b(can['’]t help with self-harm|can['’]t help with instructions for hurting yourself)\b",
@@ -147,6 +148,11 @@ _COMMON_FILE_SUFFIXES = {
     ".txt",
     ".yaml",
     ".yml",
+}
+_SPOKEN_IDENTIFIER_TOKEN_REPLACEMENTS = {
+    "answer-triggered": "answer triggered",
+    "explain-more": "explain more",
+    "internet-backed": "internet backed",
 }
 
 _SPOKEN_INTENT_TEMPLATES = {
@@ -876,14 +882,36 @@ def _sanitize_spoken_surface(text: str) -> str:
         lambda match: _spoken_target(str(match.group("path") or "").strip()),
         with_short_urls,
     )
-    return _RELATIVE_PATH_RE.sub(
+    with_short_relative_paths = _RELATIVE_PATH_RE.sub(
         lambda match: _spoken_relative_path_target(match, with_short_absolute_paths),
         with_short_absolute_paths,
     )
+    return _naturalize_spoken_surface(with_short_relative_paths)
 
 
 def _sanitize_spoken_question_surface(text: str) -> str:
     return _sanitize_spoken_surface(text)
+
+
+def _naturalize_spoken_surface(text: str) -> str:
+    normalized = str(text or "").strip()
+    if not normalized:
+        return normalized
+    without_clipped_ellipsis = re.sub(r"([,;:])\s*\.{2,}", ".", normalized)
+    without_ellipsis = re.sub(r"\.{2,}", ".", without_clipped_ellipsis)
+    with_token_replacements = without_ellipsis
+    for token, replacement in _SPOKEN_IDENTIFIER_TOKEN_REPLACEMENTS.items():
+        with_token_replacements = re.sub(
+            rf"\b{re.escape(token)}\b",
+            replacement,
+            with_token_replacements,
+        )
+    with_spoken_identifiers = _SPOKEN_SNAKE_CASE_RE.sub(
+        lambda match: str(match.group(0) or "").replace("_", " "),
+        with_token_replacements,
+    )
+    tightened_punctuation = re.sub(r"\s+([,.;:!?])", r"\1", with_spoken_identifiers)
+    return " ".join(tightened_punctuation.split()).strip()
 
 
 def _spoken_relative_path_target(match: re.Match[str], source_text: str) -> str:

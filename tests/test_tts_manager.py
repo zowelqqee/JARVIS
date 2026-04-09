@@ -236,24 +236,47 @@ class TTSManagerTests(unittest.TestCase):
             "voice.tts_macos.MacOSTTSProvider",
             return_value=legacy_backend,
         ):
-            manager = build_default_tts_manager(platform="darwin")
+            manager = build_default_tts_manager(
+                platform="darwin",
+                environ={"JARVIS_TTS_PIPER_ENABLED": "0"},
+            )
 
         self.assertEqual(manager.backend_name(), "macos_native")
 
-    def test_build_default_tts_manager_honors_explicit_opt_out_on_darwin(self) -> None:
-        with patch.dict("voice.tts_manager.os.environ", {"JARVIS_TTS_MACOS_NATIVE": "0"}, clear=False), patch(
-            "voice.tts_macos.sys.platform",
-            "darwin",
-        ):
-            manager = build_default_tts_manager(platform="darwin")
-
-        self.assertEqual(manager.backend_name(), "macos_say_legacy")
-
-    def test_build_default_tts_manager_prefers_native_macos_backend_when_explicitly_enabled(self) -> None:
+    def test_build_default_tts_manager_prefers_local_piper_when_configured(self) -> None:
+        piper_backend = _FakeBackend(backend_name="local_piper")
         native_backend = _FakeBackend(backend_name="macos_native")
         legacy_backend = _FakeBackend(backend_name="macos_say_legacy")
 
-        with patch.dict("voice.tts_manager.os.environ", {"JARVIS_TTS_MACOS_NATIVE": "1"}, clear=False), patch(
+        with patch(
+            "voice.backends.piper.PiperTTSBackend",
+            return_value=piper_backend,
+        ), patch(
+            "voice.backends.macos_native.MacOSNativeTTSBackend",
+            return_value=native_backend,
+        ), patch(
+            "voice.tts_macos.MacOSTTSProvider",
+            return_value=legacy_backend,
+        ):
+            manager = build_default_tts_manager(
+                platform="darwin",
+                environ={"JARVIS_TTS_PIPER_MODEL_RU": "/tmp/ru.onnx"},
+            )
+
+        self.assertEqual(manager.backend_name(), "local_piper")
+
+    def test_build_default_tts_manager_prefers_local_piper_when_repo_runtime_is_configured(self) -> None:
+        piper_backend = _FakeBackend(backend_name="local_piper")
+        native_backend = _FakeBackend(backend_name="macos_native")
+        legacy_backend = _FakeBackend(backend_name="macos_say_legacy")
+
+        with patch(
+            "voice.backends.piper.PiperTTSBackend",
+            return_value=piper_backend,
+        ), patch(
+            "voice.backends.piper.piper_backend_requested",
+            return_value=True,
+        ), patch(
             "voice.backends.macos_native.MacOSNativeTTSBackend",
             return_value=native_backend,
         ), patch(
@@ -261,6 +284,39 @@ class TTSManagerTests(unittest.TestCase):
             return_value=legacy_backend,
         ):
             manager = build_default_tts_manager(platform="darwin")
+
+        self.assertEqual(manager.backend_name(), "local_piper")
+
+    def test_build_default_tts_manager_honors_explicit_opt_out_on_darwin(self) -> None:
+        with patch("voice.tts_macos.sys.platform", "darwin"):
+            manager = build_default_tts_manager(
+                platform="darwin",
+                environ={
+                    "JARVIS_TTS_MACOS_NATIVE": "0",
+                    "JARVIS_TTS_PIPER_ENABLED": "0",
+                },
+            )
+
+        self.assertEqual(manager.backend_name(), "macos_say_legacy")
+
+    def test_build_default_tts_manager_prefers_native_macos_backend_when_explicitly_enabled(self) -> None:
+        native_backend = _FakeBackend(backend_name="macos_native")
+        legacy_backend = _FakeBackend(backend_name="macos_say_legacy")
+
+        with patch(
+            "voice.backends.macos_native.MacOSNativeTTSBackend",
+            return_value=native_backend,
+        ), patch(
+            "voice.tts_macos.MacOSTTSProvider",
+            return_value=legacy_backend,
+        ):
+            manager = build_default_tts_manager(
+                platform="darwin",
+                environ={
+                    "JARVIS_TTS_MACOS_NATIVE": "1",
+                    "JARVIS_TTS_PIPER_ENABLED": "0",
+                },
+            )
 
         self.assertEqual(manager.backend_name(), "macos_native")
 
@@ -277,7 +333,10 @@ class TTSManagerTests(unittest.TestCase):
         ):
             manager = build_default_tts_manager(
                 platform="darwin",
-                environ={"JARVIS_TTS_MACOS_NATIVE": "1"},
+                environ={
+                    "JARVIS_TTS_MACOS_NATIVE": "1",
+                    "JARVIS_TTS_PIPER_ENABLED": "0",
+                },
             )
 
         self.assertEqual(manager.backend_name(), "macos_native")
@@ -292,15 +351,42 @@ class TTSManagerTests(unittest.TestCase):
             "voice.tts_macos.MacOSTTSProvider",
             return_value=legacy_backend,
         ):
-            manager = build_default_tts_manager(platform="darwin")
+            manager = build_default_tts_manager(
+                platform="darwin",
+                environ={"JARVIS_TTS_PIPER_ENABLED": "0"},
+            )
 
         self.assertEqual(manager.backend_name(), "macos_say_legacy")
 
     def test_build_default_tts_manager_is_unavailable_off_platform(self) -> None:
-        manager = build_default_tts_manager(platform="linux")
+        manager = build_default_tts_manager(
+            platform="linux",
+            environ={"JARVIS_TTS_PIPER_ENABLED": "0"},
+        )
 
         self.assertFalse(manager.is_available())
         self.assertEqual(manager.backend_name(), "unavailable")
+
+    def test_build_default_tts_manager_skips_local_piper_when_explicitly_disabled(self) -> None:
+        native_backend = _FakeBackend(backend_name="macos_native")
+        legacy_backend = _FakeBackend(backend_name="macos_say_legacy")
+
+        with patch(
+            "voice.backends.macos_native.MacOSNativeTTSBackend",
+            return_value=native_backend,
+        ), patch(
+            "voice.tts_macos.MacOSTTSProvider",
+            return_value=legacy_backend,
+        ):
+            manager = build_default_tts_manager(
+                platform="darwin",
+                environ={
+                    "JARVIS_TTS_PIPER_ENABLED": "0",
+                    "JARVIS_TTS_PIPER_MODEL_RU": "/tmp/ru.onnx",
+                },
+            )
+
+        self.assertEqual(manager.backend_name(), "macos_native")
 
 
 if __name__ == "__main__":

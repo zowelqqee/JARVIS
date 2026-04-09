@@ -28,9 +28,14 @@
 
 ## Setup
 - Run: `python3 cli.py`
-- For the normal native macOS smoke path, plain `python3 cli.py` is now enough.
+- Plain `python3 cli.py` is now enough for the normal smoke path.
+- On this machine, plain `python3 cli.py` currently prefers the repo-local independent backend `local_piper` because `tmp/runtime/piper` is populated with a real Piper runtime and local models.
+- Current local-model slots on this machine:
+  - `tmp/runtime/piper/models/ru_male.onnx`
+  - `tmp/runtime/piper/models/en_male.onnx`
+- Native macOS and legacy `say` remain fallback/debug paths behind the manager, but they are no longer the preferred spoken-output path while the repo-local Piper runtime is present.
 - If you want one explicit pinned launcher that keeps the Xcode developer dir visible in the command itself, run: `scripts/run_voice_native_smoke.sh`
-- Plain `python3 cli.py` on this machine now also prefers the native backend because the backend auto-selects the known-good Xcode developer dir when no explicit `DEVELOPER_DIR` override is set.
+- If the repo-local Piper runtime is disabled or unavailable, plain `python3 cli.py` on this machine can still prefer the native backend because it auto-selects the known-good Xcode developer dir when no explicit `DEVELOPER_DIR` override is set.
 - `scripts/run_voice_native_smoke.sh` still remains a useful explicit pinned shortcut for manual smoke and override debugging, but helper output now prefers plain `python3 cli.py` when no explicit override is needed.
 - The macOS voice capture helper now rebuilds into repo-local `tmp/runtime/voice_capture`, so the permission target stays stable across runs instead of depending on `/tmp`.
 - If macOS Privacy settings does not show a friendly app name, look for `jarvis_macos_voice_capture` or bundle id `com.jarvis.voice.capture.helper`.
@@ -39,7 +44,9 @@
 - To verify automatic blocking follow-up, run: `JARVIS_VOICE_CONTINUOUS_MODE=1 python3 cli.py`
 - To verify optional earcons, run: `JARVIS_VOICE_EARCONS=1 python3 cli.py`
 - Optional TTS tuning:
-  - on macOS, native TTS is now preferred by default; set `JARVIS_TTS_MACOS_NATIVE=0` to force the legacy `say` fallback, or keep `JARVIS_TTS_MACOS_NATIVE=1` as an explicit pin during rollout smoke
+  - on macOS, if the repo-local Piper runtime is present, `local_piper` now wins before native `macos_native` and legacy `say`
+  - set `JARVIS_TTS_PIPER_ENABLED=0` if you need to temporarily opt out of the local-model backend during debugging
+  - native TTS still remains available behind the manager; set `JARVIS_TTS_MACOS_NATIVE=0` to force the legacy `say` fallback, or keep `JARVIS_TTS_MACOS_NATIVE=1` as an explicit pin during rollout smoke
   - `JARVIS_TTS_EN_VOICE` / `JARVIS_TTS_RU_VOICE` to override the selected macOS voice
   - `JARVIS_TTS_RATE`, `JARVIS_TTS_EN_RATE`, `JARVIS_TTS_RU_RATE` to tune speaking rate
 - Optional offline rollout helpers:

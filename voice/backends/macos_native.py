@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 import json
 import os
 from pathlib import Path
@@ -23,6 +24,10 @@ _HOST_DEVELOPER_DIR_TIMEOUT_SECONDS = 1.0
 _HOST_SWIFTC_PATH_TIMEOUT_SECONDS = 1.0
 _HOST_MODULE_CACHE_PATH = Path(tempfile.gettempdir()) / "jarvis_swift_module_cache"
 _PREFERRED_DEVELOPER_DIR = Path("/Applications/Xcode.app/Contents/Developer")
+_VOICE_ENV_BY_LANGUAGE = {
+    "en": "JARVIS_TTS_EN_VOICE",
+    "ru": "JARVIS_TTS_RU_VOICE",
+}
 _DEFAULT_RATE_BY_LANGUAGE = {
     "en": 190,
     "ru": 184,
@@ -74,7 +79,12 @@ class MacOSNativeTTSBackend:
                 backend_name=_BACKEND_NAME,
             )
 
-        payload = _speak_payload(utterance)
+        prepared = utterance or SpeechUtterance(text="")
+        if not prepared.voice_id:
+            resolved_voice = self.resolve_voice(prepared.voice_profile, prepared.locale)
+            if resolved_voice is not None:
+                prepared = replace(prepared, voice_id=resolved_voice.id)
+        payload = _speak_payload(prepared)
         self._ensure_host_module_cache_path()
         host_environment = self._host_environment()
         try:
@@ -156,6 +166,14 @@ class MacOSNativeTTSBackend:
 
     def resolve_voice(self, profile: str | None, locale: str | None = None) -> VoiceDescriptor | None:
         """Resolve one product profile to a native macOS voice."""
+        override = _preferred_voice_override(locale)
+        if override:
+            override_voice = _resolve_override_voice_descriptor(
+                self.list_voices(locale_hint=None),
+                override,
+                locale=locale,
+            )
+            return override_voice or _override_voice_descriptor(override, locale)
         response = self._invoke_host(
             {
                 "op": "resolve_voice",
@@ -718,6 +736,59 @@ def _parse_rate(raw_value: str | None) -> int | None:
     except ValueError:
         return None
     return parsed if parsed > 0 else None
+
+
+def _preferred_voice_override(locale: str | None) -> str | None:
+    language = _language_from_locale(locale)
+    env_name = _VOICE_ENV_BY_LANGUAGE.get(language, "")
+    if not env_name:
+        return None
+    override = str(os.environ.get(env_name, "") or "").strip()
+    return override or None
+
+
+def _resolve_override_voice_descriptor(
+    voices: list[VoiceDescriptor],
+    override: str | None,
+    *,
+    locale: str | None = None,
+) -> VoiceDescriptor | None:
+    normalized_override = str(override or "").strip().lower()
+    if not normalized_override:
+        return None
+
+    exact_id_matches = [voice for voice in voices if voice.id.strip().lower() == normalized_override]
+    if exact_id_matches:
+        return exact_id_matches[0]
+
+    display_name_matches = [
+        voice for voice in voices if voice.display_name.strip().lower() == normalized_override
+    ]
+    if not display_name_matches:
+        return None
+
+    target_locale = _normalized_locale(locale)
+    target_language = _language_from_locale(locale)
+
+    for voice in display_name_matches:
+        if _normalized_locale(voice.locale) == target_locale and target_locale:
+            return voice
+    for voice in display_name_matches:
+        if _language_from_locale(voice.locale) == target_language and target_language:
+            return voice
+    return display_name_matches[0]
+
+
+def _override_voice_descriptor(override: str | None, locale: str | None) -> VoiceDescriptor | None:
+    normalized_override = str(override or "").strip()
+    if not normalized_override:
+        return None
+    return VoiceDescriptor(
+        id=normalized_override,
+        display_name=normalized_override,
+        locale=_normalized_locale(locale),
+        source=_BACKEND_NAME,
+    )
 
 
 def _extract_sdk_mismatch_versions(text: str) -> tuple[str | None, str | None]:

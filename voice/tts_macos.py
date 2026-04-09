@@ -172,6 +172,12 @@ class MacOSTTSProvider:
     def resolve_voice(self, profile: str | None, locale: str | None = None) -> VoiceDescriptor | None:
         """Resolve one product-level profile to an installed `say` voice."""
         descriptor_by_id = {descriptor.id: descriptor for descriptor in self.list_voices(locale_hint=locale)}
+        override = _preferred_voice_override(locale)
+        if override:
+            descriptor = descriptor_by_id.get(override)
+            if descriptor is not None:
+                return descriptor
+            return _override_voice_descriptor(override, locale)
         for candidate in _preferred_voice_ids(profile, locale, descriptor_by_id.keys()):
             descriptor = descriptor_by_id.get(candidate)
             if descriptor is not None:
@@ -236,7 +242,7 @@ def _preferred_voice_ids(
     if not language and not profile:
         return []
 
-    override = os.environ.get(_VOICE_ENV_BY_LANGUAGE.get(language, ""), "").strip()
+    override = _preferred_voice_override(locale)
     candidates: list[str | None] = [override]
     for profile_id in fallback_voice_profile_ids(profile, locale):
         candidates.extend(_DEFAULT_VOICE_CANDIDATES_BY_LOCALE_AND_PROFILE.get((normalized_locale, profile_id), ()))
@@ -251,6 +257,17 @@ def _preferred_voice_ids(
         if candidate == override or candidate in available_voices
     ]
     return filtered or raw_candidates
+
+
+def _preferred_voice_override(locale: str | None) -> str | None:
+    locale_text = str(locale or "").strip()
+    normalized_locale = locale_text.lower()
+    language = normalized_locale.split("-", maxsplit=1)[0]
+    env_name = _VOICE_ENV_BY_LANGUAGE.get(language, "")
+    if not env_name:
+        return None
+    override = os.environ.get(env_name, "").strip()
+    return override or None
 
 
 def _preferred_rate_for_locale(locale: str | None) -> int | None:
@@ -325,6 +342,22 @@ def _voice_descriptor_from_listing(line: str) -> VoiceDescriptor | None:
 def _normalize_locale(locale_token: str | None) -> str | None:
     normalized = str(locale_token or "").strip().replace("_", "-")
     return normalized or None
+
+
+def _override_voice_descriptor(voice_id: str | None, locale: str | None) -> VoiceDescriptor | None:
+    normalized_voice_id = str(voice_id or "").strip()
+    if not normalized_voice_id:
+        return None
+    metadata = _VOICE_METADATA_BY_ID.get(normalized_voice_id, {})
+    return VoiceDescriptor(
+        id=normalized_voice_id,
+        display_name=normalized_voice_id,
+        locale=_normalize_locale(locale),
+        gender_hint=str(metadata.get("gender_hint") or "").strip() or None,
+        quality_hint=str(metadata.get("quality_hint") or "").strip() or None,
+        source=str(metadata.get("source") or "say"),
+        is_default=False,
+    )
 
 
 def _locale_matches_hint(locale: str | None, locale_hint: str | None) -> bool:

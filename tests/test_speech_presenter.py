@@ -823,6 +823,32 @@ class SpeechPresenterTests(unittest.TestCase):
             ),
         )
 
+    def test_long_capability_answer_speaks_identifiers_without_underscores(self) -> None:
+        result = SimpleNamespace(
+            interaction_mode="question",
+            visibility={
+                "interaction_mode": "question",
+                "answer_text": (
+                    "I support command intents for open_app, open_file, open_folder, open_website, "
+                    "list_windows, search_local, prepare_workspace, close_app, close_window. "
+                    "Safe command families include open_app, open_file, open_folder, open_website, "
+                    "list_windows, search_local, prepare_workspace. Sensitive actions that stay behind "
+                    "confirmation are close_app, close_window. Question mode currently covers "
+                    "blocked_state, recent_runtime, capabilities, runtime_status, docs_rules, "
+                    "repo_structure, safety_explanations. Short answer follow-ups such as explain-more "
+                    "and source questions stay grounded only to the most recent answer."
+                ),
+            },
+        )
+
+        self.assertEqual(
+            interaction_speech_message(result, preferred_locale="en-US"),
+            (
+                "I support command intents for open app, open file, open folder, open website, "
+                'list windows, search local. Say "say more" if you want more detail.'
+            ),
+        )
+
     def test_long_russian_question_answer_suggests_podrobnee(self) -> None:
         result = SimpleNamespace(
             interaction_mode="question",
@@ -868,6 +894,20 @@ class SpeechPresenterTests(unittest.TestCase):
         self.assertEqual(
             interaction_speech_message(result, preferred_locale="ru-RU"),
             "Сейчас используется папка demo.",
+        )
+
+    def test_file_names_with_underscores_keep_extensions_in_spoken_output(self) -> None:
+        result = SimpleNamespace(
+            interaction_mode="question",
+            visibility={
+                "interaction_mode": "question",
+                "answer_text": "Relevant sources: docs/question_answer_mode.md.",
+            },
+        )
+
+        self.assertEqual(
+            interaction_speech_message(result, preferred_locale="en-US"),
+            "Relevant sources: question_answer_mode.md.",
         )
 
     def test_command_completion_uses_command_summary_instead_of_internal_log(self) -> None:

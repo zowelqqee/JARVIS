@@ -337,6 +337,24 @@ private func selectedVoice(explicitVoiceID: String?, profile: String?, locale: S
         for voice in NSSpeechSynthesizer.availableVoices where voice.rawValue == explicitVoiceID {
             return (voice, voiceDescriptor(from: voice))
         }
+        for voice in NSSpeechSynthesizer.availableVoices {
+            guard let descriptor = voiceDescriptor(from: voice) else {
+                continue
+            }
+            if descriptor.displayName.caseInsensitiveCompare(explicitVoiceID) == .orderedSame {
+                return (voice, descriptor)
+            }
+        }
+        let rawVoice = NSSpeechSynthesizer.VoiceName(explicitVoiceID)
+        return (rawVoice, VoiceDescriptor(
+            id: explicitVoiceID,
+            displayName: explicitVoiceID,
+            locale: normalizedLocale(locale),
+            genderHint: profileGender(profile),
+            qualityHint: nil,
+            source: backendName,
+            isDefault: false
+        ))
     }
     guard let descriptor = resolveVoice(profile: profile, locale: locale) else {
         return (nil, nil)
@@ -368,7 +386,21 @@ private func handleSpeak(request: [String: Any]) -> Never {
     let voiceProfile = request["voice_profile"] as? String
     let explicitVoiceID = (request["voice_id"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
     let resolved = selectedVoice(explicitVoiceID: explicitVoiceID, profile: voiceProfile, locale: locale)
-    let synthesizer = resolved.0.flatMap { NSSpeechSynthesizer(voice: $0) } ?? NSSpeechSynthesizer()
+    let synthesizer: NSSpeechSynthesizer
+    if let resolvedVoiceName = resolved.0 {
+        guard let explicitSynthesizer = NSSpeechSynthesizer(voice: resolvedVoiceName) else {
+            emit([
+                "ok": false,
+                "backend_name": backendName,
+                "voice_id": resolved.1?.id as Any,
+                "error_code": "TTS_FAILED",
+                "error_message": "Native macOS speech synthesis could not use the requested voice.",
+            ], exitCode: 1)
+        }
+        synthesizer = explicitSynthesizer
+    } else {
+        synthesizer = NSSpeechSynthesizer()
+    }
     let delegate = SpeechDelegate()
     synthesizer.delegate = delegate
 

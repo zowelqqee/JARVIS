@@ -34,6 +34,25 @@
 - Experimental native macOS backend already exists:
   - `voice/backends/macos_native.py`
   - `voice/native_hosts/macos_tts_host.swift`
+- Independent local-model backend scaffold now exists:
+  - `voice/backends/piper.py`
+  - manager wiring is config-driven via `JARVIS_TTS_PIPER_*`
+  - the backend now also auto-discovers a repo-local runtime root at `tmp/runtime/piper`
+  - the runtime binary may now live either at `tmp/runtime/piper/bin/piper` or `tmp/runtime/piper/venv/bin/piper`
+  - standard model slots are now supported without per-run env overrides:
+    - `tmp/runtime/piper/models/ru_male.onnx`
+    - `tmp/runtime/piper/models/ru_female.onnx`
+    - `tmp/runtime/piper/models/ru.onnx`
+    - `tmp/runtime/piper/models/en_male.onnx`
+    - `tmp/runtime/piper/models/en_female.onnx`
+    - `tmp/runtime/piper/models/en.onnx`
+  - sidecar metadata from `*.onnx.json` or adjacent `*.json` is now used when present to expose a friendlier voice name/locale/gender in operator helpers
+- A real repo-local Piper runtime is now installed in this environment:
+  - `tmp/runtime/piper/venv/bin/piper`
+  - `tmp/runtime/piper/models/ru_male.onnx`
+  - `tmp/runtime/piper/models/en_male.onnx`
+- Plain `python3 cli.py` now selects `local_piper` by default on this machine because the repo-local runtime is populated.
+- The local-model backend now also uses text-language heuristics inside the backend, so English-heavy spoken text can switch to the English local model even when the higher-level utterance locale is still `ru-RU`, and vice versa for Cyrillic-heavy text.
 - Native macOS backend is now preferred by default on macOS.
 - `JARVIS_TTS_MACOS_NATIVE=0` is the explicit opt-out to force legacy `say`.
 - `JARVIS_TTS_MACOS_NATIVE=1` remains a valid explicit pin during rollout smoke.
@@ -45,6 +64,9 @@
 - One successful live microphone turn under the native path is not yet signed off end-to-end because local `Speech Recognition` permission blocked the latest manual smoke.
 - The final voice-readiness artifact is still intentionally missing because live manual verification cannot be recorded honestly while that permission blocker remains.
 - Windows host/backend work has not started.
+- The current independent local runtime only has male Russian and male English model slots populated.
+- Spoken answer content for many question-mode replies is still English text even after a Russian question; the backend can now switch model by text language, but answer localization itself is still a separate product layer concern.
+- The independent backend no longer requires per-run env wiring once a repo-local runtime is populated, but the actual `piper` binary and at least one model still need to be installed.
 
 ### Current Bottleneck
 - The main bottleneck is no longer “missing architecture.”
@@ -98,6 +120,8 @@
   - `voice/readiness.py`
   - `voice/gate.py`
   - `voice/tts_operator_hints.py`
+- Independent local-model backend:
+  - `voice/backends/piper.py`
 - Manual smoke checklist:
   - `docs/manual_voice_verification.md`
 
@@ -158,6 +182,26 @@ Status:
 
 This is now the critical path.
 
+### Phase 3B. Independent Local TTS Backend
+Status:
+- Repo-local runtime installed and active; voice quality and content-language follow-up pending
+
+Why this phase exists:
+- System macOS voices may remain unacceptable even when backend plumbing is correct.
+- A model-based local backend gives a path away from `say`/Siri voice quality without rewriting CLI, dispatcher, or speech presenter.
+
+What is now complete:
+- local-model backend wiring in `voice/backends/piper.py`
+- manager preference when a local model runtime is configured
+- repo-local runtime discovery at `tmp/runtime/piper`
+- standard product-oriented model slots for Russian and English without per-run env exports
+- model sidecar parsing so operator helpers can show friendlier model metadata than raw filenames when sidecars are available
+- repo-local Piper runtime installed in `tmp/runtime/piper/venv`
+- real Russian male model installed in `tmp/runtime/piper/models/ru_male.onnx`
+- real English male model installed in `tmp/runtime/piper/models/en_male.onnx`
+- active CLI helper path confirms `local_piper` as the selected backend
+- backend-local text-language routing is in place so English-heavy answer text is not forced through the Russian model just because the outer locale hint is Russian
+
 ### Phase 4. Native macOS as Default
 Status:
 - Code path landed; live sign-off pending
@@ -171,7 +215,8 @@ Status:
 2. Prove the real native path in manual CLI usage.
 3. Decide the supported launch path for native development and smoke.
 4. Promote native to default on macOS only after real proof, not just unit coverage.
-5. Start Windows only after the macOS rollout policy is settled.
+5. In parallel, keep the independent local-model backend ready for a real Piper model install if system voices remain unacceptable.
+6. Start Windows only after the macOS rollout policy is settled.
 
 ## Execution Plan
 
