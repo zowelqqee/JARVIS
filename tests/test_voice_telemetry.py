@@ -132,6 +132,8 @@ class VoiceTelemetryTests(unittest.TestCase):
         self.assertEqual(snapshot.capture_attempts, 1)
         self.assertAlmostEqual(snapshot.retry_rate, 0.0)
         self.assertAlmostEqual(snapshot.empty_recognition_rate, 0.0)
+        self.assertEqual(snapshot.latest_capture_error_code, "PERMISSION_DENIED")
+        self.assertEqual(snapshot.latest_capture_error_message, "Speech recognition access was denied.")
 
     def test_skipped_tts_attempt_does_not_affect_failure_rate(self) -> None:
         collector = VoiceTelemetryCollector()
@@ -168,7 +170,11 @@ class VoiceTelemetryTests(unittest.TestCase):
         collector.record_capture(
             phase="initial",
             elapsed_seconds=0.3,
-            error=VoiceInputError("EMPTY_RECOGNITION", "No speech was recognized. Try again."),
+            error=VoiceInputError(
+                "EMPTY_RECOGNITION",
+                "No speech was recognized. Try again.",
+                hint="Speak right after 'voice: listening...' and verify the active input device in macOS Sound settings.",
+            ),
         )
 
         rendered = format_voice_telemetry_snapshot(collector.snapshot())
@@ -181,6 +187,8 @@ class VoiceTelemetryTests(unittest.TestCase):
         self.assertIn("follow-up dismiss count: 0", rendered)
         self.assertIn("max follow-up chain length: 0", rendered)
         self.assertIn("follow-up limit hit count: 0", rendered)
+        self.assertIn("latest capture blocker: EMPTY_RECOGNITION: No speech was recognized. Try again.", rendered)
+        self.assertIn("latest capture hint: Speak right after 'voice: listening...' and verify the active input device in macOS Sound settings.", rendered)
 
     def test_snapshot_tracks_follow_up_limit_hit_metric(self) -> None:
         collector = VoiceTelemetryCollector()
@@ -316,6 +324,33 @@ class VoiceTelemetryTests(unittest.TestCase):
         self.assertEqual(snapshot.speech_interrupt_for_capture_count, 0)
         self.assertEqual(snapshot.speech_interrupt_for_response_count, 0)
         self.assertEqual(snapshot.speech_interrupt_conflict_count, 0)
+        self.assertIsNone(snapshot.latest_capture_error_code)
+        self.assertIsNone(snapshot.latest_capture_error_message)
+        self.assertIsNone(snapshot.latest_capture_error_hint)
+
+    def test_latest_capture_blocker_clears_after_successful_capture(self) -> None:
+        collector = VoiceTelemetryCollector()
+        collector.record_capture(
+            phase="initial",
+            elapsed_seconds=0.1,
+            error=VoiceInputError("PERMISSION_DENIED", "Speech recognition access was denied."),
+        )
+        collector.record_capture(
+            phase="initial",
+            elapsed_seconds=0.2,
+            voice_turn=VoiceTurn(
+                raw_transcript="Что ты умеешь",
+                normalized_transcript="what can you do",
+                detected_locale="ru-RU",
+                locale_hint="ru-RU",
+            ),
+        )
+
+        snapshot = collector.snapshot()
+
+        self.assertIsNone(snapshot.latest_capture_error_code)
+        self.assertIsNone(snapshot.latest_capture_error_message)
+        self.assertIn("latest capture blocker: none", format_voice_telemetry_snapshot(snapshot))
 
     def test_module_can_render_explicit_saved_artifact_path(self) -> None:
         collector = VoiceTelemetryCollector()

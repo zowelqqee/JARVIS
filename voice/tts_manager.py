@@ -281,7 +281,11 @@ def _normalize_result(result: TTSResult, *, backend_name: str, voice_id: str | N
 
 def _native_macos_backend_enabled(environ: Mapping[str, str] | None = None) -> bool:
     value = str((environ or os.environ).get(_MACOS_NATIVE_BACKEND_ENV, "") or "").strip().lower()
-    return value in {"1", "true", "yes", "on"}
+    if value in {"0", "false", "no", "off"}:
+        return False
+    if value in {"1", "true", "yes", "on"}:
+        return True
+    return True
 
 
 def _resolution_note(

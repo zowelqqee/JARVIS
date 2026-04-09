@@ -225,13 +225,31 @@ class TTSManagerTests(unittest.TestCase):
 
         self.assertTrue(stop_speech_if_supported(manager))
 
-    def test_build_default_tts_manager_uses_legacy_macos_backend_on_darwin(self) -> None:
-        with patch("voice.tts_macos.sys.platform", "darwin"):
+    def test_build_default_tts_manager_prefers_native_macos_backend_on_darwin_by_default(self) -> None:
+        native_backend = _FakeBackend(backend_name="macos_native")
+        legacy_backend = _FakeBackend(backend_name="macos_say_legacy")
+
+        with patch(
+            "voice.backends.macos_native.MacOSNativeTTSBackend",
+            return_value=native_backend,
+        ), patch(
+            "voice.tts_macos.MacOSTTSProvider",
+            return_value=legacy_backend,
+        ):
+            manager = build_default_tts_manager(platform="darwin")
+
+        self.assertEqual(manager.backend_name(), "macos_native")
+
+    def test_build_default_tts_manager_honors_explicit_opt_out_on_darwin(self) -> None:
+        with patch.dict("voice.tts_manager.os.environ", {"JARVIS_TTS_MACOS_NATIVE": "0"}, clear=False), patch(
+            "voice.tts_macos.sys.platform",
+            "darwin",
+        ):
             manager = build_default_tts_manager(platform="darwin")
 
         self.assertEqual(manager.backend_name(), "macos_say_legacy")
 
-    def test_build_default_tts_manager_prefers_native_macos_backend_when_opted_in(self) -> None:
+    def test_build_default_tts_manager_prefers_native_macos_backend_when_explicitly_enabled(self) -> None:
         native_backend = _FakeBackend(backend_name="macos_native")
         legacy_backend = _FakeBackend(backend_name="macos_say_legacy")
 
@@ -264,12 +282,11 @@ class TTSManagerTests(unittest.TestCase):
 
         self.assertEqual(manager.backend_name(), "macos_native")
 
-    def test_build_default_tts_manager_falls_back_to_legacy_when_native_backend_is_unavailable(self) -> None:
+    def test_build_default_tts_manager_falls_back_to_legacy_when_native_backend_is_unavailable_by_default(self) -> None:
         native_backend = _FakeBackend(backend_name="macos_native", available=False)
         legacy_backend = _FakeBackend(backend_name="macos_say_legacy")
 
-        with patch.dict("voice.tts_manager.os.environ", {"JARVIS_TTS_MACOS_NATIVE": "1"}, clear=False), patch(
-            "voice.backends.macos_native.MacOSNativeTTSBackend",
+        with patch("voice.backends.macos_native.MacOSNativeTTSBackend",
             return_value=native_backend,
         ), patch(
             "voice.tts_macos.MacOSTTSProvider",

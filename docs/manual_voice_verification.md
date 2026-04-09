@@ -28,10 +28,18 @@
 
 ## Setup
 - Run: `python3 cli.py`
+- For the normal native macOS smoke path, plain `python3 cli.py` is now enough.
+- If you want one explicit pinned launcher that keeps the Xcode developer dir visible in the command itself, run: `scripts/run_voice_native_smoke.sh`
+- Plain `python3 cli.py` on this machine now also prefers the native backend because the backend auto-selects the known-good Xcode developer dir when no explicit `DEVELOPER_DIR` override is set.
+- `scripts/run_voice_native_smoke.sh` still remains a useful explicit pinned shortcut for manual smoke and override debugging, but helper output now prefers plain `python3 cli.py` when no explicit override is needed.
+- The macOS voice capture helper now rebuilds into repo-local `tmp/runtime/voice_capture`, so the permission target stays stable across runs instead of depending on `/tmp`.
+- If macOS Privacy settings does not show a friendly app name, look for `jarvis_macos_voice_capture` or bundle id `com.jarvis.voice.capture.helper`.
+- Current known blocker on this machine: plain `python3 cli.py` now reaches `macos_native`, but a real `voice` turn still stops at `Speech recognition access was denied.` until macOS `Speech Recognition` permission is granted.
+- After permissions are granted, rerun the same plain CLI path and finish the evidence flow with `voice`, `voice telemetry write`, and then `voice readiness write`.
 - To verify automatic blocking follow-up, run: `JARVIS_VOICE_CONTINUOUS_MODE=1 python3 cli.py`
 - To verify optional earcons, run: `JARVIS_VOICE_EARCONS=1 python3 cli.py`
 - Optional TTS tuning:
-  - `JARVIS_TTS_MACOS_NATIVE=1` to opt into the experimental native macOS TTS backend with legacy `say` fallback
+  - on macOS, native TTS is now preferred by default; set `JARVIS_TTS_MACOS_NATIVE=0` to force the legacy `say` fallback, or keep `JARVIS_TTS_MACOS_NATIVE=1` as an explicit pin during rollout smoke
   - `JARVIS_TTS_EN_VOICE` / `JARVIS_TTS_RU_VOICE` to override the selected macOS voice
   - `JARVIS_TTS_RATE`, `JARVIS_TTS_EN_RATE`, `JARVIS_TTS_RU_RATE` to tune speaking rate
 - Optional offline rollout helpers:
@@ -53,9 +61,10 @@
   - for `HOST_TIMEOUT`, `voice readiness` and `voice gate` may now also switch to a timeout-specific `next step` that points back to the native doctor helper plus current toolchain details
   - for `HOST_SDK_MISMATCH`, both `voice tts backend` and `voice tts doctor` may now suggest checking `xcode-select -p` so the active developer dir can be aligned with the reported SDK/compiler pair before rerunning typecheck
   - if native macOS diagnostics point at toolchain or compile issues, run `xcrun swiftc -typecheck voice/native_hosts/macos_tts_host.swift` for one direct offline check of the active Swift toolchain
-  - for one non-invasive native smoke, you may also run CLI with `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer` before attempting any global `xcode-select` switch
+  - for one explicit pinned native smoke path, `scripts/run_voice_native_smoke.sh` still wraps the known-good `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer` launch without requiring a global `xcode-select` switch
   - `voice readiness` inside CLI or `python3 -m voice.readiness`
-  - with `JARVIS_TTS_MACOS_NATIVE=1`, `voice readiness` and `voice gate` now also surface a separate `native tts smoke` status, reason, and diagnostic detail lines
+  - when native TTS is enabled for the current macOS run, `voice readiness` and `voice gate` now also surface a separate `native tts smoke` status, reason, and diagnostic detail lines
+  - those helpers may now also run a side-effect-minimal live-capture permission preflight, so they can surface `live capture preflight status` and a permission-aware `next step` even before any telemetry artifact exists
   - after manual verification is already recorded, those helpers may also switch `next step` directly to a native-specific recovery path such as `resolve_native_tts_sdk_mismatch`
   - for `HOST_SDK_MISMATCH`, `voice readiness` and `voice gate` may also show `next step detail` lines such as `xcode-select -p` so the active developer dir can be aligned with the reported SDK/compiler/developer-dir/swiftc details before rerunning typecheck
   - `voice readiness write` inside CLI to persist the final readiness artifact when unblocked
@@ -70,12 +79,15 @@
 - If a new capture cannot interrupt active speech, CLI should print `voice: Cannot interrupt active speech for capture.`, `voice telemetry` should increment `speech interrupt conflict count`, and `voice last` should show an `interruption_conflict` event.
 - If a latency filler is interrupted because the final spoken answer is ready, `voice last` should show an `interruption` event with reason `final_answer_start`.
 - After `voice telemetry write`, the saved telemetry artifact is also surfaced by `voice readiness` and `voice gate`, including `speech interrupt conflict count` for failed barge-in attempts during live QA.
-- To inspect the saved telemetry artifact later, run: `voice telemetry artifact` inside CLI or `python3 -m voice.telemetry`
-- To persist the current session snapshot to `tmp/qa`, run: `voice telemetry write`
-- After saving telemetry, `voice readiness` and `voice gate` will also surface the saved follow-up relisten/dismiss counts as rollout evidence.
+  - To inspect the saved telemetry artifact later, run: `voice telemetry artifact` inside CLI or `python3 -m voice.telemetry`
+  - the saved telemetry artifact may now also retain the latest live capture blocker and hint, for example `PERMISSION_DENIED` plus the macOS privacy-settings hint
+  - To persist the current session snapshot to `tmp/qa`, run: `voice telemetry write`
+  - After saving telemetry, `voice readiness` and `voice gate` will also surface the saved follow-up relisten/dismiss counts as rollout evidence.
+  - if the latest recorded live capture failed before dispatch, those helpers may now also surface `latest recorded live capture status`, the blocker reason, and a permission-aware `next step` instead of only saying that manual verification is still missing
 - Confirm the shell banner includes `voice` and `speak on`.
 - On first use, allow macOS `Microphone` and `Speech Recognition` permissions if prompted.
 - If capture fails immediately, verify macOS Settings -> Privacy & Security -> Microphone / Speech Recognition.
+- If `voice readiness` or `voice gate` already reports `grant_live_voice_permissions`, treat that as the current rollout blocker and rerun the same CLI path after granting access instead of debugging TTS first.
 - If spoken output is needed, run `speak on` first.
 
 ## Expected General Behavior

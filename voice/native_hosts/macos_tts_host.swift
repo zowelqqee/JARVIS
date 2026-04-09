@@ -2,6 +2,53 @@ import AppKit
 import Foundation
 
 private let backendName = "macos_native"
+private let preferredEnglishVoiceNamesByProfile: [String: [String]] = [
+    "en_assistant_male": ["Daniel", "Samantha"],
+    "en_assistant_female": ["Samantha", "Daniel"],
+    "en_assistant_any": ["Daniel", "Samantha"],
+]
+private let preferredRussianVoiceNamesByProfile: [String: [String]] = [
+    "ru_assistant_male": ["Yuri", "Milena"],
+    "ru_assistant_female": ["Milena", "Yuri"],
+    "ru_assistant_any": ["Milena", "Yuri"],
+]
+private let genderOverridesByToken: [String: String] = [
+    "albert": "male",
+    "daniel": "male",
+    "eddy": "male",
+    "fred": "male",
+    "reed": "male",
+    "rocko": "male",
+    "yuri": "male",
+    "flo": "female",
+    "grandma": "female",
+    "karen": "female",
+    "kathy": "female",
+    "kyoko": "female",
+    "milena": "female",
+    "nora": "female",
+    "samantha": "female",
+    "shelley": "female",
+    "tessa": "female",
+    "zosia": "female",
+]
+private let noveltyLegacyVoiceIDs: Set<String> = [
+    "com.apple.speech.synthesis.voice.BadNews",
+    "com.apple.speech.synthesis.voice.Bahh",
+    "com.apple.speech.synthesis.voice.Bells",
+    "com.apple.speech.synthesis.voice.Boing",
+    "com.apple.speech.synthesis.voice.Bubbles",
+    "com.apple.speech.synthesis.voice.Cellos",
+    "com.apple.speech.synthesis.voice.Deranged",
+    "com.apple.speech.synthesis.voice.GoodNews",
+    "com.apple.speech.synthesis.voice.Hysterical",
+    "com.apple.speech.synthesis.voice.Junior",
+    "com.apple.speech.synthesis.voice.Organ",
+    "com.apple.speech.synthesis.voice.Princess",
+    "com.apple.speech.synthesis.voice.Trinoids",
+    "com.apple.speech.synthesis.voice.Whisper",
+    "com.apple.speech.synthesis.voice.Zarvox",
+]
 
 private struct VoiceDescriptor {
     let id: String
@@ -92,6 +139,12 @@ private func qualityHint(for id: String, displayName: String) -> String {
 }
 
 private func genderHint(from rawValue: Any?, id: String, displayName: String) -> String? {
+    let haystack = "\(id) \(displayName)".lowercased()
+    for (token, gender) in genderOverridesByToken {
+        if haystack.contains(token) {
+            return gender
+        }
+    }
     let attrText = String(describing: rawValue ?? "").lowercased()
     if attrText.contains("male") {
         return "male"
@@ -99,7 +152,6 @@ private func genderHint(from rawValue: Any?, id: String, displayName: String) ->
     if attrText.contains("female") {
         return "female"
     }
-    let haystack = "\(id) \(displayName)".lowercased()
     if haystack.contains(" female") || haystack.hasSuffix("female") {
         return "female"
     }
@@ -155,6 +207,58 @@ private func profileGender(_ profile: String?) -> String? {
     return nil
 }
 
+private func voiceLanguage(_ voice: VoiceDescriptor) -> String? {
+    normalizedLocale(voice.locale)?.lowercased().split(separator: "-", maxSplits: 1).first.map(String.init)
+}
+
+private func isModernAppleVoice(_ voice: VoiceDescriptor) -> Bool {
+    voice.id.hasPrefix("com.apple.voice.")
+}
+
+private func isLegacySpeechSynthesisVoice(_ voice: VoiceDescriptor) -> Bool {
+    voice.id.hasPrefix("com.apple.speech.synthesis.voice.")
+}
+
+private func isEloquenceVoice(_ voice: VoiceDescriptor) -> Bool {
+    voice.id.contains(".eloquence.")
+}
+
+private func isNoveltyLegacyVoice(_ voice: VoiceDescriptor) -> Bool {
+    noveltyLegacyVoiceIDs.contains(voice.id)
+}
+
+private func isNaturalPreferredVoice(_ voice: VoiceDescriptor) -> Bool {
+    if isEloquenceVoice(voice) || isNoveltyLegacyVoice(voice) {
+        return false
+    }
+    if isModernAppleVoice(voice) {
+        return true
+    }
+    return voice.qualityHint == "assistant" || voice.qualityHint == "premium"
+}
+
+private func preferredVoiceNames(profile: String?, locale: String?) -> [String] {
+    let normalizedProfile = (profile ?? "").trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    guard !normalizedProfile.isEmpty else {
+        return []
+    }
+    let language = profileLanguage(profile, locale: locale)?.lowercased()
+    if language == "en" {
+        return preferredEnglishVoiceNamesByProfile[normalizedProfile] ?? []
+    }
+    if language == "ru" {
+        return preferredRussianVoiceNamesByProfile[normalizedProfile] ?? []
+    }
+    return []
+}
+
+private func matchesPreferredVoiceName(_ voice: VoiceDescriptor, preferredName: String) -> Bool {
+    if voice.displayName.caseInsensitiveCompare(preferredName) == .orderedSame {
+        return true
+    }
+    return voice.id.lowercased().contains(".\(preferredName.lowercased())")
+}
+
 private func resolveVoice(profile: String?, locale: String?) -> VoiceDescriptor? {
     let voices = allVoices()
     guard !voices.isEmpty else {
@@ -163,11 +267,26 @@ private func resolveVoice(profile: String?, locale: String?) -> VoiceDescriptor?
     let targetLocale = normalizedLocale(locale)?.lowercased()
     let targetLanguage = profileLanguage(profile, locale: locale)?.lowercased()
     let targetGender = profileGender(profile)
+    let voicePool = voices.filter { voice in
+        guard let targetLanguage else {
+            return true
+        }
+        return voiceLanguage(voice) == targetLanguage
+    }
+    let candidateVoices = voicePool.isEmpty ? voices : voicePool
+
+    for preferredName in preferredVoiceNames(profile: profile, locale: locale) {
+        if let preferredVoice = candidateVoices.first(where: { voice in
+            isNaturalPreferredVoice(voice) && matchesPreferredVoiceName(voice, preferredName: preferredName)
+        }) {
+            return preferredVoice
+        }
+    }
 
     func score(_ voice: VoiceDescriptor) -> Int {
         var total = 0
         let locale = normalizedLocale(voice.locale)?.lowercased()
-        let language = locale?.split(separator: "-", maxSplits: 1).first.map(String.init)
+        let language = voiceLanguage(voice)
         if locale == targetLocale, targetLocale != nil {
             total += 100
         } else if language == targetLanguage, targetLanguage != nil {
@@ -176,10 +295,26 @@ private func resolveVoice(profile: String?, locale: String?) -> VoiceDescriptor?
         if voice.genderHint == targetGender, targetGender != nil {
             total += 20
         }
+        if isNaturalPreferredVoice(voice) {
+            total += 40
+        }
         if voice.qualityHint == "assistant" {
-            total += 10
+            total += 16
         } else if voice.qualityHint == "premium" {
-            total += 6
+            total += 12
+        } else if voice.qualityHint == "compact" {
+            total += 8
+        } else if voice.qualityHint == "default", isModernAppleVoice(voice) {
+            total += 4
+        }
+        if isLegacySpeechSynthesisVoice(voice) {
+            total -= 24
+        }
+        if isEloquenceVoice(voice) {
+            total -= 48
+        }
+        if isNoveltyLegacyVoice(voice) {
+            total -= 120
         }
         if voice.isDefault {
             total += 2
@@ -187,7 +322,7 @@ private func resolveVoice(profile: String?, locale: String?) -> VoiceDescriptor?
         return total
     }
 
-    return voices.sorted {
+    return candidateVoices.sorted {
         let leftScore = score($0)
         let rightScore = score($1)
         if leftScore != rightScore {

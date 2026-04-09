@@ -22,6 +22,17 @@ _HOST_TYPECHECK_TIMEOUT_SECONDS = 3.0
 _HOST_DEVELOPER_DIR_TIMEOUT_SECONDS = 1.0
 _HOST_SWIFTC_PATH_TIMEOUT_SECONDS = 1.0
 _HOST_MODULE_CACHE_PATH = Path(tempfile.gettempdir()) / "jarvis_swift_module_cache"
+_PREFERRED_DEVELOPER_DIR = Path("/Applications/Xcode.app/Contents/Developer")
+_DEFAULT_RATE_BY_LANGUAGE = {
+    "en": 190,
+    "ru": 184,
+}
+_RATE_ENV_BY_LANGUAGE = {
+    "en": "JARVIS_TTS_EN_RATE",
+    "ru": "JARVIS_TTS_RU_RATE",
+}
+_GLOBAL_RATE_ENV = "JARVIS_TTS_RATE"
+_NATIVE_BASELINE_RATE = 180.0
 
 
 class MacOSNativeTTSBackend:
@@ -65,13 +76,19 @@ class MacOSNativeTTSBackend:
 
         payload = _speak_payload(utterance)
         self._ensure_host_module_cache_path()
+        host_environment = self._host_environment()
         try:
+            popen_kwargs: dict[str, object] = {
+                "stdin": subprocess.PIPE,
+                "stdout": subprocess.PIPE,
+                "stderr": subprocess.PIPE,
+                "text": True,
+            }
+            if host_environment is not None:
+                popen_kwargs["env"] = host_environment
             process = subprocess.Popen(
                 list(self._host_command),
-                stdin=subprocess.PIPE,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=True,
+                **popen_kwargs,
             )
         except OSError as exc:
             return TTSResult(
@@ -187,15 +204,21 @@ class MacOSNativeTTSBackend:
         if sys.platform != "darwin" or not self._host_is_configured():
             return None
         self._ensure_host_module_cache_path()
+        host_environment = self._host_environment()
         try:
+            run_kwargs: dict[str, object] = {
+                "input": _json_payload(payload),
+                "stdout": subprocess.PIPE,
+                "stderr": subprocess.PIPE,
+                "text": True,
+                "check": False,
+                "timeout": timeout_seconds,
+            }
+            if host_environment is not None:
+                run_kwargs["env"] = host_environment
             result = subprocess.run(
                 list(self._host_command),
-                input=_json_payload(payload),
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=True,
-                check=False,
-                timeout=timeout_seconds,
+                **run_kwargs,
             )
         except (OSError, subprocess.TimeoutExpired):
             return None
@@ -215,15 +238,21 @@ class MacOSNativeTTSBackend:
             )
             return False
         self._ensure_host_module_cache_path()
+        host_environment = self._host_environment()
         try:
+            run_kwargs: dict[str, object] = {
+                "input": _json_payload({"op": "ping"}),
+                "stdout": subprocess.PIPE,
+                "stderr": subprocess.PIPE,
+                "text": True,
+                "check": False,
+                "timeout": _HOST_PING_TIMEOUT_SECONDS,
+            }
+            if host_environment is not None:
+                run_kwargs["env"] = host_environment
             result = subprocess.run(
                 list(self._host_command),
-                input=_json_payload({"op": "ping"}),
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=True,
-                check=False,
-                timeout=_HOST_PING_TIMEOUT_SECONDS,
+                **run_kwargs,
             )
         except subprocess.TimeoutExpired:
             error_code, error_message = _classify_host_failure(
@@ -233,7 +262,7 @@ class MacOSNativeTTSBackend:
             self._set_availability_diagnostic(
                 error_code,
                 error_message,
-                _diagnostic_detail_lines(error_code),
+                _diagnostic_detail_lines(error_code, environ=host_environment),
             )
             return False
         except OSError as exc:
@@ -245,7 +274,7 @@ class MacOSNativeTTSBackend:
             self._set_availability_diagnostic(
                 error_code,
                 error_message,
-                _diagnostic_detail_lines(error_code, stderr=str(exc)),
+                _diagnostic_detail_lines(error_code, stderr=str(exc), environ=host_environment),
             )
             return False
 
@@ -265,12 +294,14 @@ class MacOSNativeTTSBackend:
         refined_error_code, refined_error_message, refined_detail_lines = self._refine_failure_with_typecheck(
             classified_error_code,
             classified_error_message,
+            environ=host_environment,
         )
         if not refined_detail_lines:
             refined_detail_lines = _diagnostic_detail_lines(
                 refined_error_code or classified_error_code,
                 stderr=result.stderr,
                 stdout=result.stdout,
+                environ=host_environment,
             )
         self._set_availability_diagnostic(
             refined_error_code,
@@ -285,18 +316,25 @@ class MacOSNativeTTSBackend:
         error_message: str | None,
         *,
         detail_lines: tuple[str, ...] = (),
+        environ: dict[str, str] | None = None,
     ) -> tuple[str | None, str | None, tuple[str, ...]]:
         if not _should_refine_failure_with_typecheck(error_code) or not self._can_typecheck_host_source():
             return error_code, error_message, detail_lines
+        host_environment = environ or self._host_environment()
         try:
             _HOST_MODULE_CACHE_PATH.mkdir(parents=True, exist_ok=True)
+            run_kwargs: dict[str, object] = {
+                "stdout": subprocess.PIPE,
+                "stderr": subprocess.PIPE,
+                "text": True,
+                "check": False,
+                "timeout": _HOST_TYPECHECK_TIMEOUT_SECONDS,
+            }
+            if host_environment is not None:
+                run_kwargs["env"] = host_environment
             result = subprocess.run(
                 list(_typecheck_command(self._host_path)),
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=True,
-                check=False,
-                timeout=_HOST_TYPECHECK_TIMEOUT_SECONDS,
+                **run_kwargs,
             )
         except subprocess.TimeoutExpired:
             return error_code, error_message, detail_lines
@@ -309,6 +347,7 @@ class MacOSNativeTTSBackend:
             refined_detail_lines = _diagnostic_detail_lines(
                 refined_error_code,
                 stderr=str(exc),
+                environ=host_environment,
             )
             return (
                 refined_error_code or error_code,
@@ -330,6 +369,7 @@ class MacOSNativeTTSBackend:
             refined_error_code,
             stderr=result.stderr,
             stdout=result.stdout,
+            environ=host_environment,
         )
         if not _should_override_failure(error_code, refined_error_code):
             return error_code, error_message, detail_lines
@@ -337,6 +377,19 @@ class MacOSNativeTTSBackend:
 
     def _can_typecheck_host_source(self) -> bool:
         return (not self._has_explicit_host_command) and self._host_path.exists() and self._host_path.suffix == ".swift"
+
+    def _host_environment(self) -> dict[str, str] | None:
+        explicit_developer_dir = str(os.environ.get("DEVELOPER_DIR", "") or "").strip()
+        if explicit_developer_dir:
+            return dict(os.environ)
+        if self._has_explicit_host_command:
+            return None
+        preferred_developer_dir = _preferred_developer_dir()
+        if not preferred_developer_dir:
+            return None
+        environment = dict(os.environ)
+        environment["DEVELOPER_DIR"] = preferred_developer_dir
+        return environment
 
     def _host_is_configured(self) -> bool:
         return self._has_explicit_host_command or self._host_path.exists()
@@ -378,7 +431,7 @@ def _speak_payload(utterance: SpeechUtterance | None) -> dict[str, object]:
         "locale": str(current.locale or "").strip() or None,
         "voice_profile": str(current.voice_profile or "").strip() or None,
         "voice_id": str(current.voice_id or "").strip() or None,
-        "rate": current.rate,
+        "rate": _resolved_native_rate(current.rate, current.locale),
         "pitch": current.pitch,
         "volume": current.volume,
         "style_hint": str(current.style_hint or "").strip() or None,
@@ -532,6 +585,7 @@ def _diagnostic_detail_lines(
     *,
     stderr: str | None = None,
     stdout: str | None = None,
+    environ: dict[str, str] | None = None,
 ) -> tuple[str, ...]:
     code = str(error_code or "").strip()
     haystack = "\n".join(part for part in (str(stderr or ""), str(stdout or "")) if part)
@@ -542,22 +596,22 @@ def _diagnostic_detail_lines(
             lines.append(f"sdk toolchain: {sdk_toolchain}")
         if compiler_toolchain:
             lines.append(f"active compiler: {compiler_toolchain}")
-        lines.extend(_runtime_toolchain_detail_lines())
+        lines.extend(_runtime_toolchain_detail_lines(environ=environ))
         return tuple(lines)
     if code in {"HOST_TIMEOUT", "HOST_PING_FAILED", "HOST_UNAVAILABLE", "HOST_COMPILE_FAILED"}:
-        return _runtime_toolchain_detail_lines()
+        return _runtime_toolchain_detail_lines(environ=environ)
     return ()
 
 
-def _runtime_toolchain_detail_lines() -> tuple[str, ...]:
+def _runtime_toolchain_detail_lines(*, environ: dict[str, str] | None = None) -> tuple[str, ...]:
     lines: list[str] = []
     developer_dir_override = _developer_dir_override_line()
     if developer_dir_override:
         lines.append(developer_dir_override)
-    developer_dir = _active_developer_dir_line()
+    developer_dir = _active_developer_dir_line(environ=environ)
     if developer_dir:
         lines.append(developer_dir)
-    swiftc_path = _active_swiftc_path_line()
+    swiftc_path = _active_swiftc_path_line(environ=environ)
     if swiftc_path:
         lines.append(swiftc_path)
     return tuple(lines)
@@ -570,15 +624,20 @@ def _developer_dir_override_line() -> str | None:
     return f"developer dir override: {developer_dir_override}"
 
 
-def _active_developer_dir_line() -> str | None:
+def _active_developer_dir_line(*, environ: dict[str, str] | None = None) -> str | None:
     try:
+        run_kwargs: dict[str, object] = {
+            "stdout": subprocess.PIPE,
+            "stderr": subprocess.PIPE,
+            "text": True,
+            "check": False,
+            "timeout": _HOST_DEVELOPER_DIR_TIMEOUT_SECONDS,
+        }
+        if environ is not None:
+            run_kwargs["env"] = environ
         result = subprocess.run(
             ["xcode-select", "-p"],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-            check=False,
-            timeout=_HOST_DEVELOPER_DIR_TIMEOUT_SECONDS,
+            **run_kwargs,
         )
     except (OSError, subprocess.TimeoutExpired):
         return None
@@ -590,15 +649,20 @@ def _active_developer_dir_line() -> str | None:
     return f"active developer dir: {developer_dir}"
 
 
-def _active_swiftc_path_line() -> str | None:
+def _active_swiftc_path_line(*, environ: dict[str, str] | None = None) -> str | None:
     try:
+        run_kwargs: dict[str, object] = {
+            "stdout": subprocess.PIPE,
+            "stderr": subprocess.PIPE,
+            "text": True,
+            "check": False,
+            "timeout": _HOST_SWIFTC_PATH_TIMEOUT_SECONDS,
+        }
+        if environ is not None:
+            run_kwargs["env"] = environ
         result = subprocess.run(
             ["xcrun", "--find", "swiftc"],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-            check=False,
-            timeout=_HOST_SWIFTC_PATH_TIMEOUT_SECONDS,
+            **run_kwargs,
         )
     except (OSError, subprocess.TimeoutExpired):
         return None
@@ -608,6 +672,52 @@ def _active_swiftc_path_line() -> str | None:
     if not swiftc_path:
         return None
     return f"active swiftc: {swiftc_path}"
+
+
+def _preferred_developer_dir() -> str | None:
+    try:
+        exists = _PREFERRED_DEVELOPER_DIR.exists()
+    except OSError:
+        return None
+    if not exists:
+        return None
+    return str(_PREFERRED_DEVELOPER_DIR)
+
+
+def _resolved_native_rate(explicit_rate: float | None, locale: str | None) -> float | None:
+    if explicit_rate is not None:
+        return explicit_rate
+    legacy_rate = _preferred_legacy_rate_for_locale(locale)
+    if legacy_rate is None:
+        return None
+    return float(legacy_rate) / _NATIVE_BASELINE_RATE
+
+
+def _preferred_legacy_rate_for_locale(locale: str | None) -> int | None:
+    language = _language_from_locale(locale)
+    for env_name in (_RATE_ENV_BY_LANGUAGE.get(language, ""), _GLOBAL_RATE_ENV):
+        parsed_rate = _parse_rate(os.environ.get(env_name, ""))
+        if parsed_rate is not None:
+            return parsed_rate
+    return _DEFAULT_RATE_BY_LANGUAGE.get(language)
+
+
+def _language_from_locale(locale: str | None) -> str:
+    normalized_locale = str(locale or "").strip().lower().replace("_", "-")
+    if not normalized_locale:
+        return ""
+    return normalized_locale.split("-", maxsplit=1)[0]
+
+
+def _parse_rate(raw_value: str | None) -> int | None:
+    value = str(raw_value or "").strip()
+    if not value:
+        return None
+    try:
+        parsed = int(value)
+    except ValueError:
+        return None
+    return parsed if parsed > 0 else None
 
 
 def _extract_sdk_mismatch_versions(text: str) -> tuple[str | None, str | None]:

@@ -14,6 +14,48 @@ from voice.tts_provider import SpeechUtterance
 class MacOSNativeTTSBackendTests(unittest.TestCase):
     """Protect native-host request/response handling and interruption hooks."""
 
+    def test_speak_payload_uses_legacy_compatible_default_rate_for_english(self) -> None:
+        payload = macos_native._speak_payload(
+            SpeechUtterance(
+                text="Hello",
+                locale="en-US",
+            )
+        )
+
+        self.assertAlmostEqual(payload["rate"], 190 / 180)
+
+    def test_speak_payload_uses_legacy_compatible_default_rate_for_russian(self) -> None:
+        payload = macos_native._speak_payload(
+            SpeechUtterance(
+                text="Привет",
+                locale="ru-RU",
+            )
+        )
+
+        self.assertAlmostEqual(payload["rate"], 184 / 180)
+
+    def test_speak_payload_honors_native_rate_env_override(self) -> None:
+        with patch.dict("voice.backends.macos_native.os.environ", {"JARVIS_TTS_EN_RATE": "210"}, clear=False):
+            payload = macos_native._speak_payload(
+                SpeechUtterance(
+                    text="Hello",
+                    locale="en-US",
+                )
+            )
+
+        self.assertAlmostEqual(payload["rate"], 210 / 180)
+
+    def test_speak_payload_preserves_explicit_rate(self) -> None:
+        payload = macos_native._speak_payload(
+            SpeechUtterance(
+                text="Hello",
+                locale="en-US",
+                rate=1.33,
+            )
+        )
+
+        self.assertEqual(payload["rate"], 1.33)
+
     def test_is_available_uses_ping_response(self) -> None:
         backend = MacOSNativeTTSBackend(host_command=["xcrun", "swift", "/tmp/macos_tts_host.swift"])
         ping_process = MagicMock()
@@ -49,7 +91,9 @@ class MacOSNativeTTSBackendTests(unittest.TestCase):
             self.assertTrue(backend.is_available())
 
         mkdir_mock.assert_called_once_with(parents=True, exist_ok=True)
-        run_mock.assert_called_once_with(
+        run_mock.assert_called_once()
+        self.assertEqual(
+            run_mock.call_args.args[0],
             [
                 "xcrun",
                 "swift",
@@ -57,12 +101,33 @@ class MacOSNativeTTSBackendTests(unittest.TestCase):
                 str(macos_native._HOST_MODULE_CACHE_PATH),
                 "/tmp/macos_tts_host.swift",
             ],
-            input='{"op": "ping"}\n',
-            stdout=ANY,
-            stderr=ANY,
-            text=True,
-            check=False,
-            timeout=15.0,
+        )
+        self.assertEqual(run_mock.call_args.kwargs["input"], '{"op": "ping"}\n')
+        self.assertEqual(run_mock.call_args.kwargs["timeout"], 15.0)
+        self.assertEqual(
+            run_mock.call_args.kwargs["env"]["DEVELOPER_DIR"],
+            str(macos_native._PREFERRED_DEVELOPER_DIR),
+        )
+
+    def test_default_host_command_prefers_known_good_xcode_developer_dir_when_env_is_unset(self) -> None:
+        backend = MacOSNativeTTSBackend(host_path="/tmp/macos_tts_host.swift")
+        ping_process = MagicMock()
+        ping_process.stdout = '{"ok": true, "backend_name": "macos_native"}'
+        ping_process.stderr = ""
+        ping_process.returncode = 0
+
+        with patch("voice.backends.macos_native.sys.platform", "darwin"), patch(
+            "pathlib.Path.exists",
+            return_value=True,
+        ), patch(
+            "voice.backends.macos_native.subprocess.run",
+            return_value=ping_process,
+        ) as run_mock:
+            self.assertTrue(backend.is_available())
+
+        self.assertEqual(
+            run_mock.call_args.kwargs["env"]["DEVELOPER_DIR"],
+            str(macos_native._PREFERRED_DEVELOPER_DIR),
         )
 
     def test_is_available_records_host_missing_reason(self) -> None:

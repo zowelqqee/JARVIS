@@ -4,10 +4,10 @@ from __future__ import annotations
 
 import shlex
 
-NATIVE_TTS_DOCTOR_COMMAND = "printf 'voice tts doctor\\nquit\\n' | env JARVIS_TTS_MACOS_NATIVE=1 python3 cli.py"
+NATIVE_TTS_DOCTOR_COMMAND = "printf 'voice tts doctor\\nquit\\n' | python3 cli.py"
 NATIVE_TTS_TYPECHECK_COMMAND = "xcrun swiftc -typecheck voice/native_hosts/macos_tts_host.swift"
 NATIVE_TTS_DEVELOPER_DIR_COMMAND = "xcode-select -p"
-NATIVE_TTS_CLI_COMMAND = "env JARVIS_TTS_MACOS_NATIVE=1 python3 cli.py"
+NATIVE_TTS_CLI_COMMAND = "python3 cli.py"
 
 _TYPECHECK_ERROR_CODES = {
     "HOST_TOOLCHAIN_MISSING",
@@ -27,11 +27,11 @@ def native_tts_follow_up_command(error_code: str | None, *, detail_lines: tuple[
 
 
 def native_tts_cli_smoke_command(*, developer_dir_override: str | None = None) -> str:
-    """Return one CLI smoke command for the current native opt-in context."""
+    """Return one CLI smoke command for the current native context."""
     if not developer_dir_override:
         return NATIVE_TTS_CLI_COMMAND
     quoted_override = shlex.quote(developer_dir_override)
-    return f"env DEVELOPER_DIR={quoted_override} JARVIS_TTS_MACOS_NATIVE=1 python3 cli.py"
+    return f"env DEVELOPER_DIR={quoted_override} {NATIVE_TTS_CLI_COMMAND}"
 
 
 def native_tts_doctor_guidance(error_code: str | None, *, detail_lines: tuple[str, ...] = ()) -> tuple[str, ...]:
@@ -40,7 +40,7 @@ def native_tts_doctor_guidance(error_code: str | None, *, detail_lines: tuple[st
     hints: list[str] = []
     if code == "HOST_MISSING":
         hints.append(
-            "native macOS host file is missing; verify `voice/native_hosts/macos_tts_host.swift` before enabling `JARVIS_TTS_MACOS_NATIVE=1`."
+            "native macOS host file is missing; verify `voice/native_hosts/macos_tts_host.swift` before retrying native smoke."
         )
     elif code == "HOST_TOOLCHAIN_MISSING":
         hints.append(
@@ -137,7 +137,7 @@ def _doctor_command(developer_dir_override: str | None) -> str:
     quoted_override = shlex.quote(developer_dir_override)
     return (
         "printf 'voice tts doctor\\nquit\\n' | "
-        f"env DEVELOPER_DIR={quoted_override} JARVIS_TTS_MACOS_NATIVE=1 python3 cli.py"
+        f"env DEVELOPER_DIR={quoted_override} {NATIVE_TTS_CLI_COMMAND}"
     )
 
 

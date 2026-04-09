@@ -24,14 +24,18 @@ class VoiceInputError(RuntimeError):
 
 _HELPER_SOURCE = Path(__file__).with_name("macos_voice_capture.m")
 _HELPER_INFO_PLIST = Path(__file__).with_name("macos_voice_capture_info.plist")
-_HELPER_BINARY = Path("/tmp/jarvis_macos_voice_capture")
-_HELPER_APP_BUNDLE = Path("/tmp/JARVISVoiceCapture.app")
+_REPO_ROOT = Path(__file__).resolve().parents[1]
+_HELPER_RUNTIME_DIR = _REPO_ROOT / "tmp" / "runtime" / "voice_capture"
+_HELPER_BINARY = _HELPER_RUNTIME_DIR / "jarvis_macos_voice_capture"
+_HELPER_APP_BUNDLE = _HELPER_RUNTIME_DIR / "JARVISVoiceCapture.app"
 _HELPER_APP_CONTENTS = _HELPER_APP_BUNDLE / "Contents"
 _HELPER_APP_BINARY = _HELPER_APP_CONTENTS / "MacOS" / "jarvis_macos_voice_capture"
 _HELPER_APP_INFO_PLIST = _HELPER_APP_CONTENTS / "Info.plist"
+_HELPER_BUNDLE_IDENTIFIER = "com.jarvis.voice.capture.helper"
 _DEFAULT_TIMEOUT_SECONDS = 8.0
 _DEFAULT_PREFERRED_LOCALES = ("ru-RU", "en-US")
 _VOICE_LOCALES_ENV = "JARVIS_VOICE_LOCALES"
+_VOICE_PERMISSION_PROBE_ARG = "--probe-permissions"
 _PRIVACY_HINT = "Check macOS Settings -> Privacy & Security -> Microphone / Speech Recognition."
 _VOICE_CRASH_HINT = "Try again. If it keeps failing, check macOS Settings -> Privacy & Security -> Microphone / Speech Recognition."
 _VOICE_EMPTY_HINT = "Speak right after 'voice: listening...' and verify the active input device in macOS Sound settings."
@@ -70,6 +74,29 @@ def capture_voice_input(
 def resolve_capture_locales(preferred_locales: Sequence[str] | None = None) -> tuple[str, ...]:
     """Expose the effective locale chain used by one voice capture."""
     return _resolve_preferred_locales(preferred_locales)
+
+
+def probe_voice_input_permissions() -> VoiceInputError | None:
+    """Return one current macOS voice-permission blocker without running a full capture."""
+    if sys.platform != "darwin":
+        return VoiceInputError("UNSUPPORTED_PLATFORM", "Voice input is available only on macOS.")
+    try:
+        _ensure_helper_binary()
+        result = _run_permission_probe()
+    except VoiceInputError as exc:
+        return exc
+    if result.returncode == 0:
+        return None
+    return _voice_error_from_result(result.returncode, result.stderr or result.stdout)
+
+
+def voice_capture_permission_target_details() -> tuple[str, ...]:
+    """Return stable operator-facing details for the macOS voice helper permission target."""
+    return (
+        f"voice capture helper bundle id: {_HELPER_BUNDLE_IDENTIFIER}",
+        f"voice capture helper runtime dir: {_HELPER_RUNTIME_DIR}",
+        "privacy list name hint: jarvis_macos_voice_capture / com.jarvis.voice.capture.helper",
+    )
 
 
 def _ensure_helper_binary(force_rebuild: bool = False) -> None:
@@ -134,7 +161,7 @@ def _codesign_helper_binary() -> None:
         "--sign",
         "-",
         "--identifier",
-        "com.jarvis.voice.capture.helper",
+        _HELPER_BUNDLE_IDENTIFIER,
         "--timestamp=none",
         str(_HELPER_BINARY),
     ]
@@ -163,7 +190,7 @@ def _prepare_helper_app_bundle() -> None:
         "--sign",
         "-",
         "--identifier",
-        "com.jarvis.voice.capture.helper",
+        _HELPER_BUNDLE_IDENTIFIER,
         "--timestamp=none",
         str(_HELPER_APP_BUNDLE),
     ]
@@ -218,6 +245,21 @@ def _run_helper(timeout_seconds: float, preferred_locales: Sequence[str]) -> sub
         raise VoiceInputError("VOICE_SETUP_FAILED", f"Voice helper failed to start: {exc}.") from exc
 
 
+def _run_permission_probe() -> subprocess.CompletedProcess[str]:
+    try:
+        return subprocess.run(
+            [str(_HELPER_BINARY), _VOICE_PERMISSION_PROBE_ARG],
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=5,
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise VoiceInputError("RECOGNITION_FAILED", "Voice permission probe timed out. Try again.") from exc
+    except OSError as exc:
+        raise VoiceInputError("VOICE_SETUP_FAILED", f"Voice helper failed to start: {exc}.") from exc
+
+
 def _run_helper_via_open_bundle(
     timeout_seconds: float,
     preferred_locales: Sequence[str],
@@ -236,6 +278,7 @@ def _run_helper_via_open_bundle(
                 "open",
                 "-W",
                 "-n",
+                "-a",
                 str(_HELPER_APP_BUNDLE),
                 "--args",
                 str(timeout_seconds),
@@ -314,6 +357,10 @@ def _voice_error_from_result(returncode: int, raw_message: str) -> VoiceInputErr
 
     if code == "PERMISSION_DENIED":
         normalized = detail or "Speech recognition permission was denied."
+        return VoiceInputError(code, normalized, hint=_PRIVACY_HINT)
+
+    if code == "PERMISSION_PROMPT_REQUIRED":
+        normalized = detail or "Speech recognition or microphone permission has not been requested yet."
         return VoiceInputError(code, normalized, hint=_PRIVACY_HINT)
 
     if code == "MICROPHONE_UNAVAILABLE":

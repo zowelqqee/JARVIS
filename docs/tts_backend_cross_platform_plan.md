@@ -1,77 +1,109 @@
 # JARVIS Cross-Platform TTS Backend Plan
 
+## Purpose
+- Keep one living source of truth for the TTS backend rollout.
+- Reflect the real state of the codebase, not an outdated greenfield architecture sketch.
+- Continue the work in small vertical slices without a broad voice-stack rewrite.
+
 ## Goal
-- Replace the current macOS-only, `say`-centric TTS path with a backend architecture that stays stable when JARVIS later moves to Windows.
-- Keep the text-first core intact: CLI, speech presenter, dispatcher, and follow-up logic should not care which OS-specific speech engine is active.
-- Make voice choice explicit through product-level profiles like `ru_assistant_male`, not through platform-specific voice names like `Milena` or `Daniel`.
+- Keep the current text-first core intact.
+- Keep CLI, dispatcher, and speech presenter dependent only on a shared TTS abstraction.
+- Preserve the legacy macOS `say` path as a fallback until the native backend is actually proven in live use.
+- Make the future Windows port straightforward by keeping product-level voice selection backend-neutral.
 
-## Current Problem
-- The current provider in `voice/tts_macos.py` is tightly coupled to the macOS `say` command.
-- macOS exposes different voice sets through different APIs. A voice visible in UI may not be surfaced in the same way via `say`.
-- The current code can choose a better English voice, but Russian male/system-assistant voices are inconsistent and fragile.
-- This design will not port cleanly to Windows because the current control surface is built around macOS voice names and `say` semantics.
+## What “Alive” Means Here
+- Not “more diagnostics.”
+- “Alive” means JARVIS can actually run through the real CLI voice path with the native backend selected, speak through the shared abstraction, survive fallback cleanly, and be understandable to operate without source-diving.
+- The next work should therefore move from architecture polishing to rollout proof, native startup stability, and a clear default-backend decision.
 
-## Target End State
-- JARVIS uses one stable TTS contract across all operating systems.
-- Platform-specific backends live behind a shared backend manager.
-- Voice selection is based on abstract profiles:
-  - `ru_assistant_male`
-  - `ru_assistant_female`
-  - `en_assistant_male`
-  - `en_assistant_female`
-- Every backend can:
-  - list voices
-  - resolve a profile to a native voice
-  - speak text
-  - stop active speech
-  - report capabilities and structured errors
-- macOS and Windows implementations use the same JSON command protocol, so CLI and voice logic stay unchanged.
+## Current Reality Snapshot
 
-## Non-Goals
-- Do not turn this into a full “voice operating system” rewrite.
-- Do not move routing, interaction state, or speech presentation into OS-specific code.
-- Do not hardcode “Siri Voice 1” or any single vendor voice as the only valid product target.
-- Do not depend on GUI automation or Settings scraping at runtime.
+### Already Done
+- `voice/tts_provider.py` is already expanded beyond the old `say`-only contract.
+- Backend-neutral models already exist in `voice/tts_models.py`.
+- Product-level voice profiles already exist in `voice/voice_profiles.py`.
+- `voice/tts_manager.py` already owns backend selection, profile resolution, and fallback.
+- The current macOS `say` backend is already wrapped as a legacy backend behind the manager.
+- CLI/operator helpers already exist:
+  - `voice tts backend`
+  - `voice tts voices`
+  - `voice tts current`
+  - `voice tts doctor`
+  - `voice readiness`
+  - `voice gate`
+- Experimental native macOS backend already exists:
+  - `voice/backends/macos_native.py`
+  - `voice/native_hosts/macos_tts_host.swift`
+- Native macOS backend is now preferred by default on macOS.
+- `JARVIS_TTS_MACOS_NATIVE=0` is the explicit opt-out to force legacy `say`.
+- `JARVIS_TTS_MACOS_NATIVE=1` remains a valid explicit pin during rollout smoke.
+- Native diagnostics already expose backend state, fallback reason, toolchain mismatch context, developer-dir override context, and follow-up commands.
+- With `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer`, the native backend can already become the active backend in the current environment.
 
-## Architecture
+### Not Done Yet
+- Native macOS is already the default code path on macOS, but that default is not yet signed off by one successful live microphone turn.
+- One successful live microphone turn under the native path is not yet signed off end-to-end because local `Speech Recognition` permission blocked the latest manual smoke.
+- The final voice-readiness artifact is still intentionally missing because live manual verification cannot be recorded honestly while that permission blocker remains.
+- Windows host/backend work has not started.
 
-### 1. Core Abstractions
-- Keep `voice/tts_provider.py` as the public contract boundary, but expand it.
-- Introduce a backend-neutral manager:
-  - `voice/tts_manager.py`
-- Introduce voice profiles and resolution policy:
-  - `voice/voice_profiles.py`
-- Introduce backend metadata types:
+### Current Bottleneck
+- The main bottleneck is no longer “missing architecture.”
+- The main bottleneck is proving and stabilizing the native macOS path in real usage, then promoting it safely.
+
+### Latest Observed Native Smoke
+- On April 9, 2026, the plain native CLI smoke under
+  - `python3 cli.py`
+  - default macOS native preference
+  confirmed:
+  - `voice tts backend` reports `macos_native`
+  - `voice tts doctor` reports the native backend as selected and available
+  - `voice readiness` reports `native tts smoke status: ready`
+  - `speak on` plus a text-first question path completes without `speech: unavailable.`
+  - the first real `voice` turn does not expose a TTS runtime bug; it stops at `Speech recognition access was denied`
+  - `voice telemetry write` records that same blocker in `tmp/qa/voice_telemetry.json`
+  - `voice gate` reports `grant_live_voice_permissions`
+- Until that permission is granted and one live turn succeeds, the rollout should be treated as “native TTS path proven for text-first CLI output, but live microphone sign-off still blocked by local macOS permission state.”
+- The rollout helper surface now also preserves that live blocker through `voice telemetry write`:
+  - `voice telemetry artifact` shows the latest recorded capture blocker and hint
+  - `voice readiness` and `voice gate` can now switch their `next step` directly to the permission-recovery path instead of only reporting missing manual verification
+- The rollout helper surface can now also detect that blocker proactively through live-capture permission preflight:
+  - even on an empty telemetry path, `voice readiness` / `voice gate` can report `live capture preflight status: blocked`
+  - this reduces the need for a sacrificial failed `voice` turn just to learn that macOS permissions are the current blocker
+
+## Non-Negotiable Constraints
+- Do not do a large voice-stack refactor.
+- Do not move routing, dispatcher, or answer logic into backend-specific code.
+- Do not let CLI or speech presenter depend on raw platform voice names.
+- Raw native voice ids may exist only inside backend adapters, host protocol payloads, or backend diagnostics.
+- Do not remove `voice/tts_macos.py` until the native backend is proven as a stable primary path.
+- Do not spend more time polishing helper wording unless a real failing smoke needs it.
+
+## Current Source of Truth in Code
+- Public contract:
+  - `voice/tts_provider.py`
+- Backend-neutral models:
   - `voice/tts_models.py`
+- Product voice profiles:
+  - `voice/voice_profiles.py`
+- Backend selection and fallback:
+  - `voice/tts_manager.py`
+- Legacy macOS fallback:
+  - `voice/tts_macos.py`
+- Native macOS adapter:
+  - `voice/backends/macos_native.py`
+- Native macOS host:
+  - `voice/native_hosts/macos_tts_host.swift`
+- Operator/debug helpers:
+  - `voice/status.py`
+  - `voice/readiness.py`
+  - `voice/gate.py`
+  - `voice/tts_operator_hints.py`
+- Manual smoke checklist:
+  - `docs/manual_voice_verification.md`
 
-### 2. Public Data Model
-- `SpeechUtterance`
-  - `text`
-  - `locale`
-  - `voice_profile`
-  - `voice_id`
-  - `rate`
-  - `pitch`
-  - `volume`
-  - `style_hint`
-  - `interruptible`
-- `TTSResult`
-  - `ok`
-  - `attempted`
-  - `error_code`
-  - `error_message`
-  - `backend_name`
-  - `voice_id`
-- `VoiceDescriptor`
-  - `id`
-  - `display_name`
-  - `locale`
-  - `gender_hint`
-  - `quality_hint`
-  - `source`
-  - `is_default`
+## Backend Model We Are Keeping
 
-### 3. Backend Contract
+### Stable Core Contract
 - `speak(utterance) -> TTSResult`
 - `stop() -> bool`
 - `list_voices(locale_hint=None) -> list[VoiceDescriptor]`
@@ -79,273 +111,241 @@
 - `is_available() -> bool`
 - `capabilities() -> BackendCapabilities`
 
-## Product-Level Voice Profiles
-- Never let CLI or speech presenter choose raw native voice names directly.
-- Define profile resolution in `voice/voice_profiles.py`.
+### Stable Product-Level Voice Model
+- Core code works with product-level profiles such as:
+  - `ru_assistant_male`
+  - `ru_assistant_female`
+  - `ru_assistant_any`
+  - `en_assistant_male`
+  - `en_assistant_female`
+  - `en_assistant_any`
+- Locale-specific ranking remains backend-specific.
+- Core code must never need to know raw Apple or future Windows voice identifiers.
 
-### Initial Profiles
-- `ru_assistant_male`
-- `ru_assistant_female`
-- `ru_assistant_any`
-- `en_assistant_male`
-- `en_assistant_female`
-- `en_assistant_any`
+### Stable Fallback Model
+- On macOS, backend preference currently remains:
+  - native macOS backend by default when not explicitly disabled and available
+  - legacy `say` backend as fallback
+- This fallback chain is intentional and should stay intact until native rollout promotion is complete.
 
-### Resolution Rules
-- Prefer exact locale first.
-- Prefer gender hint second.
-- Prefer quality third.
-- Prefer “assistant/system” voices over compact fallback voices when both exist.
-- Phase 1 clarification:
-  - product-level profile ids remain language-scoped;
-  - exact locale ranking is still applied inside each backend adapter.
-- Fall back in this order:
-  - exact profile
-  - same locale + any gender
-  - same language + any gender
-  - system default
-  - null/no-op backend only as last resort
+## Phase Status
 
-## Backend Strategy
+### Phase 1. Foundation
+Status:
+- Done
 
-### Option Chosen
-- Use one shared Python-side manager plus OS-specific native host processes.
-- Avoid direct CLI dependence on `say`, PowerShell, or raw OS shell syntax.
+What is already complete:
+- expanded TTS contract
+- backend-neutral models
+- voice profiles
+- backend manager
+- legacy macOS backend behind manager
 
-### Why Native Host Processes
-- Easier to keep the cross-platform contract identical.
-- Better support for structured `list_voices`, `speak`, and `stop`.
-- Easier to test as standalone components.
-- Cleaner path to Windows than embedding all OS logic in Python.
+### Phase 2. Operator Surface
+Status:
+- Done
 
-## JSON Host Protocol
-- The Python process launches an OS-specific host binary/script and talks via `stdin/stdout`.
+What is already complete:
+- backend introspection
+- visible voice listing
+- current profile resolution display
+- doctor/debug aggregation
+- readiness/gate helpers
 
-### Commands
-- `ping`
-- `list_voices`
-- `resolve_voice`
-- `speak`
-- `stop`
+### Phase 3. Native macOS Opt-In Rollout
+Status:
+- In progress
 
-### Example Request
-```json
-{
-  "op": "speak",
-  "text": "Привет, чем помочь?",
-  "locale": "ru-RU",
-  "voice_profile": "ru_assistant_male",
-  "rate": 1.0,
-  "pitch": 1.0,
-  "volume": 1.0,
-  "interruptible": true
-}
+This is now the critical path.
+
+### Phase 4. Native macOS as Default
+Status:
+- Code path landed; live sign-off pending
+
+### Phase 5. Windows Backend
+Status:
+- Not started
+
+## Critical Path From Here
+1. Stop treating native macOS as only a diagnostic experiment.
+2. Prove the real native path in manual CLI usage.
+3. Decide the supported launch path for native development and smoke.
+4. Promote native to default on macOS only after real proof, not just unit coverage.
+5. Start Windows only after the macOS rollout policy is settled.
+
+## Execution Plan
+
+### Slice 1. Native macOS Manual Smoke Sign-Off
+Goal:
+- Prove the native backend in the actual CLI path, not just through helper commands.
+
+Why this is next:
+- The manager, profiles, legacy fallback, and operator tooling are already good enough.
+- More architecture work now gives little value compared with a real smoke result.
+
+Expected work:
+- Mostly manual verification and only targeted code changes if the smoke reveals a concrete runtime bug.
+
+Primary commands:
+```bash
+python3 cli.py
 ```
 
-### Example Response
-```json
-{
-  "ok": true,
-  "backend_name": "macos_native",
-  "voice_id": "com.apple.voice.ru-RU.assistant.male"
-}
+Inside CLI:
+```text
+voice tts backend
+voice tts doctor
+speak on
+что ты умеешь
+voice
 ```
 
-## macOS Implementation Plan
+Interpretation rules:
+- If `voice tts backend` shows `macos_native`, native selection is working.
+- If text-first spoken output completes without `speech: unavailable.`, the shared spoken-output path is working.
+- If `voice` fails because `Speech Recognition` or `Microphone` permission is denied, treat that as an environment blocker, not a TTS architecture regression.
+- If capture succeeds but spoken output fails under native, that is a real code/runtime bug and becomes the next slice.
 
-### Backend
-- Add:
-  - `voice/backends/macos_native.py`
-- This Python adapter should talk to:
-  - `voice/native_hosts/macos_tts_host.swift`
+Done when:
+- native backend is selected in the real CLI path
+- text-first spoken output works through the shared path
+- and either:
+  - one live `voice` turn succeeds, or
+  - the only remaining blocker is explicitly documented as local permission state
 
-### Why Swift Host
-- Best access to native speech frameworks.
-- Better control over voice enumeration than `say`.
-- Better future support for richer voices and interruption.
+Current status:
+- native backend selection: confirmed
+- text-first spoken output through native path: confirmed
+- live `voice` turn: blocked by local `Speech Recognition` permission, not by a confirmed TTS runtime failure
+- `voice readiness` / `voice gate`: aligned with the real blocker and already point to `grant_live_voice_permissions`
+- final `voice readiness` artifact: intentionally still missing until live manual verification can be recorded honestly
 
-### Required macOS Host Features
-- Enumerate all voices available through the chosen native framework.
-- Return stable identifiers and display names.
-- Support explicit rate, pitch, and volume.
-- Support synchronous `speak` result and explicit `stop`.
-- Return structured errors instead of shell stderr text.
+Stop condition:
+- If the smoke fails, fix only the specific failing runtime issue revealed by the smoke.
+- Do not drift into more helper polish unless the failure is opaque without it.
 
-### macOS Fallback Policy
-- Phase 1 fallback:
-  - native host
-  - existing `say` backend as legacy fallback
-- Phase 2:
-  - keep `say` only as emergency fallback, not as the primary path
+### Slice 2. Reduce Native Startup Friction
+Goal:
+- Decide one supported native development/smoke launch path that operators can trust.
 
-## Windows Implementation Plan
+Current reality:
+- `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer` is currently the known working path in this environment.
+- plain `python3 cli.py` now also reaches the native path because the backend auto-selects the known-good Xcode developer dir when no explicit override is present.
+- `scripts/run_voice_native_smoke.sh` remains an explicit pinned shortcut for manual smoke and override debugging.
 
-### Backend
-- Add:
-  - `voice/backends/windows_native.py`
-- This Python adapter should talk to:
-  - `voice/native_hosts/windows_tts_host.cs`
+Options in preferred order:
+1. Use plain `python3 cli.py` as the normal macOS development workflow now that native startup no longer depends on a shell-level env override.
+2. Allow explicit `DEVELOPER_DIR=... python3 cli.py` or `scripts/run_voice_native_smoke.sh` when local toolchain debugging needs a pinned override.
+3. Only outside the repo, if needed, align global `xcode-select` manually.
 
-### Why C#/.NET Host
-- Best access to native Windows speech APIs.
-- Easier packaging and process model than pywin32 glue.
-- Strong fit for voice enumeration and interruption support.
+Do not do in code:
+- Do not change machine-global developer-tool selection from the repository.
+- Do not hide environment assumptions silently.
 
-### Windows Host Requirements
-- Enumerate installed voices with locale and quality hints.
-- Resolve voice profiles using the same JSON protocol as macOS.
-- Support `speak` and `stop`.
-- Return structured voice metadata so the Python manager remains identical.
+Done when:
+- one canonical command is documented and used consistently by helpers and manual verification
+- helper output and manual docs no longer disagree about how native smoke should be launched
 
-## Backend Manager Plan
+Current status:
+- normal default path works: `python3 cli.py`
+- explicit pinned shortcut still exists: `scripts/run_voice_native_smoke.sh`
+- native backend is now preferred by default on macOS unless `JARVIS_TTS_MACOS_NATIVE=0` disables it
+- remaining work is live sign-off after macOS `Microphone` / `Speech Recognition` permissions are granted
 
-### New File
+### Slice 3. Promote Native macOS to the Default Backend
+Goal:
+- Make native macOS the normal backend on macOS while preserving safe fallback.
+
+Preconditions:
+- Slice 1 is signed off
+- Slice 2 has one canonical launch path
+- fallback to legacy `say` still works
+- relevant manager tests cover selection and fallback
+
+Expected code touchpoints:
 - `voice/tts_manager.py`
-
-### Responsibilities
-- Detect OS and choose backend.
-- Resolve profile to voice.
-- Apply fallback policy.
-- Normalize backend errors into stable `TTSResult`.
-- Expose a clean entry point used by CLI and dispatcher.
-
-### CLI Impact
-- `cli.py` should stop constructing platform behavior directly.
-- CLI should only call:
-  - `build_default_tts_provider()` or equivalent manager factory
-  - `tts_manager.speak(utterance)`
-  - `tts_manager.stop()`
-
-## Debug and Operator Tooling
-- Add CLI helpers:
-  - `voice tts backend`
-  - `voice tts voices`
-  - `voice tts current`
-  - `voice tts doctor`
-
-### Purpose
-- Show which backend is active.
-- Show which voices are visible to that backend.
-- Show how a profile was resolved.
-- Make voice mismatch bugs debuggable without reading source.
-
-## Testing Plan
-
-### 1. Unit Tests
-- profile resolution
-- fallback policy
-- voice registry sorting
-- backend selection per OS
-
-### 2. Contract Tests
-- each backend adapter obeys the same `list_voices` / `speak` / `stop` behavior
-- host protocol request/response validation
-
-### 3. Integration Tests
-- CLI with mock backend manager
-- speech presenter + dispatcher + backend manager
-- interruption behavior before follow-up capture
-
-### 4. Manual Smoke
-- `voice tts voices`
-- `voice tts current`
-- `speak on`
-- `voice`
-- interruption before follow-up
-- Russian male profile on macOS
-- Russian male profile on Windows
-
-## Rollout Plan
-
-### Phase 1. Prepare the Contract
-- Expand `voice/tts_provider.py`.
-- Add `voice/tts_models.py`.
-- Add `voice/voice_profiles.py`.
-- Add `voice/tts_manager.py`.
-- Keep current `voice/tts_macos.py` wired as legacy backend.
-
-### Phase 2. Add Native macOS Host
-- Implement `voice/native_hosts/macos_tts_host.swift`.
-- Add `voice/backends/macos_native.py`.
-- Add `voice tts voices` and `voice tts backend`.
-- Make macOS native backend opt-in behind a flag first.
-
-### Phase 3. Promote macOS Native Backend
-- Run manual QA.
-- Compare against legacy `say`.
-- Make native backend default on macOS.
-- Keep legacy `say` as fallback only.
-
-### Phase 4. Add Windows Host
-- Implement `voice/native_hosts/windows_tts_host.cs`.
-- Add `voice/backends/windows_native.py`.
-- Reuse the same manager and profile resolution.
-- Add Windows-specific smoke and packaging steps.
-
-### Phase 5. Remove Platform Logic from Core
-- Make CLI, dispatcher, and speech flow backend-agnostic.
-- Ensure all platform branching is contained in manager/backend code.
-
-## File-by-File Implementation Roadmap
-
-### New Files
-- `voice/tts_models.py`
-- `voice/voice_profiles.py`
-- `voice/tts_manager.py`
-- `voice/backends/__init__.py`
 - `voice/backends/macos_native.py`
-- `voice/backends/windows_native.py`
-- `voice/backends/null_tts.py`
-- `voice/native_hosts/macos_tts_host.swift`
-- `voice/native_hosts/windows_tts_host.cs`
 - `tests/test_tts_manager.py`
-- `tests/test_voice_profiles.py`
-- `tests/test_tts_backend_contract.py`
+- `tests/test_tts_macos_native.py`
+- possibly CLI smoke coverage if default selection semantics change
 
-### Existing Files To Update
-- `voice/tts_provider.py`
-- `voice/tts_macos.py`
-- `cli.py`
-- `voice/status.py`
-- `voice/telemetry.py`
-- `docs/manual_voice_verification.md`
+Done when:
+- native backend is preferred by default on macOS
+- legacy `say` remains an emergency fallback
+- operator helpers still make fallback and selected backend obvious
 
-## Risks
-- macOS may expose different voices through different frameworks.
-- Windows voice naming will not match macOS naming.
-- Interruption semantics may differ by OS.
-- Packaging native hosts will add release complexity.
+Current status:
+- code path landed: native backend is now preferred by default on macOS
+- plain `python3 cli.py` on this machine now also selects `macos_native` because the native backend auto-selects the known-good Xcode developer dir when no explicit `DEVELOPER_DIR` override is present
+- helper output now prefers plain `python3 cli.py` when no explicit override is needed
+- `scripts/run_voice_native_smoke.sh` remains a useful pinned shortcut for explicit smoke and override debugging
 
-## Risk Mitigation
-- Use profile-based resolution instead of raw voice names.
-- Keep host protocol identical across OSes.
-- Keep legacy backend as fallback during rollout.
-- Add explicit debug commands to inspect backend state.
+### Slice 4. Native Rollout Cleanup
+Goal:
+- Remove rollout-era rough edges after native is already the default.
 
-## Definition of Done
-- `ru_assistant_male` resolves predictably on macOS and Windows.
-- CLI no longer depends on raw platform voice names.
-- TTS can be listed, resolved, spoken, and stopped through one manager.
-- Debug helpers show active backend and resolved native voice.
-- macOS and Windows backends pass the same contract tests.
-- Legacy fallback still works if native host is unavailable.
+Examples:
+- simplify opt-in/override logic if no longer needed
+- trim duplicated rollout-specific branches in operator helpers
+- tighten native readiness wording once the default policy is stable
 
-## Recommended First Slice
-- Do not start with Windows code.
-- First ship this minimal vertical slice:
-  - expand TTS models
-  - add profile resolution
-  - add manager
-  - keep current macOS backend behind manager
-  - add `voice tts voices` and `voice tts current`
-- After that, build the native macOS host.
+Do not start this early:
+- no cleanup before the default-backend decision lands
 
-## Practical Success Metric
-- A user can say:
-  - “I want a Russian male assistant voice”
-- And JARVIS can answer deterministically:
-  - which backend is active
-  - which voice profile is requested
-  - which native voice was selected
-  - why that voice was selected
-  - what fallback was used if the preferred voice is unavailable
+### Slice 5. Prepare Windows Without Reopening Core Design
+Goal:
+- Start Windows from the already-proven manager/profile/host model.
+
+Work order:
+1. Freeze the contract lessons learned from macOS.
+2. Add:
+  - `voice/backends/windows_native.py`
+  - `voice/native_hosts/windows_tts_host.cs`
+3. Reuse the same profile and manager model.
+4. Add Windows-specific smoke and contract tests.
+
+Done when:
+- Windows speaks through the same Python-side manager contract
+- CLI and speech presenter still do not care which platform backend is active
+
+## What We Should Not Do Next
+- Do not redesign the contract again unless macOS rollout exposes a real gap.
+- Do not add more backend doctor variants “just in case.”
+- Do not start Windows before macOS native default policy is decided.
+- Do not reintroduce raw voice-name coupling into CLI or presenter code.
+- Do not remove the legacy backend early.
+
+## Testing Strategy From This Point
+
+### For Code Changes
+- Run only the relevant unit tests for touched backend/manager/helper files.
+- Keep CLI smoke tests around backend interception and current-path compatibility green.
+
+### For Rollout Progress
+- Prefer real operator/manual smoke over more synthetic diagnostic expansion.
+- Update `docs/manual_voice_verification.md` only when the supported workflow or real blocker interpretation changes.
+
+### Evidence We Actually Care About Now
+- native backend selected in CLI
+- text-first spoken path works
+- one real microphone turn works, or is blocked only by permissions
+- fallback still works when native is unavailable
+
+## Session Workflow
+1. Run `git status --short`.
+2. Read this file and only the code touched by the next slice.
+3. Pick one slice from the critical path.
+4. Implement only that slice.
+5. Run relevant tests.
+6. If reality changed, update this document locally instead of letting it drift.
+
+## Immediate Next Step
+- The next logical step is still Slice 1, but only after granting `Microphone` and `Speech Recognition` to the plain CLI path:
+  - run `python3 cli.py`
+  - verify `voice tts backend`
+  - verify `speak on` plus a text-first spoken answer
+  - run `voice`
+  - if capture succeeds, run `voice telemetry write`
+  - if the turn is genuinely unblocked, run `voice readiness write`
+- If the only blocker remains permissions, keep treating it as an environment blocker rather than reopening TTS architecture work.
+- If a real runtime bug appears, the next code slice must fix that bug directly rather than expanding helper output again.

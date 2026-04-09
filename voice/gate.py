@@ -27,6 +27,14 @@ class VoiceReadinessGateReport:
     telemetry_max_follow_up_chain_length: int | None
     telemetry_follow_up_limit_hit_count: int | None
     telemetry_speech_interrupt_conflict_count: int | None
+    capture_preflight_status: str
+    capture_preflight_reason: str | None
+    capture_preflight_hint: str | None
+    capture_preflight_command: str | None
+    latest_capture_status: str
+    latest_capture_reason: str | None
+    latest_capture_hint: str | None
+    latest_capture_command: str | None
     native_tts_requested: bool
     native_tts_status: str
     native_tts_active_backend: str | None
@@ -54,6 +62,14 @@ class VoiceReadinessGateReport:
             "telemetry_max_follow_up_chain_length": self.telemetry_max_follow_up_chain_length,
             "telemetry_follow_up_limit_hit_count": self.telemetry_follow_up_limit_hit_count,
             "telemetry_speech_interrupt_conflict_count": self.telemetry_speech_interrupt_conflict_count,
+            "capture_preflight_status": self.capture_preflight_status,
+            "capture_preflight_reason": self.capture_preflight_reason or "",
+            "capture_preflight_hint": self.capture_preflight_hint or "",
+            "capture_preflight_command": self.capture_preflight_command or "",
+            "latest_capture_status": self.latest_capture_status,
+            "latest_capture_reason": self.latest_capture_reason or "",
+            "latest_capture_hint": self.latest_capture_hint or "",
+            "latest_capture_command": self.latest_capture_command or "",
             "native_tts_requested": self.native_tts_requested,
             "native_tts_status": self.native_tts_status,
             "native_tts_active_backend": self.native_tts_active_backend or "",
@@ -114,6 +130,14 @@ def build_voice_readiness_gate_report(
         telemetry_max_follow_up_chain_length=readiness.telemetry_max_follow_up_chain_length,
         telemetry_follow_up_limit_hit_count=readiness.telemetry_follow_up_limit_hit_count,
         telemetry_speech_interrupt_conflict_count=readiness.telemetry_speech_interrupt_conflict_count,
+        capture_preflight_status=readiness.capture_preflight_status,
+        capture_preflight_reason=readiness.capture_preflight_reason,
+        capture_preflight_hint=readiness.capture_preflight_hint,
+        capture_preflight_command=readiness.capture_preflight_command,
+        latest_capture_status=readiness.latest_capture_status,
+        latest_capture_reason=readiness.latest_capture_reason,
+        latest_capture_hint=readiness.latest_capture_hint,
+        latest_capture_command=readiness.latest_capture_command,
         native_tts_requested=readiness.native_tts_requested,
         native_tts_status=readiness.native_tts_status,
         native_tts_active_backend=readiness.native_tts_active_backend,
@@ -145,7 +169,13 @@ def format_voice_readiness_gate_report(report: VoiceReadinessGateReport) -> str:
             f"telemetry max follow-up chain length: {_telemetry_metric_text(report.telemetry_max_follow_up_chain_length)}",
             f"telemetry follow-up limit hit count: {_telemetry_metric_text(report.telemetry_follow_up_limit_hit_count)}",
             f"telemetry speech interrupt conflict count: {_telemetry_metric_text(report.telemetry_speech_interrupt_conflict_count)}",
-            f"native tts requested in current env: {'yes' if report.native_tts_requested else 'no'}",
+            f"live capture preflight status: {report.capture_preflight_status}",
+            f"live capture preflight reason: {report.capture_preflight_reason or 'n/a'}",
+            f"live capture preflight command: {report.capture_preflight_command or 'n/a'}",
+            f"latest recorded live capture status: {report.latest_capture_status}",
+            f"latest recorded live capture reason: {report.latest_capture_reason or 'n/a'}",
+            f"latest recorded live capture command: {report.latest_capture_command or 'n/a'}",
+            f"native tts enabled in current env: {'yes' if report.native_tts_requested else 'no'}",
             f"native tts smoke status: {report.native_tts_status}",
             f"native tts active backend: {report.native_tts_active_backend or 'n/a'}",
             f"native tts reason: {report.native_tts_reason or 'n/a'}",
@@ -157,6 +187,8 @@ def format_voice_readiness_gate_report(report: VoiceReadinessGateReport) -> str:
             f"blockers: {', '.join(report.blockers) if report.blockers else 'none'}",
         ]
         + [f"native tts detail: {detail}" for detail in report.native_tts_detail_lines]
+        + ([f"live capture preflight hint: {report.capture_preflight_hint}"] if report.capture_preflight_hint else [])
+        + ([f"latest recorded live capture hint: {report.latest_capture_hint}"] if report.latest_capture_hint else [])
         + [f"next step detail: {detail}" for detail in report.next_step_detail_lines]
     )
 

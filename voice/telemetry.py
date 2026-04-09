@@ -46,6 +46,9 @@ class VoiceTelemetrySnapshot:
     speech_interrupt_for_capture_count: int = 0
     speech_interrupt_for_response_count: int = 0
     speech_interrupt_conflict_count: int = 0
+    latest_capture_error_code: str | None = None
+    latest_capture_error_message: str | None = None
+    latest_capture_error_hint: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         """Return a JSON-serializable snapshot representation."""
@@ -68,6 +71,9 @@ class VoiceTelemetrySnapshot:
             "speech_interrupt_for_capture_count": self.speech_interrupt_for_capture_count,
             "speech_interrupt_for_response_count": self.speech_interrupt_for_response_count,
             "speech_interrupt_conflict_count": self.speech_interrupt_conflict_count,
+            "latest_capture_error_code": self.latest_capture_error_code,
+            "latest_capture_error_message": self.latest_capture_error_message,
+            "latest_capture_error_hint": self.latest_capture_error_hint,
         }
 
 
@@ -107,6 +113,8 @@ class VoiceTelemetryCollector:
                     "empty_recognition": not normalized_text if error is None else error_code == "EMPTY_RECOGNITION",
                     "retryable": bool(getattr(voice_turn, "retryable", True)) if error is None else _retryable_error(error),
                     "error_code": error_code,
+                    "error_message": str(error or "").strip() or None,
+                    "error_hint": str(getattr(error, "hint", "") or "").strip() or None,
                     "locale": _voice_locale(voice_turn),
                     "recognized_chars": len(normalized_text),
                 },
@@ -299,6 +307,14 @@ class VoiceTelemetryCollector:
         response_interruptions = [
             payload for payload in speech_interruptions if str(payload.get("phase", "") or "").strip() == "response"
         ]
+        latest_capture = capture_events[-1] if capture_events else None
+        latest_capture_error_code = None
+        latest_capture_error_message = None
+        latest_capture_error_hint = None
+        if latest_capture is not None and not bool(latest_capture.get("success", False)):
+            latest_capture_error_code = str(latest_capture.get("error_code", "") or "").strip() or None
+            latest_capture_error_message = str(latest_capture.get("error_message", "") or "").strip() or None
+            latest_capture_error_hint = str(latest_capture.get("error_hint", "") or "").strip() or None
 
         return VoiceTelemetrySnapshot(
             capture_attempts=len(capture_events),
@@ -319,6 +335,9 @@ class VoiceTelemetryCollector:
             speech_interrupt_for_capture_count=len(capture_interruptions),
             speech_interrupt_for_response_count=len(response_interruptions),
             speech_interrupt_conflict_count=len(speech_interrupt_conflicts),
+            latest_capture_error_code=latest_capture_error_code,
+            latest_capture_error_message=latest_capture_error_message,
+            latest_capture_error_hint=latest_capture_error_hint,
         )
 
 
@@ -440,7 +459,9 @@ def format_voice_telemetry_snapshot(snapshot: VoiceTelemetrySnapshot) -> str:
             f"speech interrupt for capture count: {snapshot.speech_interrupt_for_capture_count}",
             f"speech interrupt for response count: {snapshot.speech_interrupt_for_response_count}",
             f"speech interrupt conflict count: {snapshot.speech_interrupt_conflict_count}",
+            f"latest capture blocker: {_capture_blocker_text(snapshot)}",
         ]
+        + ([f"latest capture hint: {snapshot.latest_capture_error_hint}"] if snapshot.latest_capture_error_hint else [])
     )
 
 
@@ -583,6 +604,18 @@ def _metric_value(value: float | None) -> str:
     if value is None:
         return "n/a"
     return f"{float(value):.1f}"
+
+
+def _capture_blocker_text(snapshot: VoiceTelemetrySnapshot) -> str:
+    code = str(snapshot.latest_capture_error_code or "").strip()
+    message = str(snapshot.latest_capture_error_message or "").strip()
+    if code and message:
+        return f"{code}: {message}"
+    if message:
+        return message
+    if code:
+        return code
+    return "none"
 
 
 if __name__ == "__main__":

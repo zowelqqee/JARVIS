@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+import os
 import subprocess
 import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+from input.voice_input import VoiceInputError
 from voice.session import VoiceTurn
 from voice.gate import (
     build_voice_readiness_gate_report,
@@ -21,10 +23,29 @@ from voice.telemetry import build_default_voice_telemetry, write_voice_telemetry
 class VoiceReadinessGateTests(unittest.TestCase):
     """Keep the voice rollout gate explicit and blocked until readiness is recorded."""
 
+    def setUp(self) -> None:
+        self._default_tmpdir = tempfile.TemporaryDirectory()
+        self.addCleanup(self._default_tmpdir.cleanup)
+        self._default_telemetry_artifact_path = Path(self._default_tmpdir.name) / "voice_telemetry.json"
+        self._telemetry_path_patch = patch(
+            "voice.readiness.voice_telemetry_artifact_path",
+            return_value=self._default_telemetry_artifact_path,
+        )
+        self._telemetry_path_patch.start()
+        self.addCleanup(self._telemetry_path_patch.stop)
+        self._probe_patch = patch("voice.readiness.probe_voice_input_permissions", return_value=None)
+        self._probe_patch.start()
+        self.addCleanup(self._probe_patch.stop)
+
     def test_gate_is_blocked_until_voice_readiness_artifact_is_recorded(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             artifact_path = Path(tmpdir) / "voice_readiness.json"
-            report = build_voice_readiness_gate_report(artifact_path=artifact_path)
+            telemetry_artifact_path = Path(tmpdir) / "voice_telemetry.json"
+            report = build_voice_readiness_gate_report(
+                artifact_path=artifact_path,
+                telemetry_artifact_path=telemetry_artifact_path,
+                environ={"JARVIS_TTS_MACOS_NATIVE": "0"},
+            )
 
         self.assertFalse(report.gate_ready)
         self.assertEqual(report.gate_status, "blocked")
@@ -37,13 +58,20 @@ class VoiceReadinessGateTests(unittest.TestCase):
     def test_gate_is_ready_after_matching_readiness_artifact_is_recorded(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             artifact_path = Path(tmpdir) / "voice_readiness.json"
+            telemetry_artifact_path = Path(tmpdir) / "voice_telemetry.json"
             record = build_voice_readiness_record(
                 manual_verified=True,
                 artifact_path=artifact_path,
+                telemetry_artifact_path=telemetry_artifact_path,
+                environ={"JARVIS_TTS_MACOS_NATIVE": "0"},
             )
             write_voice_readiness_artifact(record, artifact_path=artifact_path)
 
-            report = build_voice_readiness_gate_report(artifact_path=artifact_path)
+            report = build_voice_readiness_gate_report(
+                artifact_path=artifact_path,
+                telemetry_artifact_path=telemetry_artifact_path,
+                environ={"JARVIS_TTS_MACOS_NATIVE": "0"},
+            )
 
         self.assertTrue(report.gate_ready)
         self.assertEqual(report.gate_status, "ready")
@@ -60,6 +88,7 @@ class VoiceReadinessGateTests(unittest.TestCase):
                 manual_verified=True,
                 artifact_path=artifact_path,
                 telemetry_artifact_path=telemetry_artifact_path,
+                environ={"JARVIS_TTS_MACOS_NATIVE": "0"},
             )
             write_voice_readiness_artifact(record, artifact_path=artifact_path)
             telemetry = build_default_voice_telemetry()
@@ -91,6 +120,7 @@ class VoiceReadinessGateTests(unittest.TestCase):
             report = build_voice_readiness_gate_report(
                 artifact_path=artifact_path,
                 telemetry_artifact_path=telemetry_artifact_path,
+                environ={"JARVIS_TTS_MACOS_NATIVE": "0"},
             )
 
         self.assertTrue(report.gate_ready)
@@ -113,6 +143,7 @@ class VoiceReadinessGateTests(unittest.TestCase):
             report = build_voice_readiness_gate_report(
                 artifact_path=artifact_path,
                 telemetry_artifact_path=telemetry_artifact_path,
+                environ={"JARVIS_TTS_MACOS_NATIVE": "0"},
             )
 
         rendered = format_voice_readiness_gate_report(report)
@@ -142,6 +173,7 @@ class VoiceReadinessGateTests(unittest.TestCase):
             record = build_voice_readiness_record(
                 manual_verified=True,
                 artifact_path=artifact_path,
+                environ={"JARVIS_TTS_MACOS_NATIVE": "0"},
             )
             write_voice_readiness_artifact(record, artifact_path=artifact_path)
             report = build_voice_readiness_gate_report(
@@ -179,9 +211,11 @@ class VoiceReadinessGateTests(unittest.TestCase):
             return_value=_ReadyNativeOptInProvider(),
         ):
             artifact_path = Path(tmpdir) / "voice_readiness.json"
+            telemetry_artifact_path = Path(tmpdir) / "voice_telemetry.json"
             record = build_voice_readiness_record(
                 manual_verified=True,
                 artifact_path=artifact_path,
+                telemetry_artifact_path=telemetry_artifact_path,
                 environ={
                     "JARVIS_TTS_MACOS_NATIVE": "1",
                     "DEVELOPER_DIR": "/Applications/Xcode.app/Contents/Developer",
@@ -190,6 +224,7 @@ class VoiceReadinessGateTests(unittest.TestCase):
             write_voice_readiness_artifact(record, artifact_path=artifact_path)
             report = build_voice_readiness_gate_report(
                 artifact_path=artifact_path,
+                telemetry_artifact_path=telemetry_artifact_path,
                 environ={
                     "JARVIS_TTS_MACOS_NATIVE": "1",
                     "DEVELOPER_DIR": "/Applications/Xcode.app/Contents/Developer",
@@ -201,12 +236,57 @@ class VoiceReadinessGateTests(unittest.TestCase):
         self.assertEqual(report.native_tts_active_backend, "macos_native")
         self.assertEqual(
             report.native_tts_command,
-            "env DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer JARVIS_TTS_MACOS_NATIVE=1 python3 cli.py",
+            "env DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer python3 cli.py",
         )
         self.assertEqual(
             report.native_tts_detail_lines,
             ["developer dir override: /Applications/Xcode.app/Contents/Developer"],
         )
+        self.assertEqual(report.latest_capture_status, "not_recorded")
+
+    def test_gate_surfaces_latest_live_capture_permission_blocker(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir, patch(
+            "voice.readiness.sys.platform",
+            "darwin",
+        ), patch(
+            "voice.readiness.build_default_tts_provider",
+            return_value=_ReadyNativeOptInProvider(),
+        ):
+            artifact_path = Path(tmpdir) / "voice_readiness.json"
+            telemetry_artifact_path = Path(tmpdir) / "voice_telemetry.json"
+            telemetry = build_default_voice_telemetry()
+            telemetry.record_capture(
+                phase="initial",
+                elapsed_seconds=0.1,
+                error=VoiceInputError(
+                    "PERMISSION_DENIED",
+                    "Speech recognition access was denied.",
+                    hint="Check macOS Settings -> Privacy & Security -> Microphone / Speech Recognition.",
+                ),
+            )
+            write_voice_telemetry_artifact(telemetry.snapshot(), artifact_path=telemetry_artifact_path)
+            report = build_voice_readiness_gate_report(
+                artifact_path=artifact_path,
+                telemetry_artifact_path=telemetry_artifact_path,
+                environ={
+                    "JARVIS_TTS_MACOS_NATIVE": "1",
+                    "DEVELOPER_DIR": "/Applications/Xcode.app/Contents/Developer",
+                },
+            )
+
+        self.assertFalse(report.gate_ready)
+        self.assertEqual(report.latest_capture_status, "blocked")
+        self.assertEqual(
+            report.latest_capture_reason,
+            "PERMISSION_DENIED: Speech recognition access was denied.",
+        )
+        self.assertEqual(
+            report.latest_capture_command,
+            "env DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer python3 cli.py",
+        )
+        self.assertEqual(report.capture_preflight_status, "clear")
+        self.assertEqual(report.next_step_kind, "complete_manual_voice_verification")
+        self.assertNotIn("live voice capture is currently blocked", ", ".join(report.blockers))
 
     def test_format_mentions_native_tts_block_details(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir, patch(
@@ -220,6 +300,7 @@ class VoiceReadinessGateTests(unittest.TestCase):
             record = build_voice_readiness_record(
                 manual_verified=True,
                 artifact_path=artifact_path,
+                environ={"JARVIS_TTS_MACOS_NATIVE": "0"},
             )
             write_voice_readiness_artifact(record, artifact_path=artifact_path)
             report = build_voice_readiness_gate_report(
@@ -229,7 +310,7 @@ class VoiceReadinessGateTests(unittest.TestCase):
 
         rendered = format_voice_readiness_gate_report(report)
 
-        self.assertIn("native tts requested in current env: yes", rendered)
+        self.assertIn("native tts enabled in current env: yes", rendered)
         self.assertIn("native tts smoke status: blocked", rendered)
         self.assertIn("native tts active backend: macos_say_legacy", rendered)
         self.assertIn(
@@ -252,6 +333,74 @@ class VoiceReadinessGateTests(unittest.TestCase):
             rendered,
         )
 
+    def test_format_mentions_latest_live_capture_blocker(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            artifact_path = Path(tmpdir) / "voice_readiness.json"
+            telemetry_artifact_path = Path(tmpdir) / "voice_telemetry.json"
+            telemetry = build_default_voice_telemetry()
+            telemetry.record_capture(
+                phase="initial",
+                elapsed_seconds=0.1,
+                error=VoiceInputError(
+                    "PERMISSION_DENIED",
+                    "Speech recognition access was denied.",
+                    hint="Check macOS Settings -> Privacy & Security -> Microphone / Speech Recognition.",
+                ),
+            )
+            write_voice_telemetry_artifact(telemetry.snapshot(), artifact_path=telemetry_artifact_path)
+            report = build_voice_readiness_gate_report(
+                artifact_path=artifact_path,
+                telemetry_artifact_path=telemetry_artifact_path,
+                environ={"JARVIS_TTS_MACOS_NATIVE": "0"},
+            )
+
+        rendered = format_voice_readiness_gate_report(report)
+
+        self.assertIn("latest recorded live capture status: blocked", rendered)
+        self.assertIn(
+            "latest recorded live capture reason: PERMISSION_DENIED: Speech recognition access was denied.",
+            rendered,
+        )
+        self.assertIn("latest recorded live capture command: python3 cli.py", rendered)
+        self.assertIn(
+            "latest recorded live capture hint: Check macOS Settings -> Privacy & Security -> Microphone / Speech Recognition.",
+            rendered,
+        )
+
+    def test_gate_preflights_live_capture_permissions_without_telemetry(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir, patch(
+            "voice.readiness.probe_voice_input_permissions",
+            return_value=VoiceInputError(
+                "PERMISSION_PROMPT_REQUIRED",
+                "Speech recognition permission has not been requested yet.",
+                hint="Check macOS Settings -> Privacy & Security -> Microphone / Speech Recognition.",
+            ),
+        ):
+            artifact_path = Path(tmpdir) / "voice_readiness.json"
+            telemetry_artifact_path = Path(tmpdir) / "voice_telemetry.json"
+            report = build_voice_readiness_gate_report(
+                artifact_path=artifact_path,
+                telemetry_artifact_path=telemetry_artifact_path,
+                environ={"JARVIS_TTS_MACOS_NATIVE": "0"},
+            )
+
+        self.assertFalse(report.gate_ready)
+        self.assertEqual(report.capture_preflight_status, "blocked")
+        self.assertEqual(report.latest_capture_status, "not_recorded")
+        self.assertEqual(report.next_step_kind, "grant_live_voice_permissions")
+        self.assertEqual(
+            report.next_step_reason,
+            "allow macOS Speech Recognition and Microphone access for the current voice capture helper, then rerun live voice smoke",
+        )
+        self.assertIn(
+            "voice capture helper bundle id: com.jarvis.voice.capture.helper",
+            report.next_step_detail_lines,
+        )
+        self.assertIn(
+            "live voice capture is currently blocked (PERMISSION_PROMPT_REQUIRED: Speech recognition permission has not been requested yet.)",
+            report.blockers,
+        )
+
     def test_gate_uses_developer_dir_override_in_native_follow_up_commands(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir, patch(
             "voice.readiness.sys.platform",
@@ -264,6 +413,7 @@ class VoiceReadinessGateTests(unittest.TestCase):
             record = build_voice_readiness_record(
                 manual_verified=True,
                 artifact_path=artifact_path,
+                environ={"JARVIS_TTS_MACOS_NATIVE": "0"},
             )
             write_voice_readiness_artifact(record, artifact_path=artifact_path)
             report = build_voice_readiness_gate_report(
@@ -292,6 +442,7 @@ class VoiceReadinessGateTests(unittest.TestCase):
             record = build_voice_readiness_record(
                 manual_verified=True,
                 artifact_path=artifact_path,
+                environ={"JARVIS_TTS_MACOS_NATIVE": "0"},
             )
             write_voice_readiness_artifact(record, artifact_path=artifact_path)
             report = build_voice_readiness_gate_report(
@@ -307,7 +458,7 @@ class VoiceReadinessGateTests(unittest.TestCase):
         )
         self.assertEqual(
             report.next_step_command,
-            "printf 'voice tts doctor\\nquit\\n' | env JARVIS_TTS_MACOS_NATIVE=1 python3 cli.py",
+            "printf 'voice tts doctor\\nquit\\n' | python3 cli.py",
         )
         self.assertEqual(
             report.next_step_detail_lines,
@@ -329,6 +480,7 @@ class VoiceReadinessGateTests(unittest.TestCase):
             record = build_voice_readiness_record(
                 manual_verified=True,
                 artifact_path=artifact_path,
+                environ={"JARVIS_TTS_MACOS_NATIVE": "0"},
             )
             write_voice_readiness_artifact(record, artifact_path=artifact_path)
             report = build_voice_readiness_gate_report(
@@ -360,6 +512,7 @@ class VoiceReadinessGateTests(unittest.TestCase):
             record = build_voice_readiness_record(
                 manual_verified=True,
                 artifact_path=artifact_path,
+                environ={"JARVIS_TTS_MACOS_NATIVE": "0"},
             )
             write_voice_readiness_artifact(record, artifact_path=artifact_path)
             report = build_voice_readiness_gate_report(
@@ -371,7 +524,7 @@ class VoiceReadinessGateTests(unittest.TestCase):
 
         self.assertIn("native tts reason: HOST_TIMEOUT: Native macOS TTS host ping timed out.", rendered)
         self.assertIn(
-            "native tts command: printf 'voice tts doctor\\nquit\\n' | env JARVIS_TTS_MACOS_NATIVE=1 python3 cli.py",
+            "native tts command: printf 'voice tts doctor\\nquit\\n' | python3 cli.py",
             rendered,
         )
         self.assertIn("native tts detail: active developer dir: /Library/Developer/CommandLineTools", rendered)
@@ -385,14 +538,22 @@ class VoiceReadinessGateTests(unittest.TestCase):
     def test_gate_shell_wrapper_reports_blocked_for_missing_artifact(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             artifact_path = Path(tmpdir) / "voice_readiness.json"
+            telemetry_artifact_path = Path(tmpdir) / "voice_telemetry.json"
             completed = subprocess.run(
                 [
                     "zsh",
                     "scripts/run_voice_readiness_gate.sh",
                     "--artifact-path",
                     str(artifact_path),
+                    "--telemetry-artifact-path",
+                    str(telemetry_artifact_path),
                 ],
                 cwd=Path(__file__).resolve().parents[1],
+                env={
+                    **dict(os.environ),
+                    "JARVIS_VOICE_CAPTURE_PREFLIGHT": "0",
+                    "JARVIS_TTS_MACOS_NATIVE": "0",
+                },
                 capture_output=True,
                 text=True,
                 check=False,
@@ -405,9 +566,12 @@ class VoiceReadinessGateTests(unittest.TestCase):
     def test_gate_shell_wrapper_reports_ready_for_recorded_artifact(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             artifact_path = Path(tmpdir) / "voice_readiness.json"
+            telemetry_artifact_path = Path(tmpdir) / "voice_telemetry.json"
             record = build_voice_readiness_record(
                 manual_verified=True,
                 artifact_path=artifact_path,
+                telemetry_artifact_path=telemetry_artifact_path,
+                environ={"JARVIS_TTS_MACOS_NATIVE": "0"},
             )
             write_voice_readiness_artifact(record, artifact_path=artifact_path)
 
@@ -417,8 +581,15 @@ class VoiceReadinessGateTests(unittest.TestCase):
                     "scripts/run_voice_readiness_gate.sh",
                     "--artifact-path",
                     str(artifact_path),
+                    "--telemetry-artifact-path",
+                    str(telemetry_artifact_path),
                 ],
                 cwd=Path(__file__).resolve().parents[1],
+                env={
+                    **dict(os.environ),
+                    "JARVIS_VOICE_CAPTURE_PREFLIGHT": "0",
+                    "JARVIS_TTS_MACOS_NATIVE": "0",
+                },
                 capture_output=True,
                 text=True,
                 check=False,

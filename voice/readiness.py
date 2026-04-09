@@ -28,6 +28,10 @@ from voice.tts_operator_hints import (
     native_tts_next_step_details,
 )
 from voice.tts_provider import build_default_tts_provider
+from input.voice_input import (
+    probe_voice_input_permissions,
+    voice_capture_permission_target_details,
+)
 
 _REPO_ROOT = Path(__file__).resolve().parents[1]
 _VOICE_READINESS_ARTIFACT = _REPO_ROOT / "tmp" / "qa" / "voice_readiness.json"
@@ -36,6 +40,8 @@ _MANUAL_VERIFICATION_DOC_PATH = _REPO_ROOT / _MANUAL_VERIFICATION_DOC
 _VOICE_READINESS_GUIDE_COMMAND = "python3 -m voice.readiness"
 _VOICE_TELEMETRY_GUIDE_COMMAND = "voice telemetry write"
 _NATIVE_TTS_ENV = "JARVIS_TTS_MACOS_NATIVE"
+_VOICE_CLI_COMMAND = "python3 cli.py"
+_VOICE_CAPTURE_PREFLIGHT_ENV = "JARVIS_VOICE_CAPTURE_PREFLIGHT"
 
 
 @dataclass(slots=True, frozen=True)
@@ -49,6 +55,17 @@ class NativeTTSSmokeSummary:
     reason: str | None = None
     command: str | None = None
     detail_lines: tuple[str, ...] = ()
+
+
+@dataclass(slots=True, frozen=True)
+class VoiceCaptureSmokeSummary:
+    """Operator-facing summary of the latest recorded live voice capture outcome."""
+
+    status: str
+    error_code: str | None = None
+    reason: str | None = None
+    hint: str | None = None
+    command: str | None = None
 
 
 @dataclass(slots=True, frozen=True)
@@ -68,6 +85,14 @@ class VoiceReadinessRecord:
     telemetry_max_follow_up_chain_length: int | None
     telemetry_follow_up_limit_hit_count: int | None
     telemetry_speech_interrupt_conflict_count: int | None
+    capture_preflight_status: str
+    capture_preflight_reason: str | None
+    capture_preflight_hint: str | None
+    capture_preflight_command: str | None
+    latest_capture_status: str
+    latest_capture_reason: str | None
+    latest_capture_hint: str | None
+    latest_capture_command: str | None
     follow_up_session_available: bool
     native_tts_requested: bool
     native_tts_status: str
@@ -107,6 +132,14 @@ class VoiceReadinessRecord:
             "telemetry_max_follow_up_chain_length": self.telemetry_max_follow_up_chain_length,
             "telemetry_follow_up_limit_hit_count": self.telemetry_follow_up_limit_hit_count,
             "telemetry_speech_interrupt_conflict_count": self.telemetry_speech_interrupt_conflict_count,
+            "capture_preflight_status": self.capture_preflight_status,
+            "capture_preflight_reason": self.capture_preflight_reason or "",
+            "capture_preflight_hint": self.capture_preflight_hint or "",
+            "capture_preflight_command": self.capture_preflight_command or "",
+            "latest_capture_status": self.latest_capture_status,
+            "latest_capture_reason": self.latest_capture_reason or "",
+            "latest_capture_hint": self.latest_capture_hint or "",
+            "latest_capture_command": self.latest_capture_command or "",
             "follow_up_session_available": self.follow_up_session_available,
             "native_tts_requested": self.native_tts_requested,
             "native_tts_status": self.native_tts_status,
@@ -159,6 +192,20 @@ def build_voice_readiness_record(
     default_env_continuous_mode = continuous_voice_mode_enabled(environ={})
     current_env_continuous_mode = continuous_voice_mode_enabled(environ=environ)
     native_tts_smoke = _native_tts_smoke_summary(environ=environ)
+    capture_preflight = _voice_capture_preflight_summary(
+        environ=environ,
+        native_tts_smoke=native_tts_smoke,
+    )
+    capture_smoke = _voice_capture_smoke_summary(
+        telemetry_snapshot=telemetry_snapshot,
+        telemetry_status=telemetry_artifact_status,
+        environ=environ,
+        native_tts_smoke=native_tts_smoke,
+    )
+    active_capture_blocker = _current_capture_blocker(
+        preflight=capture_preflight,
+        latest_recorded=capture_smoke,
+    )
 
     blockers: list[str] = []
     if not manual_doc_present:
@@ -173,6 +220,8 @@ def build_voice_readiness_record(
         blockers.append("manual voice verification is not recorded")
     if native_tts_smoke.requested and native_tts_smoke.status == "blocked":
         blockers.append(f"native macOS TTS smoke is blocked ({native_tts_smoke.reason or 'unknown reason'})")
+    if active_capture_blocker is not None:
+        blockers.append(f"live voice capture is currently blocked ({active_capture_blocker.reason or 'unknown reason'})")
 
     next_step_kind, next_step_reason, next_step_command, next_step_detail_lines = _voice_readiness_next_step(
         blockers=blockers,
@@ -180,6 +229,9 @@ def build_voice_readiness_record(
         artifact_status=artifact_status,
         artifact_payload=artifact_payload,
         native_tts_smoke=native_tts_smoke,
+        capture_preflight=capture_preflight,
+        capture_smoke=capture_smoke,
+        active_capture_blocker=active_capture_blocker,
     )
 
     return VoiceReadinessRecord(
@@ -199,6 +251,14 @@ def build_voice_readiness_record(
             telemetry_snapshot,
             "speech_interrupt_conflict_count",
         ),
+        capture_preflight_status=capture_preflight.status,
+        capture_preflight_reason=capture_preflight.reason,
+        capture_preflight_hint=capture_preflight.hint,
+        capture_preflight_command=capture_preflight.command,
+        latest_capture_status=capture_smoke.status,
+        latest_capture_reason=capture_smoke.reason,
+        latest_capture_hint=capture_smoke.hint,
+        latest_capture_command=capture_smoke.command,
         follow_up_session_available=follow_up_session_available,
         native_tts_requested=native_tts_smoke.requested,
         native_tts_status=native_tts_smoke.status,
@@ -237,7 +297,13 @@ def format_voice_readiness_record(record: VoiceReadinessRecord) -> str:
         f"telemetry max follow-up chain length: {_telemetry_metric_text(record.telemetry_max_follow_up_chain_length)}",
         f"telemetry follow-up limit hit count: {_telemetry_metric_text(record.telemetry_follow_up_limit_hit_count)}",
         f"telemetry speech interrupt conflict count: {_telemetry_metric_text(record.telemetry_speech_interrupt_conflict_count)}",
-        f"native tts requested in current env: {'yes' if record.native_tts_requested else 'no'}",
+        f"live capture preflight status: {record.capture_preflight_status}",
+        f"live capture preflight reason: {record.capture_preflight_reason or 'n/a'}",
+        f"live capture preflight command: {record.capture_preflight_command or 'n/a'}",
+        f"latest recorded live capture status: {record.latest_capture_status}",
+        f"latest recorded live capture reason: {record.latest_capture_reason or 'n/a'}",
+        f"latest recorded live capture command: {record.latest_capture_command or 'n/a'}",
+        f"native tts enabled in current env: {'yes' if record.native_tts_requested else 'no'}",
         f"native tts smoke status: {record.native_tts_status}",
         f"native tts active backend: {record.native_tts_active_backend or 'n/a'}",
         f"native tts reason: {record.native_tts_reason or 'n/a'}",
@@ -258,6 +324,10 @@ def format_voice_readiness_record(record: VoiceReadinessRecord) -> str:
     ]
     lines.extend(f"native tts detail: {detail}" for detail in record.native_tts_detail_lines)
     lines.extend(f"next step detail: {detail}" for detail in record.next_step_detail_lines)
+    if record.capture_preflight_hint:
+        lines.append(f"live capture preflight hint: {record.capture_preflight_hint}")
+    if record.latest_capture_hint:
+        lines.append(f"latest recorded live capture hint: {record.latest_capture_hint}")
     if record.telemetry_artifact_status == "ready":
         lines.append(
             "telemetry note: latest session telemetry artifact is recorded"
@@ -438,12 +508,12 @@ def _telemetry_metric_text(value: int | None) -> str:
 
 def _native_tts_smoke_summary(*, environ: Mapping[str, str] | None = None) -> NativeTTSSmokeSummary:
     current_environ = dict(os.environ if environ is None else environ)
-    requested = _env_flag_enabled(current_environ.get(_NATIVE_TTS_ENV))
+    requested = _native_tts_enabled_in_current_env(current_environ)
     if not requested:
         return NativeTTSSmokeSummary(
             requested=False,
             status="not_requested",
-            reason="native macOS TTS opt-in is disabled in the current env",
+            reason=_native_tts_disabled_reason(current_environ),
             command=NATIVE_TTS_DOCTOR_COMMAND,
         )
     if sys.platform != "darwin":
@@ -505,8 +575,18 @@ def _voice_readiness_next_step(
     artifact_status: str,
     artifact_payload: dict[str, Any] | None,
     native_tts_smoke: NativeTTSSmokeSummary,
+    capture_preflight: VoiceCaptureSmokeSummary,
+    capture_smoke: VoiceCaptureSmokeSummary,
+    active_capture_blocker: VoiceCaptureSmokeSummary | None,
 ) -> tuple[str, str, str | None, tuple[str, ...]]:
     if blockers:
+        capture_next_step = _voice_capture_next_step(
+            blockers=blockers,
+            active_capture_blocker=active_capture_blocker,
+            capture_preflight=capture_preflight,
+        )
+        if capture_next_step is not None:
+            return capture_next_step
         if not manual_verified:
             return (
                 "complete_manual_voice_verification",
@@ -544,6 +624,23 @@ def _voice_readiness_next_step(
 def _env_flag_enabled(raw_value: object | None) -> bool:
     value = str(raw_value or "").strip().lower()
     return value in {"1", "true", "yes", "on"}
+
+
+def _env_flag_disabled(raw_value: object | None) -> bool:
+    value = str(raw_value or "").strip().lower()
+    return value in {"0", "false", "no", "off"}
+
+
+def _native_tts_enabled_in_current_env(environ: Mapping[str, str]) -> bool:
+    if sys.platform == "darwin":
+        return not _env_flag_disabled(environ.get(_NATIVE_TTS_ENV))
+    return _env_flag_enabled(environ.get(_NATIVE_TTS_ENV))
+
+
+def _native_tts_disabled_reason(environ: Mapping[str, str]) -> str:
+    if sys.platform == "darwin" and _env_flag_disabled(environ.get(_NATIVE_TTS_ENV)):
+        return "native macOS backend is explicitly disabled in the current env"
+    return "native macOS backend is not enabled in the current env"
 
 
 def _native_tts_reason(error_code: str | None, error_message: str | None) -> str:
@@ -620,11 +717,158 @@ def _native_tts_next_step(
             native_tts_next_step_details(error_code, detail_lines=tuple(native_tts_smoke.detail_lines)),
         )
     return (
-        "resolve_native_tts_opt_in_blocker",
-        f"resolve the native macOS TTS opt-in blocker before retrying smoke ({reason or 'unknown reason'})",
+        "resolve_native_tts_blocker",
+        f"resolve the native macOS TTS blocker before retrying smoke ({reason or 'unknown reason'})",
         command or NATIVE_TTS_DOCTOR_COMMAND,
         (),
     )
+
+
+def _voice_capture_smoke_summary(
+    *,
+    telemetry_snapshot: VoiceTelemetrySnapshot | None,
+    telemetry_status: str,
+    environ: Mapping[str, str] | None,
+    native_tts_smoke: NativeTTSSmokeSummary,
+) -> VoiceCaptureSmokeSummary:
+    if telemetry_status != "ready" or telemetry_snapshot is None or telemetry_snapshot.capture_attempts <= 0:
+        return VoiceCaptureSmokeSummary(
+            status="not_recorded",
+            reason="no recorded live voice capture is present in the current telemetry artifact",
+            command=_voice_cli_smoke_command(environ=environ, native_tts_smoke=native_tts_smoke),
+        )
+    error_code = str(telemetry_snapshot.latest_capture_error_code or "").strip() or None
+    error_message = str(telemetry_snapshot.latest_capture_error_message or "").strip() or None
+    error_hint = str(telemetry_snapshot.latest_capture_error_hint or "").strip() or None
+    if error_code or error_message:
+        return VoiceCaptureSmokeSummary(
+            status="blocked",
+            error_code=error_code,
+            reason=_voice_capture_reason(error_code, error_message),
+            hint=error_hint,
+            command=_voice_cli_smoke_command(environ=environ, native_tts_smoke=native_tts_smoke),
+        )
+    return VoiceCaptureSmokeSummary(
+        status="clear",
+        reason="latest recorded live voice capture completed without a capture blocker",
+        command=_voice_cli_smoke_command(environ=environ, native_tts_smoke=native_tts_smoke),
+    )
+
+
+def _voice_capture_preflight_summary(
+    *,
+    environ: Mapping[str, str] | None,
+    native_tts_smoke: NativeTTSSmokeSummary,
+) -> VoiceCaptureSmokeSummary:
+    current_environ = dict(os.environ if environ is None else environ)
+    if _env_flag_disabled(current_environ.get(_VOICE_CAPTURE_PREFLIGHT_ENV)):
+        return VoiceCaptureSmokeSummary(
+            status="skipped",
+            reason="live voice capture preflight is disabled in the current env",
+            command=_voice_cli_smoke_command(environ=current_environ, native_tts_smoke=native_tts_smoke),
+        )
+    if sys.platform != "darwin":
+        return VoiceCaptureSmokeSummary(
+            status="not_supported",
+            reason="live voice capture preflight is available only on macOS",
+            command=_voice_cli_smoke_command(environ=current_environ, native_tts_smoke=native_tts_smoke),
+        )
+    probe_error = probe_voice_input_permissions()
+    if probe_error is None:
+        return VoiceCaptureSmokeSummary(
+            status="clear",
+            reason="live voice capture permissions look available in the current macOS session",
+            command=_voice_cli_smoke_command(environ=current_environ, native_tts_smoke=native_tts_smoke),
+        )
+    if str(getattr(probe_error, "code", "") or "").strip() in {
+        "PERMISSION_DENIED",
+        "PERMISSION_PROMPT_REQUIRED",
+        "MICROPHONE_UNAVAILABLE",
+        "VOICE_SETUP_FAILED",
+    }:
+        return VoiceCaptureSmokeSummary(
+            status="blocked",
+            error_code=str(getattr(probe_error, "code", "") or "").strip() or None,
+            reason=_voice_capture_reason(
+                str(getattr(probe_error, "code", "") or "").strip() or None,
+                str(probe_error or "").strip() or None,
+            ),
+            hint=str(getattr(probe_error, "hint", "") or "").strip() or None,
+            command=_voice_cli_smoke_command(environ=current_environ, native_tts_smoke=native_tts_smoke),
+        )
+    return VoiceCaptureSmokeSummary(
+        status="unknown",
+        error_code=str(getattr(probe_error, "code", "") or "").strip() or None,
+        reason=_voice_capture_reason(
+            str(getattr(probe_error, "code", "") or "").strip() or None,
+            str(probe_error or "").strip() or None,
+        ),
+        hint=str(getattr(probe_error, "hint", "") or "").strip() or None,
+        command=_voice_cli_smoke_command(environ=current_environ, native_tts_smoke=native_tts_smoke),
+    )
+
+
+def _voice_capture_reason(error_code: str | None, error_message: str | None) -> str:
+    code = str(error_code or "").strip()
+    message = str(error_message or "").strip()
+    if code and message:
+        return f"{code}: {message}"
+    return message or code or "live voice capture is blocked"
+
+
+def _voice_cli_smoke_command(
+    *,
+    environ: Mapping[str, str] | None,
+    native_tts_smoke: NativeTTSSmokeSummary,
+) -> str:
+    if native_tts_smoke.requested:
+        return str(native_tts_smoke.command or _VOICE_CLI_COMMAND)
+    return _VOICE_CLI_COMMAND
+
+
+def _voice_capture_next_step(
+    *,
+    blockers: list[str],
+    active_capture_blocker: VoiceCaptureSmokeSummary | None,
+    capture_preflight: VoiceCaptureSmokeSummary,
+) -> tuple[str, str, str | None, tuple[str, ...]] | None:
+    if active_capture_blocker is None or active_capture_blocker.status != "blocked":
+        return None
+    remaining_blockers = [
+        blocker
+        for blocker in blockers
+        if not blocker.startswith("live voice capture is currently blocked")
+        and blocker != "manual voice verification is not recorded"
+    ]
+    if remaining_blockers:
+        return None
+    if active_capture_blocker.error_code in {"PERMISSION_DENIED", "PERMISSION_PROMPT_REQUIRED", "MICROPHONE_UNAVAILABLE"}:
+        detail_lines = []
+        if active_capture_blocker.hint:
+            detail_lines.append(active_capture_blocker.hint)
+        detail_lines.extend(voice_capture_permission_target_details())
+        if capture_preflight.status == "blocked" and capture_preflight.reason:
+            detail_lines.append(f"preflight: {capture_preflight.reason}")
+        detail_lines.append("rerun `voice` after granting access so the next telemetry artifact records a successful live capture")
+        return (
+            "grant_live_voice_permissions",
+            "allow macOS Speech Recognition and Microphone access for the current voice capture helper, then rerun live voice smoke",
+            active_capture_blocker.command,
+            tuple(detail_lines),
+        )
+    return None
+
+
+def _current_capture_blocker(
+    *,
+    preflight: VoiceCaptureSmokeSummary,
+    latest_recorded: VoiceCaptureSmokeSummary,
+) -> VoiceCaptureSmokeSummary | None:
+    if preflight.status == "blocked":
+        return preflight
+    if latest_recorded.status == "blocked" and preflight.status != "clear":
+        return latest_recorded
+    return None
 
 
 if __name__ == "__main__":

@@ -162,6 +162,56 @@ static BOOL request_microphone_authorization(NSTimeInterval timeout, NSString **
     return NO;
 }
 
+static BOOL probe_speech_authorization(NSString **message) {
+    SFSpeechRecognizerAuthorizationStatus status = [SFSpeechRecognizer authorizationStatus];
+    if (status == SFSpeechRecognizerAuthorizationStatusAuthorized) {
+        return YES;
+    }
+    if (message == NULL) {
+        return NO;
+    }
+    switch (status) {
+        case SFSpeechRecognizerAuthorizationStatusNotDetermined:
+            *message = @"Speech recognition permission has not been requested yet.";
+            break;
+        case SFSpeechRecognizerAuthorizationStatusDenied:
+            *message = @"Speech recognition access was denied.";
+            break;
+        case SFSpeechRecognizerAuthorizationStatusRestricted:
+            *message = @"Speech recognition is restricted on this Mac.";
+            break;
+        default:
+            *message = @"Speech recognition is unavailable.";
+            break;
+    }
+    return NO;
+}
+
+static BOOL probe_microphone_authorization(NSString **message) {
+    AVAuthorizationStatus status = [AVCaptureDevice authorizationStatusForMediaType:AVMediaTypeAudio];
+    if (status == AVAuthorizationStatusAuthorized) {
+        return YES;
+    }
+    if (message == NULL) {
+        return NO;
+    }
+    switch (status) {
+        case AVAuthorizationStatusNotDetermined:
+            *message = @"Microphone permission has not been requested yet.";
+            break;
+        case AVAuthorizationStatusDenied:
+            *message = @"Microphone access was denied.";
+            break;
+        case AVAuthorizationStatusRestricted:
+            *message = @"Microphone access is restricted on this Mac.";
+            break;
+        default:
+            *message = @"Microphone access is unavailable.";
+            break;
+    }
+    return NO;
+}
+
 static NSArray<NSString *> *parse_preferred_locale_identifiers(NSString *raw_value) {
     if (raw_value.length == 0) {
         return @[];
@@ -239,6 +289,37 @@ static BOOL validate_privacy_usage_descriptions(NSString **message) {
     return YES;
 }
 
+static int first_user_argument_index(int argc, const char *argv[]) {
+    int argument_index = 1;
+    while (argc > argument_index) {
+        const char *candidate = argv[argument_index];
+        if (candidate == NULL) {
+            argument_index += 1;
+            continue;
+        }
+        if (strncmp(candidate, "-psn_", 5) == 0) {
+            argument_index += 1;
+            continue;
+        }
+        if (strcmp(candidate, "-ApplePersistenceIgnoreState") == 0) {
+            argument_index += 1;
+            if (argc > argument_index) {
+                argument_index += 1;
+            }
+            continue;
+        }
+        if (strcmp(candidate, "-NSDocumentRevisionsDebugMode") == 0) {
+            argument_index += 1;
+            if (argc > argument_index) {
+                argument_index += 1;
+            }
+            continue;
+        }
+        break;
+    }
+    return argument_index;
+}
+
 int main(int argc, const char *argv[]) {
     @autoreleasepool {
         install_crash_handlers();
@@ -250,19 +331,48 @@ int main(int argc, const char *argv[]) {
         [NSApplication sharedApplication];
         [NSApp setActivationPolicy:NSApplicationActivationPolicyProhibited];
 
+        int argument_index = first_user_argument_index(argc, argv);
+
+        if (argc > argument_index && strcmp(argv[argument_index], "--probe-permissions") == 0) {
+            NSString *privacy_message = nil;
+            if (!validate_privacy_usage_descriptions(&privacy_message)) {
+                return fail_with_message(@"VOICE_SETUP_FAILED", privacy_message ?: @"Voice helper privacy usage descriptions are missing.");
+            }
+
+            NSString *authorization_message = nil;
+            if (!probe_speech_authorization(&authorization_message)) {
+                SFSpeechRecognizerAuthorizationStatus status = [SFSpeechRecognizer authorizationStatus];
+                if (status == SFSpeechRecognizerAuthorizationStatusNotDetermined) {
+                    return fail_with_message(@"PERMISSION_PROMPT_REQUIRED", authorization_message ?: @"Speech recognition permission has not been requested yet.");
+                }
+                return fail_with_message(@"PERMISSION_DENIED", authorization_message ?: @"Speech recognition access is unavailable.");
+            }
+
+            if (!probe_microphone_authorization(&authorization_message)) {
+                AVAuthorizationStatus status = [AVCaptureDevice authorizationStatusForMediaType:AVMediaTypeAudio];
+                if (status == AVAuthorizationStatusNotDetermined) {
+                    return fail_with_message(@"PERMISSION_PROMPT_REQUIRED", authorization_message ?: @"Microphone permission has not been requested yet.");
+                }
+                return fail_with_message(@"MICROPHONE_UNAVAILABLE", authorization_message ?: @"Microphone access is unavailable.");
+            }
+
+            emit_line(@"VOICE_CAPTURE_PERMISSIONS_OK", NO);
+            return 0;
+        }
+
         NSTimeInterval timeout = 8.0;
         NSString *preferred_locales_argument = nil;
-        if (argc > 1) {
-            timeout = MAX(2.0, atof(argv[1]));
+        if (argc > argument_index) {
+            timeout = MAX(2.0, atof(argv[argument_index]));
         }
-        if (argc > 2) {
-            preferred_locales_argument = [NSString stringWithUTF8String:argv[2]];
+        if (argc > argument_index + 1) {
+            preferred_locales_argument = [NSString stringWithUTF8String:argv[argument_index + 1]];
         }
-        if (argc > 3) {
-            g_output_path = [NSString stringWithUTF8String:argv[3]];
+        if (argc > argument_index + 2) {
+            g_output_path = [NSString stringWithUTF8String:argv[argument_index + 2]];
         }
-        if (argc > 4) {
-            g_error_path = [NSString stringWithUTF8String:argv[4]];
+        if (argc > argument_index + 3) {
+            g_error_path = [NSString stringWithUTF8String:argv[argument_index + 3]];
         }
 
         NSString *privacy_message = nil;
