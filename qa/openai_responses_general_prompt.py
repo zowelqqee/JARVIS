@@ -7,6 +7,7 @@ import re
 import uuid
 from typing import Any
 
+from qa.answer_language import answer_language_guidance_section, question_request_language
 from qa.general_qa_safety import inspect_general_qa_safety, policy_tags_text
 from qa.openai_responses_general_schema import GENERAL_ANSWER_SCHEMA_VERSION
 
@@ -57,6 +58,7 @@ def build_general_instructions(*, config: AnswerBackendConfig) -> str:
         "If the request is unsafe or disallowed, return answer_kind refusal with a short refusal answer_text. "
         "For self-harm refusal scenarios, use brief supportive safety language and point the user toward immediate human help or crisis resources mentioned in Policy guidance. "
         "Keep answer_text in one language only; do not mix Russian and English within the same answer unless a proper noun or acronym requires it. "
+        "Follow the Preferred answer language line in the user message when choosing the answer_text language. "
         f"Return schema_version exactly {GENERAL_ANSWER_SCHEMA_VERSION}. "
         "Keep answer_text concise in exactly 2 short sentences and under 120 words, and keep warning empty unless it is needed. "
         f"{strict_text}."
@@ -70,6 +72,7 @@ def build_general_user_text(question: QuestionRequest, *, grounding_bundle: Grou
         section
         for section in (
             _question_section(question),
+            _answer_language_section(question, grounding_bundle=grounding_bundle),
             _policy_section(policy),
             _answer_follow_up_section(question, grounding_bundle=grounding_bundle),
             "Local grounded sources: none for this answer mode. Do not invent citations.",
@@ -83,6 +86,24 @@ def build_general_user_text(question: QuestionRequest, *, grounding_bundle: Grou
 def _question_section(question: QuestionRequest) -> str:
     question_type = getattr(getattr(question, "question_type", None), "value", "question")
     return f"Question type: {question_type}\nQuestion: {getattr(question, 'raw_input', '')}"
+
+
+def _answer_language_section(question: QuestionRequest, *, grounding_bundle: GroundingBundle) -> str:
+    explicit_language = _explicit_request_language(question)
+    if explicit_language == "ru":
+        return answer_language_guidance_section("Привет")
+    if explicit_language == "en":
+        return answer_language_guidance_section("Hello")
+    preferred_language = question_request_language(question)
+    question_type = getattr(getattr(question, "question_type", None), "value", getattr(question, "question_type", None))
+    if str(question_type or "").strip() == "answer_follow_up":
+        session_facts = dict(getattr(grounding_bundle, "session_facts", {}) or {})
+        recent_answer_context = dict(session_facts.get("recent_answer_context", {}) or {})
+        answer_text = str(recent_answer_context.get("answer_text", "") or "").strip()
+        if answer_text:
+            return answer_language_guidance_section(answer_text)
+    sample_text = "Привет" if preferred_language == "ru" else "Hello"
+    return answer_language_guidance_section(sample_text)
 
 
 def _policy_section(policy) -> str:
@@ -126,7 +147,7 @@ def _answer_follow_up_section(question: QuestionRequest, *, grounding_bundle: Gr
             lines.append("For why follow-ups, explain the reasoning behind the previous answer directly.")
         if answer_text:
             lines.append(f"Recent answer anchor: {answer_text}")
-            language_lock = _answer_language_lock(answer_text)
+            language_lock = _answer_language_lock(answer_text, request_language=_explicit_request_language(question) or None)
             if language_lock:
                 lines.append(language_lock)
         if answer_warning:
@@ -155,8 +176,19 @@ def _metadata(**values: object) -> dict[str, str]:
     return metadata
 
 
-def _answer_language_lock(answer_text: str) -> str | None:
+def _answer_language_lock(answer_text: str, *, request_language: str | None = None) -> str | None:
     normalized = " ".join(str(answer_text or "").split()).strip()
+    normalized_request_language = str(request_language or "").strip().lower()
+    if normalized_request_language == "ru":
+        return (
+            "Answer fully in Russian because the current follow-up is in Russian. "
+            "Do not switch languages mid-answer, do not insert stray foreign words, and do not transliterate."
+        )
+    if normalized_request_language == "en":
+        return (
+            "Answer fully in English because the current follow-up is in English. "
+            "Do not switch languages mid-answer."
+        )
     if not normalized:
         return None
     if _CYRILLIC_RE.search(normalized):
@@ -170,3 +202,11 @@ def _answer_language_lock(answer_text: str) -> str | None:
             "Do not switch languages mid-answer."
         )
     return None
+
+
+def _explicit_request_language(question: QuestionRequest) -> str:
+    context_refs = getattr(question, "context_refs", {}) or {}
+    if not isinstance(context_refs, dict):
+        return ""
+    explicit = str(context_refs.get("request_language", "") or "").strip().lower()
+    return explicit if explicit in {"ru", "en"} else ""

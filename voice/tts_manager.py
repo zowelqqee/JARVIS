@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import replace
 import os
+import re
 import sys
 from typing import Mapping
 
@@ -12,13 +13,32 @@ from voice.tts_provider import SpeechUtterance, TTSBackend, TTSResult
 from voice.voice_profiles import default_voice_profile_for_locale, fallback_voice_profile_ids
 
 _MACOS_NATIVE_BACKEND_ENV = "JARVIS_TTS_MACOS_NATIVE"
+_RU_BACKEND_ENV = "JARVIS_TTS_RU_BACKEND"
+_EN_BACKEND_ENV = "JARVIS_TTS_EN_BACKEND"
+_RU_ALLOW_FALLBACK_ENV = "JARVIS_TTS_RU_ALLOW_FALLBACK"
+_EN_ALLOW_FALLBACK_ENV = "JARVIS_TTS_EN_ALLOW_FALLBACK"
+_CYRILLIC_RE = re.compile(r"[А-Яа-яЁё]")
+_LATIN_RE = re.compile(r"[A-Za-z]")
+_YANDEX_BACKEND_NAME = "yandex_speechkit"
 
 
 class TTSManager:
     """Resolve product profiles and route speech through the configured backends."""
 
-    def __init__(self, backends: list[TTSBackend] | None = None) -> None:
+    def __init__(
+        self,
+        backends: list[TTSBackend] | None = None,
+        *,
+        environ: Mapping[str, str] | None = None,
+        configuration_notes: tuple[str, ...] | None = None,
+    ) -> None:
         self._backends = tuple(backends if backends is not None else _default_backends_for_platform(sys.platform))
+        self._environ = environ
+        self._configuration_notes = tuple(
+            note
+            for note in (str(item or "").strip() for item in tuple(configuration_notes or ()))
+            if note
+        )
 
     def speak(self, utterance: SpeechUtterance | None) -> TTSResult:
         message = str(getattr(utterance, "text", "") or "").strip()
@@ -27,7 +47,7 @@ class TTSManager:
 
         prepared = self._prepare_utterance(utterance)
         first_failure: TTSResult | None = None
-        for backend in self._available_backends():
+        for backend in self._candidate_backends(prepared):
             resolved_voice = (
                 backend.resolve_voice(prepared.voice_profile, prepared.locale)
                 if not prepared.voice_id
@@ -145,6 +165,10 @@ class TTSManager:
             for backend in self._backends
         )
 
+    def configuration_notes(self) -> tuple[str, ...]:
+        """Return operator-facing notes about current CLI-side TTS configuration."""
+        return self._configuration_notes
+
     def _prepare_utterance(self, utterance: SpeechUtterance | None) -> SpeechUtterance:
         current = utterance or SpeechUtterance(text="")
         if current.voice_profile:
@@ -157,6 +181,68 @@ class TTSManager:
     def _available_backends(self) -> tuple[TTSBackend, ...]:
         return tuple(backend for backend in self._backends if _backend_is_available(backend))
 
+    def _candidate_backends(self, utterance: SpeechUtterance | None = None) -> tuple[TTSBackend, ...]:
+        available = self._available_backends()
+        if not available or utterance is None:
+            return available
+        preferred_language = _utterance_language(utterance)
+        explicit_voice_backend = _voice_backend_name(utterance.voice_id)
+        if explicit_voice_backend == _YANDEX_BACKEND_NAME:
+            return _stable_partition_backends(
+                available,
+                predicate=lambda backend: _backend_capabilities(backend).backend_name == _YANDEX_BACKEND_NAME,
+            )
+        pinned_backend_name = self._pinned_backend_name(preferred_language)
+        if pinned_backend_name:
+            pinned_backends = tuple(
+                backend
+                for backend in available
+                if _backend_capabilities(backend).backend_name == pinned_backend_name
+            )
+            if pinned_backends:
+                if not self._language_fallback_allowed(preferred_language):
+                    return pinned_backends
+                return _stable_partition_backends(
+                    available,
+                    predicate=lambda backend: _backend_capabilities(backend).backend_name == pinned_backend_name,
+                )
+        if preferred_language == "ru":
+            yandex_backends = tuple(
+                backend
+                for backend in available
+                if _backend_capabilities(backend).backend_name == _YANDEX_BACKEND_NAME
+            )
+            if yandex_backends and not self._language_fallback_allowed(preferred_language):
+                return yandex_backends
+            return _stable_partition_backends(
+                available,
+                predicate=lambda backend: _backend_capabilities(backend).backend_name == _YANDEX_BACKEND_NAME,
+            )
+        if preferred_language == "en":
+            return _stable_partition_backends(
+                available,
+                predicate=lambda backend: _backend_capabilities(backend).backend_name != _YANDEX_BACKEND_NAME,
+            )
+        return available
+
+    def _pinned_backend_name(self, language: str) -> str | None:
+        if language == "ru":
+            return _normalized_backend_pin(self._env(_RU_BACKEND_ENV))
+        if language == "en":
+            return _normalized_backend_pin(self._env(_EN_BACKEND_ENV))
+        return None
+
+    def _language_fallback_allowed(self, language: str) -> bool:
+        if language == "ru":
+            return _env_enabled(self._env(_RU_ALLOW_FALLBACK_ENV))
+        if language == "en":
+            return _env_enabled(self._env(_EN_ALLOW_FALLBACK_ENV))
+        return True
+
+    def _env(self, name: str) -> str:
+        current = os.environ if self._environ is None else self._environ
+        return str(current.get(name, "") or "").strip()
+
     def _primary_backend(self) -> TTSBackend | None:
         return next(iter(self._available_backends()), None)
 
@@ -165,13 +251,22 @@ def build_default_tts_manager(
     *,
     platform: str | None = None,
     environ: Mapping[str, str] | None = None,
+    configuration_notes: tuple[str, ...] | None = None,
 ) -> TTSManager:
     """Build the default local manager for the current platform."""
-    return TTSManager(backends=_default_backends_for_platform(platform or sys.platform, environ=environ))
+    return TTSManager(
+        backends=_default_backends_for_platform(platform or sys.platform, environ=environ),
+        environ=environ,
+        configuration_notes=configuration_notes,
+    )
 
 
 def _default_backends_for_platform(platform: str, *, environ: Mapping[str, str] | None = None) -> list[TTSBackend]:
     backends: list[TTSBackend] = []
+    if _yandex_speechkit_backend_visible(environ):
+        from voice.backends.yandex_speechkit import YandexSpeechKitTTSBackend
+
+        backends.append(YandexSpeechKitTTSBackend(environ=environ))
     if _local_piper_backend_requested(environ):
         from voice.backends.piper import PiperTTSBackend
 
@@ -296,6 +391,74 @@ def _local_piper_backend_requested(environ: Mapping[str, str] | None = None) -> 
     from voice.backends.piper import piper_backend_requested
 
     return piper_backend_requested(environ)
+
+
+def _yandex_speechkit_backend_requested(environ: Mapping[str, str] | None = None) -> bool:
+    from voice.backends.yandex_speechkit import yandex_speechkit_backend_requested
+
+    return yandex_speechkit_backend_requested(environ)
+
+
+def _yandex_speechkit_backend_visible(environ: Mapping[str, str] | None = None) -> bool:
+    from voice.backends.yandex_speechkit import yandex_speechkit_backend_configured
+
+    return yandex_speechkit_backend_configured(environ)
+
+
+def _voice_backend_name(voice_id: str | None) -> str | None:
+    current = str(voice_id or "").strip()
+    if current.startswith("yandex:"):
+        return _YANDEX_BACKEND_NAME
+    return None
+
+
+def _utterance_language(utterance: SpeechUtterance | None) -> str:
+    current = utterance or SpeechUtterance(text="")
+    locale = str(current.locale or "").strip().lower()
+    if locale.startswith("ru"):
+        return "ru"
+    if locale.startswith("en"):
+        return "en"
+    text = str(current.text or "")
+    if _CYRILLIC_RE.search(text):
+        return "ru"
+    if _LATIN_RE.search(text):
+        return "en"
+    return ""
+
+
+def _stable_partition_backends(
+    backends: tuple[TTSBackend, ...],
+    *,
+    predicate,
+) -> tuple[TTSBackend, ...]:
+    preferred = tuple(backend for backend in backends if predicate(backend))
+    remaining = tuple(backend for backend in backends if not predicate(backend))
+    return (*preferred, *remaining)
+
+
+def _normalized_backend_pin(value: str | None) -> str | None:
+    current = str(value or "").strip().lower().replace("-", "_")
+    if not current:
+        return None
+    aliases = {
+        "yandex": _YANDEX_BACKEND_NAME,
+        "yandex_speechkit": _YANDEX_BACKEND_NAME,
+        "speechkit": _YANDEX_BACKEND_NAME,
+        "piper": "local_piper",
+        "local_piper": "local_piper",
+        "macos_native": "macos_native",
+        "native": "macos_native",
+        "say": "macos_say_legacy",
+        "legacy": "macos_say_legacy",
+        "macos_say_legacy": "macos_say_legacy",
+    }
+    return aliases.get(current, current)
+
+
+def _env_enabled(value: str | None) -> bool:
+    current = str(value or "").strip().lower()
+    return current in {"1", "true", "yes", "on"}
 
 
 def _resolution_note(

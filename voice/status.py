@@ -56,6 +56,7 @@ class TTSBackendStatus:
     supports_volume: bool
     is_fallback: bool
     selection_note: str | None = None
+    configuration_notes: tuple[str, ...] = ()
     diagnostics: tuple[BackendRuntimeStatus, ...] = ()
     guidance: tuple[str, ...] = ()
 
@@ -184,6 +185,7 @@ def build_tts_backend_status(tts_provider: object | None) -> TTSBackendStatus:
         supports_volume=capabilities.supports_volume,
         is_fallback=capabilities.is_fallback,
         selection_note=_selection_note_from_diagnostics(diagnostics),
+        configuration_notes=_backend_configuration_notes(tts_provider),
         diagnostics=diagnostics,
         guidance=_backend_guidance(diagnostics),
     )
@@ -206,6 +208,9 @@ def format_tts_backend_status(status: TTSBackendStatus) -> str:
     ]
     if status.selection_note:
         lines.append(f"selection note: {status.selection_note}")
+    if status.configuration_notes:
+        lines.append("configuration:")
+        lines.extend(f"- {note}" for note in status.configuration_notes)
     if status.diagnostics:
         lines.append("configured backends:")
         for diagnostic in status.diagnostics:
@@ -318,6 +323,9 @@ def format_tts_doctor_status(status: TTSDoctorStatus) -> str:
     ]
     if status.backend_status.selection_note:
         lines.append(f"selection note: {status.backend_status.selection_note}")
+    if status.backend_status.configuration_notes:
+        lines.append("configuration:")
+        lines.extend(f"- {note}" for note in status.backend_status.configuration_notes)
     lines.append("configured backends:")
     if status.backend_status.diagnostics:
         for diagnostic in status.backend_status.diagnostics:
@@ -407,6 +415,20 @@ def _backend_diagnostics(tts_provider: object | None) -> tuple[BackendRuntimeSta
             capabilities=capabilities,
         ),
     )
+
+
+def _backend_configuration_notes(tts_provider: object | None) -> tuple[str, ...]:
+    method = getattr(tts_provider, "configuration_notes", None)
+    if not callable(method):
+        return ()
+    try:
+        return tuple(
+            note
+            for note in (str(item or "").strip() for item in tuple(method() or ()))
+            if note
+        )
+    except Exception:
+        return ()
 
 
 def _backend_is_available(tts_provider: object | None) -> bool:

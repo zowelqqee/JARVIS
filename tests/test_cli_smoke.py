@@ -3209,6 +3209,28 @@ class CliSmokeTests(unittest.TestCase):
         runtime_mock.assert_not_called()
         capture_mock.assert_not_called()
 
+    def test_voice_tts_last_helper_is_intercepted_before_runtime(self) -> None:
+        voice_session_state = MagicMock()
+
+        with patch("cli._handle_runtime_input") as runtime_mock, patch(
+            "cli.capture_voice_turn"
+        ) as capture_mock, patch(
+            "cli.format_voice_tts_last_result",
+            return_value="VOICE TTS LAST SUMMARY",
+        ) as format_mock:
+            should_exit, speak_enabled, output = self._run_command(
+                "voice tts last",
+                speak_enabled=False,
+                voice_session_state=voice_session_state,
+            )
+
+        self.assertFalse(should_exit)
+        self.assertFalse(speak_enabled)
+        self.assertIn("VOICE TTS LAST SUMMARY", output)
+        format_mock.assert_called_once_with(voice_session_state)
+        runtime_mock.assert_not_called()
+        capture_mock.assert_not_called()
+
     def test_voice_status_helper_is_intercepted_before_runtime(self) -> None:
         telemetry = MagicMock()
         session_status = SimpleNamespace(speak_enabled=True)
@@ -3345,6 +3367,69 @@ class CliSmokeTests(unittest.TestCase):
         provider_mock.assert_called_once_with()
         status_mock.assert_called_once_with(tts_provider)
         format_mock.assert_called_once_with(doctor_status)
+        runtime_mock.assert_not_called()
+        capture_mock.assert_not_called()
+
+    def test_voice_tts_say_helper_speaks_direct_russian_text_without_runtime(self) -> None:
+        tts_provider = MagicMock()
+        tts_provider.speak.return_value = TTSResult(
+            ok=True,
+            backend_name="yandex_speechkit",
+            voice_id="yandex:ermil:good",
+        )
+
+        with patch("cli._handle_runtime_input") as runtime_mock, patch(
+            "cli.capture_voice_turn"
+        ) as capture_mock, patch(
+            "cli.build_default_tts_provider",
+            return_value=tts_provider,
+        ) as provider_mock:
+            should_exit, speak_enabled, output = self._run_command("voice tts say ru Привет, мир", speak_enabled=False)
+
+        self.assertFalse(should_exit)
+        self.assertFalse(speak_enabled)
+        self.assertIn("voice tts say: ok (yandex_speechkit, locale=ru-RU), voice=yandex:ermil:good", output)
+        provider_mock.assert_called_once_with()
+        tts_provider.speak.assert_called_once_with(SpeechUtterance(text="Привет, мир", locale="ru-RU"))
+        runtime_mock.assert_not_called()
+        capture_mock.assert_not_called()
+
+    def test_voice_tts_say_helper_detects_locale_from_text(self) -> None:
+        tts_provider = MagicMock()
+        tts_provider.speak.return_value = TTSResult(ok=True, backend_name="local_piper", voice_id="piper-en")
+
+        with patch("cli._handle_runtime_input") as runtime_mock, patch(
+            "cli.capture_voice_turn"
+        ) as capture_mock, patch(
+            "cli.build_default_tts_provider",
+            return_value=tts_provider,
+        ) as provider_mock:
+            should_exit, speak_enabled, output = self._run_command("voice tts say Hello there", speak_enabled=False)
+
+        self.assertFalse(should_exit)
+        self.assertFalse(speak_enabled)
+        self.assertIn("voice tts say: ok (local_piper, locale=en-US), voice=piper-en", output)
+        provider_mock.assert_called_once_with()
+        tts_provider.speak.assert_called_once_with(SpeechUtterance(text="Hello there", locale="en-US"))
+        runtime_mock.assert_not_called()
+        capture_mock.assert_not_called()
+
+    def test_voice_tts_say_helper_requires_text(self) -> None:
+        tts_provider = MagicMock()
+
+        with patch("cli._handle_runtime_input") as runtime_mock, patch(
+            "cli.capture_voice_turn"
+        ) as capture_mock, patch(
+            "cli.build_default_tts_provider",
+            return_value=tts_provider,
+        ) as provider_mock:
+            should_exit, speak_enabled, output = self._run_command("voice tts say ru", speak_enabled=False)
+
+        self.assertFalse(should_exit)
+        self.assertFalse(speak_enabled)
+        self.assertIn("voice tts say usage: voice tts say [ru|en] <text>", output)
+        provider_mock.assert_not_called()
+        tts_provider.speak.assert_not_called()
         runtime_mock.assert_not_called()
         capture_mock.assert_not_called()
 
@@ -6988,7 +7073,12 @@ class CliSmokeTests(unittest.TestCase):
             error=None,
         )
         tts_provider = MagicMock()
-        tts_provider.speak.return_value = TTSResult(ok=True)
+        tts_provider.speak.return_value = TTSResult(
+            ok=True,
+            backend_name="yandex_speechkit",
+            voice_id="yandex:ermil:good",
+        )
+        voice_session_state = cli.build_default_voice_session_state()
 
         buffer = io.StringIO()
         with redirect_stdout(buffer):
@@ -6999,17 +7089,21 @@ class CliSmokeTests(unittest.TestCase):
                 speak_enabled=True,
                 interaction_manager=interaction_manager,
                 tts_provider=tts_provider,
+                voice_session_state=voice_session_state,
             )
 
         tts_provider.speak.assert_called_once_with(
             SpeechUtterance(
                 text=(
-                    "I can open apps and answer grounded questions. "
+                    "I can open apps and answer grounded questions. I stay read-only. "
                     "Warning: Answer is limited to grounded local sources."
                 ),
                 locale="en-US",
             )
         )
+        rendered_tts_last = cli.format_voice_tts_last_result(voice_session_state)
+        self.assertIn("backend: yandex_speechkit", rendered_tts_last)
+        self.assertIn("voice id: yandex:ermil:good", rendered_tts_last)
 
     def test_russian_voice_command_is_spoken_with_russian_locale_hint(self) -> None:
         interaction_manager = MagicMock()

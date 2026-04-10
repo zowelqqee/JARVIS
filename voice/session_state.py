@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from voice.tts_provider import SpeechUtterance, TTSResult
+
 
 @dataclass(frozen=True, slots=True)
 class VoiceSessionEvent:
@@ -23,20 +25,41 @@ class VoiceSessionEvent:
     interruption_error: str | None = None
 
 
+@dataclass(frozen=True, slots=True)
+class VoiceTTSResultEvent:
+    """One current-session TTS attempt for operator-facing inspection."""
+
+    utterance_text: str
+    locale: str | None
+    backend_name: str | None
+    voice_id: str | None
+    ok: bool
+    attempted: bool
+    error_code: str | None = None
+    error_message: str | None = None
+
+
 class VoiceSessionState:
     """Track the last voice event observed in the current CLI session."""
 
     def __init__(self) -> None:
         self._last_event: VoiceSessionEvent | None = None
+        self._last_tts_result: VoiceTTSResultEvent | None = None
 
     @property
     def last_event(self) -> VoiceSessionEvent | None:
         """Return the most recent voice event when present."""
         return self._last_event
 
+    @property
+    def last_tts_result(self) -> VoiceTTSResultEvent | None:
+        """Return the most recent TTS attempt when present."""
+        return self._last_tts_result
+
     def clear(self) -> None:
         """Forget the current-session last voice event."""
         self._last_event = None
+        self._last_tts_result = None
 
     def record_dispatch(self, voice_turn: object) -> None:
         """Store the last dispatched voice turn for operator inspection."""
@@ -101,6 +124,19 @@ class VoiceSessionState:
             interruption_error=str(error_message or "").strip() or None,
         )
 
+    def record_tts_result(self, utterance: SpeechUtterance, result: TTSResult) -> None:
+        """Store the latest TTS attempt for CLI inspection."""
+        self._last_tts_result = VoiceTTSResultEvent(
+            utterance_text=str(getattr(utterance, "text", "") or "").strip(),
+            locale=str(getattr(utterance, "locale", "") or "").strip() or None,
+            backend_name=str(getattr(result, "backend_name", "") or "").strip() or None,
+            voice_id=str(getattr(result, "voice_id", "") or "").strip() or None,
+            ok=bool(getattr(result, "ok", False)),
+            attempted=bool(getattr(result, "attempted", True)),
+            error_code=str(getattr(result, "error_code", "") or "").strip() or None,
+            error_message=str(getattr(result, "error_message", "") or "").strip() or None,
+        )
+
 
 def build_default_voice_session_state() -> VoiceSessionState:
     """Build the default current-session voice event tracker."""
@@ -132,6 +168,29 @@ def format_voice_last_event(voice_session_state: VoiceSessionState | None) -> st
         lines.append(f"interaction summary: {last_event.interaction_summary}")
     if last_event.spoken_response:
         lines.append(f"spoken response: {last_event.spoken_response}")
+    return "\n".join(lines)
+
+
+def format_voice_tts_last_result(voice_session_state: VoiceSessionState | None) -> str:
+    """Render the last current-session TTS attempt for operators."""
+    last_result = None if voice_session_state is None else voice_session_state.last_tts_result
+    if last_result is None:
+        return "JARVIS TTS Last\nlast tts result: none"
+    lines = [
+        "JARVIS TTS Last",
+        f"attempted: {'yes' if last_result.attempted else 'no'}",
+        f"ok: {'yes' if last_result.ok else 'no'}",
+        f"locale: {last_result.locale or 'n/a'}",
+        f"backend: {last_result.backend_name or 'n/a'}",
+        f"voice id: {last_result.voice_id or 'n/a'}",
+        f"utterance chars: {len(last_result.utterance_text)}",
+    ]
+    if last_result.error_code:
+        lines.append(f"error code: {last_result.error_code}")
+    if last_result.error_message:
+        lines.append(f"error message: {last_result.error_message}")
+    if last_result.utterance_text:
+        lines.append(f'utterance text: "{last_result.utterance_text}"')
     return "\n".join(lines)
 
 

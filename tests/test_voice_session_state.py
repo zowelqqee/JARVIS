@@ -8,7 +8,9 @@ from voice.session import VoiceTurn
 from voice.session_state import (
     VoiceSessionState,
     format_voice_last_event,
+    format_voice_tts_last_result,
 )
+from voice.tts_provider import SpeechUtterance, TTSResult
 
 
 class VoiceSessionStateTests(unittest.TestCase):
@@ -100,6 +102,27 @@ class VoiceSessionStateTests(unittest.TestCase):
         self.assertIn("detected locale: en-US", rendered)
         self.assertIn("interruption reason: initial_capture_start", rendered)
         self.assertIn("interruption error: Cannot interrupt active speech for capture.", rendered)
+
+    def test_record_tts_result_reports_last_spoken_backend_and_voice(self) -> None:
+        state = VoiceSessionState()
+
+        state.record_tts_result(
+            SpeechUtterance(text="Привет, мир.", locale="ru-RU"),
+            TTSResult(ok=True, backend_name="yandex_speechkit", voice_id="yandex:ermil:good"),
+        )
+        rendered = format_voice_tts_last_result(state)
+
+        self.assertIn("JARVIS TTS Last", rendered)
+        self.assertIn("ok: yes", rendered)
+        self.assertIn("locale: ru-RU", rendered)
+        self.assertIn("backend: yandex_speechkit", rendered)
+        self.assertIn("voice id: yandex:ermil:good", rendered)
+
+    def test_format_voice_tts_last_result_reports_empty_state(self) -> None:
+        rendered = format_voice_tts_last_result(VoiceSessionState())
+
+        self.assertIn("JARVIS TTS Last", rendered)
+        self.assertIn("last tts result: none", rendered)
 
 
 if __name__ == "__main__":

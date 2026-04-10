@@ -1,0 +1,434 @@
+{
+  "candidates": [
+    {
+      "config_path": "/Users/arseniyabramidze/JARVIS/tmp/runtime/piper/models/ru_male_denis.onnx.json",
+      "display_name": "Russian Male (Denis)",
+      "key": "denis",
+      "model_path": "/Users/arseniyabramidze/JARVIS/tmp/runtime/piper/models/ru_male_denis.onnx"
+    },
+    {
+      "config_path": "/Users/arseniyabramidze/JARVIS/tmp/runtime/piper/models/ru_male.onnx.json",
+      "display_name": "Russian Male (Dmitri)",
+      "key": "dmitri",
+      "model_path": "/Users/arseniyabramidze/JARVIS/tmp/runtime/piper/models/ru_male.onnx"
+    },
+    {
+      "config_path": "/Users/arseniyabramidze/JARVIS/tmp/runtime/piper/models/ru_male_ruslan.onnx.json",
+      "display_name": "Russian Male (Ruslan)",
+      "key": "ruslan",
+      "model_path": "/Users/arseniyabramidze/JARVIS/tmp/runtime/piper/models/ru_male_ruslan.onnx"
+    }
+  ],
+  "piper_binary": "/Users/arseniyabramidze/JARVIS/tmp/runtime/piper/venv/bin/piper",
+  "runtime_root": "/Users/arseniyabramidze/JARVIS/tmp/runtime/piper",
+  "samples": [
+    {
+      "candidate_key": "denis",
+      "command": [
+        "/Users/arseniyabramidze/JARVIS/tmp/runtime/piper/venv/bin/piper",
+        "--model",
+        "/Users/arseniyabramidze/JARVIS/tmp/runtime/piper/models/ru_male_denis.onnx",
+        "--config",
+        "/Users/arseniyabramidze/JARVIS/tmp/runtime/piper/models/ru_male_denis.onnx.json",
+        "--output_file",
+        "/Users/arseniyabramidze/JARVIS/tmp/qa/tts_ru_ab_samples/latest/denis/01.wav"
+      ],
+      "error": "",
+      "ok": true,
+      "output_path": "/Users/arseniyabramidze/JARVIS/tmp/qa/tts_ru_ab_samples/latest/denis/01.wav",
+      "phrase": "Не понял, что ты имел в виду.",
+      "phrase_index": 1
+    },
+    {
+      "candidate_key": "denis",
+      "command": [
+        "/Users/arseniyabramidze/JARVIS/tmp/runtime/piper/venv/bin/piper",
+        "--model",
+        "/Users/arseniyabramidze/JARVIS/tmp/runtime/piper/models/ru_male_denis.onnx",
+        "--config",
+        "/Users/arseniyabramidze/JARVIS/tmp/runtime/piper/models/ru_male_denis.onnx.json",
+        "--output_file",
+        "/Users/arseniyabramidze/JARVIS/tmp/qa/tts_ru_ab_samples/latest/denis/02.wav"
+      ],
+      "error": "",
+      "ok": true,
+      "output_path": "/Users/arseniyabramidze/JARVIS/tmp/qa/tts_ru_ab_samples/latest/denis/02.wav",
+      "phrase": "Сейчас проверю состояние системы и вернусь с коротким ответом.",
+      "phrase_index": 2
+    },
+    {
+      "candidate_key": "denis",
+      "command": [
+        "/Users/arseniyabramidze/JARVIS/tmp/runtime/piper/venv/bin/piper",
+        "--model",
+        "/Users/arseniyabramidze/JARVIS/tmp/runtime/piper/models/ru_male_denis.onnx",
+        "--config",
+        "/Users/arseniyabramidze/JARVIS/tmp/runtime/piper/models/ru_male_denis.onnx.json",
+        "--output_file",
+        "/Users/arseniyabramidze/JARVIS/tmp/qa/tts_ru_ab_samples/latest/denis/03.wav"
+      ],
+      "error": "",
+      "ok": true,
+      "output_path": "/Users/arseniyabramidze/JARVIS/tmp/qa/tts_ru_ab_samples/latest/denis/03.wav",
+      "phrase": "Открой, пожалуйста, папку с проектом и покажи последние изменения.",
+      "phrase_index": 3
+    },
+    {
+      "candidate_key": "denis",
+      "command": [
+        "/Users/arseniyabramidze/JARVIS/tmp/runtime/piper/venv/bin/piper",
+        "--model",
+        "/Users/arseniyabramidze/JARVIS/tmp/runtime/piper/models/ru_male_denis.onnx",
+        "--config",
+        "/Users/arseniyabramidze/JARVIS/tmp/runtime/piper/models/ru_male_denis.onnx.json",
+        "--output_file",
+        "/Users/arseniyabramidze/JARVIS/tmp/qa/tts_ru_ab_samples/latest/denis/04.wav"
+      ],
+      "error": "",
+      "ok": true,
+      "output_path": "/Users/arseniyabramidze/JARVIS/tmp/qa/tts_ru_ab_samples/latest/denis/04.wav",
+      "phrase": "Если хочешь, я могу объяснить это проще и без технических деталей.",
+      "phrase_index": 4
+    },
+    {
+      "candidate_key": "denis",
+      "command": [
+        "/Users/arseniyabramidze/JARVIS/tmp/runtime/piper/venv/bin/piper",
+        "--model",
+        "/Users/arseniyabramidze/JARVIS/tmp/runtime/piper/models/ru_male_denis.onnx",
+        "--config",
+        "/Users/arseniyabramidze/JARVIS/tmp/runtime/piper/models/ru_male_denis.onnx.json",
+        "--output_file",
+        "/Users/arseniyabramidze/JARVIS/tmp/qa/tts_ru_ab_samples/latest/denis/05.wav"
+      ],
+      "error": "",
+      "ok": true,
+      "output_path": "/Users/arseniyabramidze/JARVIS/tmp/qa/tts_ru_ab_samples/latest/denis/05.wav",
+      "phrase": "Я вижу проблему: русский голос звучит натурально, но с заметным акцентом.",
+      "phrase_index": 5
+    },
+    {
+      "candidate_key": "denis",
+      "command": [
+        "/Users/arseniyabramidze/JARVIS/tmp/runtime/piper/venv/bin/piper",
+        "--model",
+        "/Users/arseniyabramidze/JARVIS/tmp/runtime/piper/models/ru_male_denis.onnx",
+        "--config",
+        "/Users/arseniyabramidze/JARVIS/tmp/runtime/piper/models/ru_male_denis.onnx.json",
+        "--output_file",
+        "/Users/arseniyabramidze/JARVIS/tmp/qa/tts_ru_ab_samples/latest/denis/06.wav"
+      ],
+      "error": "",
+      "ok": true,
+      "output_path": "/Users/arseniyabramidze/JARVIS/tmp/qa/tts_ru_ab_samples/latest/denis/06.wav",
+      "phrase": "Команда выполнена, но для следующего шага нужно подтвердить разрешения.",
+      "phrase_index": 6
+    },
+    {
+      "candidate_key": "denis",
+      "command": [
+        "/Users/arseniyabramidze/JARVIS/tmp/runtime/piper/venv/bin/piper",
+        "--model",
+        "/Users/arseniyabramidze/JARVIS/tmp/runtime/piper/models/ru_male_denis.onnx",
+        "--config",
+        "/Users/arseniyabramidze/JARVIS/tmp/runtime/piper/models/ru_male_denis.onnx.json",
+        "--output_file",
+        "/Users/arseniyabramidze/JARVIS/tmp/qa/tts_ru_ab_samples/latest/denis/07.wav"
+      ],
+      "error": "",
+      "ok": true,
+      "output_path": "/Users/arseniyabramidze/JARVIS/tmp/qa/tts_ru_ab_samples/latest/denis/07.wav",
+      "phrase": "Сравним несколько голосов на одних и тех же фразах, чтобы выбрать лучший.",
+      "phrase_index": 7
+    },
+    {
+      "candidate_key": "denis",
+      "command": [
+        "/Users/arseniyabramidze/JARVIS/tmp/runtime/piper/venv/bin/piper",
+        "--model",
+        "/Users/arseniyabramidze/JARVIS/tmp/runtime/piper/models/ru_male_denis.onnx",
+        "--config",
+        "/Users/arseniyabramidze/JARVIS/tmp/runtime/piper/models/ru_male_denis.onnx.json",
+        "--output_file",
+        "/Users/arseniyabramidze/JARVIS/tmp/qa/tts_ru_ab_samples/latest/denis/08.wav"
+      ],
+      "error": "",
+      "ok": true,
+      "output_path": "/Users/arseniyabramidze/JARVIS/tmp/qa/tts_ru_ab_samples/latest/denis/08.wav",
+      "phrase": "JARVIS готов продолжать работу, когда ты скажешь следующую команду.",
+      "phrase_index": 8
+    },
+    {
+      "candidate_key": "dmitri",
+      "command": [
+        "/Users/arseniyabramidze/JARVIS/tmp/runtime/piper/venv/bin/piper",
+        "--model",
+        "/Users/arseniyabramidze/JARVIS/tmp/runtime/piper/models/ru_male.onnx",
+        "--config",
+        "/Users/arseniyabramidze/JARVIS/tmp/runtime/piper/models/ru_male.onnx.json",
+        "--output_file",
+        "/Users/arseniyabramidze/JARVIS/tmp/qa/tts_ru_ab_samples/latest/dmitri/01.wav"
+      ],
+      "error": "",
+      "ok": true,
+      "output_path": "/Users/arseniyabramidze/JARVIS/tmp/qa/tts_ru_ab_samples/latest/dmitri/01.wav",
+      "phrase": "Не понял, что ты имел в виду.",
+      "phrase_index": 1
+    },
+    {
+      "candidate_key": "dmitri",
+      "command": [
+        "/Users/arseniyabramidze/JARVIS/tmp/runtime/piper/venv/bin/piper",
+        "--model",
+        "/Users/arseniyabramidze/JARVIS/tmp/runtime/piper/models/ru_male.onnx",
+        "--config",
+        "/Users/arseniyabramidze/JARVIS/tmp/runtime/piper/models/ru_male.onnx.json",
+        "--output_file",
+        "/Users/arseniyabramidze/JARVIS/tmp/qa/tts_ru_ab_samples/latest/dmitri/02.wav"
+      ],
+      "error": "",
+      "ok": true,
+      "output_path": "/Users/arseniyabramidze/JARVIS/tmp/qa/tts_ru_ab_samples/latest/dmitri/02.wav",
+      "phrase": "Сейчас проверю состояние системы и вернусь с коротким ответом.",
+      "phrase_index": 2
+    },
+    {
+      "candidate_key": "dmitri",
+      "command": [
+        "/Users/arseniyabramidze/JARVIS/tmp/runtime/piper/venv/bin/piper",
+        "--model",
+        "/Users/arseniyabramidze/JARVIS/tmp/runtime/piper/models/ru_male.onnx",
+        "--config",
+        "/Users/arseniyabramidze/JARVIS/tmp/runtime/piper/models/ru_male.onnx.json",
+        "--output_file",
+        "/Users/arseniyabramidze/JARVIS/tmp/qa/tts_ru_ab_samples/latest/dmitri/03.wav"
+      ],
+      "error": "",
+      "ok": true,
+      "output_path": "/Users/arseniyabramidze/JARVIS/tmp/qa/tts_ru_ab_samples/latest/dmitri/03.wav",
+      "phrase": "Открой, пожалуйста, папку с проектом и покажи последние изменения.",
+      "phrase_index": 3
+    },
+    {
+      "candidate_key": "dmitri",
+      "command": [
+        "/Users/arseniyabramidze/JARVIS/tmp/runtime/piper/venv/bin/piper",
+        "--model",
+        "/Users/arseniyabramidze/JARVIS/tmp/runtime/piper/models/ru_male.onnx",
+        "--config",
+        "/Users/arseniyabramidze/JARVIS/tmp/runtime/piper/models/ru_male.onnx.json",
+        "--output_file",
+        "/Users/arseniyabramidze/JARVIS/tmp/qa/tts_ru_ab_samples/latest/dmitri/04.wav"
+      ],
+      "error": "",
+      "ok": true,
+      "output_path": "/Users/arseniyabramidze/JARVIS/tmp/qa/tts_ru_ab_samples/latest/dmitri/04.wav",
+      "phrase": "Если хочешь, я могу объяснить это проще и без технических деталей.",
+      "phrase_index": 4
+    },
+    {
+      "candidate_key": "dmitri",
+      "command": [
+        "/Users/arseniyabramidze/JARVIS/tmp/runtime/piper/venv/bin/piper",
+        "--model",
+        "/Users/arseniyabramidze/JARVIS/tmp/runtime/piper/models/ru_male.onnx",
+        "--config",
+        "/Users/arseniyabramidze/JARVIS/tmp/runtime/piper/models/ru_male.onnx.json",
+        "--output_file",
+        "/Users/arseniyabramidze/JARVIS/tmp/qa/tts_ru_ab_samples/latest/dmitri/05.wav"
+      ],
+      "error": "",
+      "ok": true,
+      "output_path": "/Users/arseniyabramidze/JARVIS/tmp/qa/tts_ru_ab_samples/latest/dmitri/05.wav",
+      "phrase": "Я вижу проблему: русский голос звучит натурально, но с заметным акцентом.",
+      "phrase_index": 5
+    },
+    {
+      "candidate_key": "dmitri",
+      "command": [
+        "/Users/arseniyabramidze/JARVIS/tmp/runtime/piper/venv/bin/piper",
+        "--model",
+        "/Users/arseniyabramidze/JARVIS/tmp/runtime/piper/models/ru_male.onnx",
+        "--config",
+        "/Users/arseniyabramidze/JARVIS/tmp/runtime/piper/models/ru_male.onnx.json",
+        "--output_file",
+        "/Users/arseniyabramidze/JARVIS/tmp/qa/tts_ru_ab_samples/latest/dmitri/06.wav"
+      ],
+      "error": "",
+      "ok": true,
+      "output_path": "/Users/arseniyabramidze/JARVIS/tmp/qa/tts_ru_ab_samples/latest/dmitri/06.wav",
+      "phrase": "Команда выполнена, но для следующего шага нужно подтвердить разрешения.",
+      "phrase_index": 6
+    },
+    {
+      "candidate_key": "dmitri",
+      "command": [
+        "/Users/arseniyabramidze/JARVIS/tmp/runtime/piper/venv/bin/piper",
+        "--model",
+        "/Users/arseniyabramidze/JARVIS/tmp/runtime/piper/models/ru_male.onnx",
+        "--config",
+        "/Users/arseniyabramidze/JARVIS/tmp/runtime/piper/models/ru_male.onnx.json",
+        "--output_file",
+        "/Users/arseniyabramidze/JARVIS/tmp/qa/tts_ru_ab_samples/latest/dmitri/07.wav"
+      ],
+      "error": "",
+      "ok": true,
+      "output_path": "/Users/arseniyabramidze/JARVIS/tmp/qa/tts_ru_ab_samples/latest/dmitri/07.wav",
+      "phrase": "Сравним несколько голосов на одних и тех же фразах, чтобы выбрать лучший.",
+      "phrase_index": 7
+    },
+    {
+      "candidate_key": "dmitri",
+      "command": [
+        "/Users/arseniyabramidze/JARVIS/tmp/runtime/piper/venv/bin/piper",
+        "--model",
+        "/Users/arseniyabramidze/JARVIS/tmp/runtime/piper/models/ru_male.onnx",
+        "--config",
+        "/Users/arseniyabramidze/JARVIS/tmp/runtime/piper/models/ru_male.onnx.json",
+        "--output_file",
+        "/Users/arseniyabramidze/JARVIS/tmp/qa/tts_ru_ab_samples/latest/dmitri/08.wav"
+      ],
+      "error": "",
+      "ok": true,
+      "output_path": "/Users/arseniyabramidze/JARVIS/tmp/qa/tts_ru_ab_samples/latest/dmitri/08.wav",
+      "phrase": "JARVIS готов продолжать работу, когда ты скажешь следующую команду.",
+      "phrase_index": 8
+    },
+    {
+      "candidate_key": "ruslan",
+      "command": [
+        "/Users/arseniyabramidze/JARVIS/tmp/runtime/piper/venv/bin/piper",
+        "--model",
+        "/Users/arseniyabramidze/JARVIS/tmp/runtime/piper/models/ru_male_ruslan.onnx",
+        "--config",
+        "/Users/arseniyabramidze/JARVIS/tmp/runtime/piper/models/ru_male_ruslan.onnx.json",
+        "--output_file",
+        "/Users/arseniyabramidze/JARVIS/tmp/qa/tts_ru_ab_samples/latest/ruslan/01.wav"
+      ],
+      "error": "",
+      "ok": true,
+      "output_path": "/Users/arseniyabramidze/JARVIS/tmp/qa/tts_ru_ab_samples/latest/ruslan/01.wav",
+      "phrase": "Не понял, что ты имел в виду.",
+      "phrase_index": 1
+    },
+    {
+      "candidate_key": "ruslan",
+      "command": [
+        "/Users/arseniyabramidze/JARVIS/tmp/runtime/piper/venv/bin/piper",
+        "--model",
+        "/Users/arseniyabramidze/JARVIS/tmp/runtime/piper/models/ru_male_ruslan.onnx",
+        "--config",
+        "/Users/arseniyabramidze/JARVIS/tmp/runtime/piper/models/ru_male_ruslan.onnx.json",
+        "--output_file",
+        "/Users/arseniyabramidze/JARVIS/tmp/qa/tts_ru_ab_samples/latest/ruslan/02.wav"
+      ],
+      "error": "",
+      "ok": true,
+      "output_path": "/Users/arseniyabramidze/JARVIS/tmp/qa/tts_ru_ab_samples/latest/ruslan/02.wav",
+      "phrase": "Сейчас проверю состояние системы и вернусь с коротким ответом.",
+      "phrase_index": 2
+    },
+    {
+      "candidate_key": "ruslan",
+      "command": [
+        "/Users/arseniyabramidze/JARVIS/tmp/runtime/piper/venv/bin/piper",
+        "--model",
+        "/Users/arseniyabramidze/JARVIS/tmp/runtime/piper/models/ru_male_ruslan.onnx",
+        "--config",
+        "/Users/arseniyabramidze/JARVIS/tmp/runtime/piper/models/ru_male_ruslan.onnx.json",
+        "--output_file",
+        "/Users/arseniyabramidze/JARVIS/tmp/qa/tts_ru_ab_samples/latest/ruslan/03.wav"
+      ],
+      "error": "",
+      "ok": true,
+      "output_path": "/Users/arseniyabramidze/JARVIS/tmp/qa/tts_ru_ab_samples/latest/ruslan/03.wav",
+      "phrase": "Открой, пожалуйста, папку с проектом и покажи последние изменения.",
+      "phrase_index": 3
+    },
+    {
+      "candidate_key": "ruslan",
+      "command": [
+        "/Users/arseniyabramidze/JARVIS/tmp/runtime/piper/venv/bin/piper",
+        "--model",
+        "/Users/arseniyabramidze/JARVIS/tmp/runtime/piper/models/ru_male_ruslan.onnx",
+        "--config",
+        "/Users/arseniyabramidze/JARVIS/tmp/runtime/piper/models/ru_male_ruslan.onnx.json",
+        "--output_file",
+        "/Users/arseniyabramidze/JARVIS/tmp/qa/tts_ru_ab_samples/latest/ruslan/04.wav"
+      ],
+      "error": "",
+      "ok": true,
+      "output_path": "/Users/arseniyabramidze/JARVIS/tmp/qa/tts_ru_ab_samples/latest/ruslan/04.wav",
+      "phrase": "Если хочешь, я могу объяснить это проще и без технических деталей.",
+      "phrase_index": 4
+    },
+    {
+      "candidate_key": "ruslan",
+      "command": [
+        "/Users/arseniyabramidze/JARVIS/tmp/runtime/piper/venv/bin/piper",
+        "--model",
+        "/Users/arseniyabramidze/JARVIS/tmp/runtime/piper/models/ru_male_ruslan.onnx",
+        "--config",
+        "/Users/arseniyabramidze/JARVIS/tmp/runtime/piper/models/ru_male_ruslan.onnx.json",
+        "--output_file",
+        "/Users/arseniyabramidze/JARVIS/tmp/qa/tts_ru_ab_samples/latest/ruslan/05.wav"
+      ],
+      "error": "",
+      "ok": true,
+      "output_path": "/Users/arseniyabramidze/JARVIS/tmp/qa/tts_ru_ab_samples/latest/ruslan/05.wav",
+      "phrase": "Я вижу проблему: русский голос звучит натурально, но с заметным акцентом.",
+      "phrase_index": 5
+    },
+    {
+      "candidate_key": "ruslan",
+      "command": [
+        "/Users/arseniyabramidze/JARVIS/tmp/runtime/piper/venv/bin/piper",
+        "--model",
+        "/Users/arseniyabramidze/JARVIS/tmp/runtime/piper/models/ru_male_ruslan.onnx",
+        "--config",
+        "/Users/arseniyabramidze/JARVIS/tmp/runtime/piper/models/ru_male_ruslan.onnx.json",
+        "--output_file",
+        "/Users/arseniyabramidze/JARVIS/tmp/qa/tts_ru_ab_samples/latest/ruslan/06.wav"
+      ],
+      "error": "",
+      "ok": true,
+      "output_path": "/Users/arseniyabramidze/JARVIS/tmp/qa/tts_ru_ab_samples/latest/ruslan/06.wav",
+      "phrase": "Команда выполнена, но для следующего шага нужно подтвердить разрешения.",
+      "phrase_index": 6
+    },
+    {
+      "candidate_key": "ruslan",
+      "command": [
+        "/Users/arseniyabramidze/JARVIS/tmp/runtime/piper/venv/bin/piper",
+        "--model",
+        "/Users/arseniyabramidze/JARVIS/tmp/runtime/piper/models/ru_male_ruslan.onnx",
+        "--config",
+        "/Users/arseniyabramidze/JARVIS/tmp/runtime/piper/models/ru_male_ruslan.onnx.json",
+        "--output_file",
+        "/Users/arseniyabramidze/JARVIS/tmp/qa/tts_ru_ab_samples/latest/ruslan/07.wav"
+      ],
+      "error": "",
+      "ok": true,
+      "output_path": "/Users/arseniyabramidze/JARVIS/tmp/qa/tts_ru_ab_samples/latest/ruslan/07.wav",
+      "phrase": "Сравним несколько голосов на одних и тех же фразах, чтобы выбрать лучший.",
+      "phrase_index": 7
+    },
+    {
+      "candidate_key": "ruslan",
+      "command": [
+        "/Users/arseniyabramidze/JARVIS/tmp/runtime/piper/venv/bin/piper",
+        "--model",
+        "/Users/arseniyabramidze/JARVIS/tmp/runtime/piper/models/ru_male_ruslan.onnx",
+        "--config",
+        "/Users/arseniyabramidze/JARVIS/tmp/runtime/piper/models/ru_male_ruslan.onnx.json",
+        "--output_file",
+        "/Users/arseniyabramidze/JARVIS/tmp/qa/tts_ru_ab_samples/latest/ruslan/08.wav"
+      ],
+      "error": "",
+      "ok": true,
+      "output_path": "/Users/arseniyabramidze/JARVIS/tmp/qa/tts_ru_ab_samples/latest/ruslan/08.wav",
+      "phrase": "JARVIS готов продолжать работу, когда ты скажешь следующую команду.",
+      "phrase_index": 8
+    }
+  ]
+}

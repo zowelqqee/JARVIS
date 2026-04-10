@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING, Any
 
 from input.adapter import normalize_input
 from qa.answer_backend import AnswerBackendKind
+from qa.answer_language import preferred_answer_language
 from qa.answer_config import AnswerBackendConfig, load_answer_backend_config, open_domain_general_enabled
 from qa.debug_trace import set_debug_payload
 from qa.deterministic_backend import DeterministicAnswerBackend
@@ -72,36 +73,72 @@ def classify_question(
 ) -> QuestionRequest:
     """Classify a normalized question into one supported question family."""
     normalized = normalize_input(raw_input)
+    request_language = preferred_answer_language(normalized)
     normalized = _canonicalize_answer_follow_up_surface(normalized)
     lowered = normalized.lower()
     follow_up_question = _classify_answer_follow_up(normalized, lowered, session_context=session_context, debug_trace=debug_trace)
     if follow_up_question is not None:
+        context_refs = dict(getattr(follow_up_question, "context_refs", {}) or {})
+        context_refs["request_language"] = request_language
+        follow_up_question.context_refs = context_refs
         _record_question_classification(follow_up_question, debug_trace=debug_trace)
         return follow_up_question
 
     if _looks_like_blocked_state_question(lowered):
-        question = QuestionRequest(raw_input=normalized, question_type=QuestionType.BLOCKED_STATE, scope="blocked_state", confidence=0.96)
+        question = QuestionRequest(
+            raw_input=normalized,
+            question_type=QuestionType.BLOCKED_STATE,
+            scope="blocked_state",
+            context_refs={"request_language": request_language},
+            confidence=0.96,
+        )
         _record_question_classification(question, debug_trace=debug_trace)
         return question
     if _looks_like_greeting(lowered):
-        question = QuestionRequest(raw_input=normalized, question_type=QuestionType.CAPABILITIES, scope="capabilities", confidence=0.82)
+        question = QuestionRequest(
+            raw_input=normalized,
+            question_type=QuestionType.CAPABILITIES,
+            scope="capabilities",
+            context_refs={"request_language": request_language},
+            confidence=0.82,
+        )
         _record_question_classification(question, debug_trace=debug_trace)
         return question
     if _looks_like_recent_runtime_question(lowered):
-        question = QuestionRequest(raw_input=normalized, question_type=QuestionType.RECENT_RUNTIME, scope="recent_runtime", confidence=0.94)
+        question = QuestionRequest(
+            raw_input=normalized,
+            question_type=QuestionType.RECENT_RUNTIME,
+            scope="recent_runtime",
+            context_refs={"request_language": request_language},
+            confidence=0.94,
+        )
         _record_question_classification(question, debug_trace=debug_trace)
         return question
     if _looks_like_runtime_status_question(lowered):
-        question = QuestionRequest(raw_input=normalized, question_type=QuestionType.RUNTIME_STATUS, scope="runtime", confidence=0.94)
+        question = QuestionRequest(
+            raw_input=normalized,
+            question_type=QuestionType.RUNTIME_STATUS,
+            scope="runtime",
+            context_refs={"request_language": request_language},
+            confidence=0.94,
+        )
         _record_question_classification(question, debug_trace=debug_trace)
         return question
     if _looks_like_capabilities_question(lowered):
-        question = QuestionRequest(raw_input=normalized, question_type=QuestionType.CAPABILITIES, scope="capabilities", confidence=0.95)
+        question = QuestionRequest(
+            raw_input=normalized,
+            question_type=QuestionType.CAPABILITIES,
+            scope="capabilities",
+            context_refs={"request_language": request_language},
+            confidence=0.95,
+        )
         _record_question_classification(question, debug_trace=debug_trace)
         return question
     if _looks_like_repo_structure_question(lowered):
         topic = infer_repo_topic(lowered)
-        context_refs = {"topic": topic} if topic else {}
+        context_refs = {"request_language": request_language}
+        if topic:
+            context_refs["topic"] = topic
         question = QuestionRequest(
             raw_input=normalized,
             question_type=QuestionType.REPO_STRUCTURE,
@@ -112,12 +149,20 @@ def classify_question(
         _record_question_classification(question, debug_trace=debug_trace)
         return question
     if _looks_like_safety_question(lowered):
-        question = QuestionRequest(raw_input=normalized, question_type=QuestionType.SAFETY_EXPLANATIONS, scope="safety", confidence=0.9)
+        question = QuestionRequest(
+            raw_input=normalized,
+            question_type=QuestionType.SAFETY_EXPLANATIONS,
+            scope="safety",
+            context_refs={"request_language": request_language},
+            confidence=0.9,
+        )
         _record_question_classification(question, debug_trace=debug_trace)
         return question
     if _looks_like_docs_rules_question(lowered):
         topic = infer_docs_topic(lowered)
-        context_refs = {"topic": topic} if topic else {}
+        context_refs = {"request_language": request_language}
+        if topic:
+            context_refs["topic"] = topic
         question = QuestionRequest(
             raw_input=normalized,
             question_type=QuestionType.DOCS_RULES,
@@ -133,6 +178,7 @@ def classify_question(
             raw_input=normalized,
             question_type=QuestionType.OPEN_DOMAIN_GENERAL,
             scope="open_domain",
+            context_refs={"request_language": request_language},
             confidence=0.7,
             requires_grounding=False,
         )

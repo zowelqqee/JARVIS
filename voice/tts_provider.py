@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from typing import Mapping, Protocol, runtime_checkable
 
 from voice.tts_models import BackendCapabilities, VoiceDescriptor
+from voice.tts_runtime_env import tts_runtime_configuration_notes
 
 
 @dataclass(frozen=True, slots=True)
@@ -85,4 +86,7 @@ def build_default_tts_provider(*, environ: Mapping[str, str] | None = None) -> T
     """Build the default local TTS backend for the current CLI."""
     from voice.tts_manager import build_default_tts_manager
 
-    return build_default_tts_manager(environ=environ)
+    return build_default_tts_manager(
+        environ=environ,
+        configuration_notes=tts_runtime_configuration_notes(environ),
+    )

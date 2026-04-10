@@ -68,6 +68,14 @@ class AnswerEngineTests(unittest.TestCase):
         self.assertEqual(result.source_attributions[0].source, result.sources[0])
         self.assertIn("Capability catalog", result.source_attributions[0].support)
 
+    def test_russian_capability_answer_uses_russian_template(self) -> None:
+        result = answer_question("Что ты умеешь?")
+
+        self.assertEqual(result.interaction_mode, "question")
+        self.assertIn("Я поддерживаю командные интенты", result.answer_text)
+        self.assertIn("open_app", result.answer_text)
+        self.assertTrue(result.sources)
+
     def test_runtime_status_answer_reports_no_active_command(self) -> None:
         result = answer_question("What are you doing now?")
 
@@ -96,6 +104,21 @@ class AnswerEngineTests(unittest.TestCase):
         )
 
         self.assertIn("confirm", result.answer_text.lower())
+        self.assertIn("Telegram", result.answer_text)
+        self.assertGreaterEqual(len(result.sources), 3)
+
+    def test_russian_blocked_state_answer_uses_confirmation_snapshot(self) -> None:
+        result = answer_question(
+            "Что именно тебе нужно подтвердить?",
+            runtime_snapshot={
+                "runtime_state": "awaiting_confirmation",
+                "blocked_kind": "confirmation",
+                "blocked_reason": "Approve close_app for Telegram before execution.",
+                "confirmation_message": "Approve close_app for Telegram before execution.",
+            },
+        )
+
+        self.assertIn("Сейчас я жду подтверждения", result.answer_text)
         self.assertIn("Telegram", result.answer_text)
         self.assertGreaterEqual(len(result.sources), 3)
 
@@ -212,7 +235,9 @@ class AnswerEngineTests(unittest.TestCase):
 
         self.assertEqual(getattr(question.question_type, "value", ""), "answer_follow_up")
         self.assertEqual(question.raw_input, "Explain more")
-        self.assertIn("clarification happens", result.answer_text.lower())
+        self.assertEqual((question.context_refs or {}).get("request_language"), "ru")
+        self.assertIn("Подробнее:", result.answer_text)
+        self.assertIn("уточнение происходит", result.answer_text.lower())
         self.assertGreaterEqual(len(result.sources), 2)
 
     def test_repeat_follow_up_reuses_recent_open_domain_answer_text(self) -> None:

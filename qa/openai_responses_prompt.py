@@ -6,6 +6,7 @@ import json
 import uuid
 from typing import Any
 
+from qa.answer_language import answer_language_guidance_section, question_request_language
 from qa.openai_responses_schema import ANSWER_SCHEMA_VERSION
 
 if False:  # pragma: no cover
@@ -42,6 +43,8 @@ def build_instructions(*, config: AnswerBackendConfig) -> str:
         "If the supplied Runtime facts or Session facts directly answer the question, use those concrete values explicitly instead of replacing them with a generic summary. "
         f"Return schema_version exactly {ANSWER_SCHEMA_VERSION}. "
         "Keep answer_text concise but complete in exactly 2 short sentences. "
+        "Keep answer_text in one language only; do not mix Russian and English within the same answer unless a proper noun, acronym, command, path, code token, or source path requires it. "
+        "Follow the Preferred answer language line in the user message when choosing the answer_text language. "
         "Use enough source_attributions to support each distinct claim in answer_text; do not artificially cap citations when multiple grounded sources are materially relevant. "
         "In each source_attributions.source field, return only the raw source path, not the annotated kind/section text. "
         f"Keep each support field to one short factual sentence, and {strict_text}."
@@ -54,6 +57,7 @@ def build_user_text(question: QuestionRequest, *, grounding_bundle: GroundingBun
     return "\n\n".join(
         section for section in (
             _question_section(question),
+            _answer_language_section(question, grounding_bundle=grounding_bundle),
             _question_guidance_section(question, grounding_bundle=grounding_bundle),
             _sources_section(prompt_source_lines),
             _notes_section(grounding_bundle.source_notes),
@@ -67,6 +71,32 @@ def build_user_text(question: QuestionRequest, *, grounding_bundle: GroundingBun
 def _question_section(question: QuestionRequest) -> str:
     question_type = getattr(getattr(question, "question_type", None), "value", "question")
     return f"Question type: {question_type}\nQuestion: {getattr(question, 'raw_input', '')}"
+
+
+def _answer_language_section(question: QuestionRequest, *, grounding_bundle: GroundingBundle) -> str:
+    explicit_language = _explicit_request_language(question)
+    if explicit_language == "ru":
+        return answer_language_guidance_section("Привет")
+    if explicit_language == "en":
+        return answer_language_guidance_section("Hello")
+    preferred_language = question_request_language(question)
+    question_type = getattr(getattr(question, "question_type", None), "value", getattr(question, "question_type", None))
+    if str(question_type or "").strip() == "answer_follow_up":
+        session_facts = dict(getattr(grounding_bundle, "session_facts", {}) or {})
+        recent_answer_context = dict(session_facts.get("recent_answer_context", {}) or {})
+        answer_text = str(recent_answer_context.get("answer_text", "") or "").strip()
+        if answer_text:
+            return answer_language_guidance_section(answer_text)
+    sample_text = "Привет" if preferred_language == "ru" else "Hello"
+    return answer_language_guidance_section(sample_text)
+
+
+def _explicit_request_language(question: QuestionRequest) -> str:
+    context_refs = getattr(question, "context_refs", {}) or {}
+    if not isinstance(context_refs, dict):
+        return ""
+    explicit = str(context_refs.get("request_language", "") or "").strip().lower()
+    return explicit if explicit in {"ru", "en"} else ""
 
 
 def _sources_section(source_lines: list[str]) -> str:

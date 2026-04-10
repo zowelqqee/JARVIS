@@ -124,6 +124,248 @@ class TTSManagerTests(unittest.TestCase):
         self.assertEqual(len(primary.spoken_utterances), 1)
         self.assertEqual(len(secondary.spoken_utterances), 1)
 
+    def test_manager_routes_russian_utterance_to_yandex_when_available(self) -> None:
+        yandex = _FakeBackend(
+            backend_name="yandex_speechkit",
+            resolved_voice=VoiceDescriptor(
+                id="yandex:ermil:good",
+                display_name="Yandex SpeechKit ermil (good)",
+                locale="ru-RU",
+                source="yandex_speechkit",
+            ),
+            speak_result=TTSResult(ok=True, backend_name="yandex_speechkit", voice_id="yandex:ermil:good"),
+        )
+        piper = _FakeBackend(
+            backend_name="local_piper",
+            resolved_voice=VoiceDescriptor(id="piper-ru", display_name="Piper Russian", locale="ru-RU", source="piper"),
+            speak_result=TTSResult(ok=True, backend_name="local_piper", voice_id="piper-ru"),
+        )
+        manager = TTSManager(backends=[yandex, piper])
+
+        result = manager.speak(SpeechUtterance(text="Привет", locale="ru-RU"))
+
+        self.assertTrue(result.ok)
+        self.assertEqual(result.backend_name, "yandex_speechkit")
+        self.assertEqual(len(yandex.spoken_utterances), 1)
+        self.assertEqual(len(piper.spoken_utterances), 0)
+
+    def test_manager_keeps_russian_route_strict_by_default_when_yandex_is_available(self) -> None:
+        yandex = _FakeBackend(
+            backend_name="yandex_speechkit",
+            resolved_voice=VoiceDescriptor(
+                id="yandex:ermil:good",
+                display_name="Yandex SpeechKit ermil (good)",
+                locale="ru-RU",
+                source="yandex_speechkit",
+            ),
+            speak_result=TTSResult(
+                ok=False,
+                backend_name="yandex_speechkit",
+                voice_id="yandex:ermil:good",
+                error_code="YANDEX_HTTP_ERROR",
+                error_message="request failed",
+            ),
+        )
+        piper = _FakeBackend(
+            backend_name="local_piper",
+            resolved_voice=VoiceDescriptor(id="piper-ru", display_name="Piper Russian", locale="ru-RU", source="piper"),
+            speak_result=TTSResult(ok=True, backend_name="local_piper", voice_id="piper-ru"),
+        )
+        manager = TTSManager(backends=[yandex, piper])
+
+        result = manager.speak(SpeechUtterance(text="Привет", locale="ru-RU"))
+
+        self.assertFalse(result.ok)
+        self.assertEqual(result.backend_name, "yandex_speechkit")
+        self.assertEqual(len(yandex.spoken_utterances), 1)
+        self.assertEqual(len(piper.spoken_utterances), 0)
+
+    def test_manager_can_opt_in_to_default_russian_fallback_chain(self) -> None:
+        yandex = _FakeBackend(
+            backend_name="yandex_speechkit",
+            resolved_voice=VoiceDescriptor(
+                id="yandex:ermil:good",
+                display_name="Yandex SpeechKit ermil (good)",
+                locale="ru-RU",
+                source="yandex_speechkit",
+            ),
+            speak_result=TTSResult(
+                ok=False,
+                backend_name="yandex_speechkit",
+                voice_id="yandex:ermil:good",
+                error_code="YANDEX_HTTP_ERROR",
+                error_message="request failed",
+            ),
+        )
+        piper = _FakeBackend(
+            backend_name="local_piper",
+            resolved_voice=VoiceDescriptor(id="piper-ru", display_name="Piper Russian", locale="ru-RU", source="piper"),
+            speak_result=TTSResult(ok=True, backend_name="local_piper", voice_id="piper-ru"),
+        )
+        manager = TTSManager(
+            backends=[yandex, piper],
+            environ={"JARVIS_TTS_RU_ALLOW_FALLBACK": "1"},
+        )
+
+        result = manager.speak(SpeechUtterance(text="Привет", locale="ru-RU"))
+
+        self.assertTrue(result.ok)
+        self.assertEqual(result.backend_name, "local_piper")
+        self.assertEqual(len(yandex.spoken_utterances), 1)
+        self.assertEqual(len(piper.spoken_utterances), 1)
+
+    def test_manager_routes_english_utterance_directly_to_local_backend(self) -> None:
+        yandex = _FakeBackend(
+            backend_name="yandex_speechkit",
+            resolved_voice=VoiceDescriptor(
+                id="yandex:ermil:good",
+                display_name="Yandex SpeechKit ermil (good)",
+                locale="ru-RU",
+                source="yandex_speechkit",
+            ),
+            speak_result=TTSResult(ok=True, backend_name="yandex_speechkit", voice_id="yandex:ermil:good"),
+        )
+        piper = _FakeBackend(
+            backend_name="local_piper",
+            resolved_voice=VoiceDescriptor(id="piper-en", display_name="Piper English", locale="en-US", source="piper"),
+            speak_result=TTSResult(ok=True, backend_name="local_piper", voice_id="piper-en"),
+        )
+        manager = TTSManager(backends=[yandex, piper])
+
+        result = manager.speak(SpeechUtterance(text="Open the folder.", locale="en-US"))
+
+        self.assertTrue(result.ok)
+        self.assertEqual(result.backend_name, "local_piper")
+        self.assertEqual(len(yandex.spoken_utterances), 0)
+        self.assertEqual(len(piper.spoken_utterances), 1)
+
+    def test_manager_honors_explicit_russian_backend_pin(self) -> None:
+        yandex = _FakeBackend(
+            backend_name="yandex_speechkit",
+            resolved_voice=VoiceDescriptor(
+                id="yandex:ermil:good",
+                display_name="Yandex SpeechKit ermil (good)",
+                locale="ru-RU",
+                source="yandex_speechkit",
+            ),
+            speak_result=TTSResult(ok=True, backend_name="yandex_speechkit", voice_id="yandex:ermil:good"),
+        )
+        piper = _FakeBackend(
+            backend_name="local_piper",
+            resolved_voice=VoiceDescriptor(id="piper-ru", display_name="Piper Russian", locale="ru-RU", source="piper"),
+            speak_result=TTSResult(ok=True, backend_name="local_piper", voice_id="piper-ru"),
+        )
+        manager = TTSManager(
+            backends=[piper, yandex],
+            environ={"JARVIS_TTS_RU_BACKEND": "yandex"},
+        )
+
+        result = manager.speak(SpeechUtterance(text="Привет", locale="ru-RU"))
+
+        self.assertTrue(result.ok)
+        self.assertEqual(result.backend_name, "yandex_speechkit")
+        self.assertEqual(len(yandex.spoken_utterances), 1)
+        self.assertEqual(len(piper.spoken_utterances), 0)
+
+    def test_manager_keeps_russian_route_strict_when_backend_is_pinned(self) -> None:
+        yandex = _FakeBackend(
+            backend_name="yandex_speechkit",
+            resolved_voice=VoiceDescriptor(
+                id="yandex:ermil:good",
+                display_name="Yandex SpeechKit ermil (good)",
+                locale="ru-RU",
+                source="yandex_speechkit",
+            ),
+            speak_result=TTSResult(
+                ok=False,
+                backend_name="yandex_speechkit",
+                voice_id="yandex:ermil:good",
+                error_code="YANDEX_HTTP_ERROR",
+                error_message="request failed",
+            ),
+        )
+        piper = _FakeBackend(
+            backend_name="local_piper",
+            resolved_voice=VoiceDescriptor(id="piper-ru", display_name="Piper Russian", locale="ru-RU", source="piper"),
+            speak_result=TTSResult(ok=True, backend_name="local_piper", voice_id="piper-ru"),
+        )
+        manager = TTSManager(
+            backends=[piper, yandex],
+            environ={"JARVIS_TTS_RU_BACKEND": "yandex"},
+        )
+
+        result = manager.speak(SpeechUtterance(text="Привет", locale="ru-RU"))
+
+        self.assertFalse(result.ok)
+        self.assertEqual(result.backend_name, "yandex_speechkit")
+        self.assertEqual(len(yandex.spoken_utterances), 1)
+        self.assertEqual(len(piper.spoken_utterances), 0)
+
+    def test_manager_can_opt_in_to_russian_fallback_when_backend_is_pinned(self) -> None:
+        yandex = _FakeBackend(
+            backend_name="yandex_speechkit",
+            resolved_voice=VoiceDescriptor(
+                id="yandex:ermil:good",
+                display_name="Yandex SpeechKit ermil (good)",
+                locale="ru-RU",
+                source="yandex_speechkit",
+            ),
+            speak_result=TTSResult(
+                ok=False,
+                backend_name="yandex_speechkit",
+                voice_id="yandex:ermil:good",
+                error_code="YANDEX_HTTP_ERROR",
+                error_message="request failed",
+            ),
+        )
+        piper = _FakeBackend(
+            backend_name="local_piper",
+            resolved_voice=VoiceDescriptor(id="piper-ru", display_name="Piper Russian", locale="ru-RU", source="piper"),
+            speak_result=TTSResult(ok=True, backend_name="local_piper", voice_id="piper-ru"),
+        )
+        manager = TTSManager(
+            backends=[piper, yandex],
+            environ={
+                "JARVIS_TTS_RU_BACKEND": "yandex",
+                "JARVIS_TTS_RU_ALLOW_FALLBACK": "1",
+            },
+        )
+
+        result = manager.speak(SpeechUtterance(text="Привет", locale="ru-RU"))
+
+        self.assertTrue(result.ok)
+        self.assertEqual(result.backend_name, "local_piper")
+        self.assertEqual(len(yandex.spoken_utterances), 1)
+        self.assertEqual(len(piper.spoken_utterances), 1)
+
+    def test_manager_honors_explicit_english_backend_pin(self) -> None:
+        yandex = _FakeBackend(
+            backend_name="yandex_speechkit",
+            resolved_voice=VoiceDescriptor(
+                id="yandex:ermil:good",
+                display_name="Yandex SpeechKit ermil (good)",
+                locale="ru-RU",
+                source="yandex_speechkit",
+            ),
+            speak_result=TTSResult(ok=True, backend_name="yandex_speechkit", voice_id="yandex:ermil:good"),
+        )
+        piper = _FakeBackend(
+            backend_name="local_piper",
+            resolved_voice=VoiceDescriptor(id="piper-en", display_name="Piper English", locale="en-US", source="piper"),
+            speak_result=TTSResult(ok=True, backend_name="local_piper", voice_id="piper-en"),
+        )
+        manager = TTSManager(
+            backends=[yandex, piper],
+            environ={"JARVIS_TTS_EN_BACKEND": "piper"},
+        )
+
+        result = manager.speak(SpeechUtterance(text="Open the folder.", locale="en-US"))
+
+        self.assertTrue(result.ok)
+        self.assertEqual(result.backend_name, "local_piper")
+        self.assertEqual(len(yandex.spoken_utterances), 0)
+        self.assertEqual(len(piper.spoken_utterances), 1)
+
     def test_manager_lists_voices_from_primary_available_backend_only(self) -> None:
         primary_voice = VoiceDescriptor(id="native-voice", display_name="Native Voice", locale="en-US", source="native")
         fallback_voice = VoiceDescriptor(id="legacy-voice", display_name="Legacy Voice", locale="en-US", source="say")
@@ -265,6 +507,113 @@ class TTSManagerTests(unittest.TestCase):
 
         self.assertEqual(manager.backend_name(), "local_piper")
 
+    def test_build_default_tts_manager_prefers_yandex_when_explicitly_enabled(self) -> None:
+        yandex_backend = _FakeBackend(backend_name="yandex_speechkit")
+        piper_backend = _FakeBackend(backend_name="local_piper")
+        native_backend = _FakeBackend(backend_name="macos_native")
+        legacy_backend = _FakeBackend(backend_name="macos_say_legacy")
+
+        with patch(
+            "voice.backends.yandex_speechkit.YandexSpeechKitTTSBackend",
+            return_value=yandex_backend,
+        ), patch(
+            "voice.backends.piper.PiperTTSBackend",
+            return_value=piper_backend,
+        ), patch(
+            "voice.backends.macos_native.MacOSNativeTTSBackend",
+            return_value=native_backend,
+        ), patch(
+            "voice.tts_macos.MacOSTTSProvider",
+            return_value=legacy_backend,
+        ):
+            manager = build_default_tts_manager(
+                platform="darwin",
+                environ={
+                    "JARVIS_TTS_YANDEX_ENABLED": "1",
+                    "JARVIS_TTS_YANDEX_API_KEY": "secret",
+                    "JARVIS_TTS_PIPER_MODEL_RU": "/tmp/ru.onnx",
+                },
+            )
+
+        self.assertEqual(manager.backend_name(), "yandex_speechkit")
+        self.assertEqual(
+            [status.backend_name for status in manager.backend_diagnostics()],
+            ["yandex_speechkit", "local_piper", "macos_native", "macos_say_legacy"],
+        )
+
+    def test_build_default_tts_manager_uses_piper_when_yandex_is_disabled(self) -> None:
+        yandex_backend = _FakeBackend(
+            backend_name="yandex_speechkit",
+            available=False,
+            availability_diagnostic=(
+                "YANDEX_TTS_DISABLED",
+                "Yandex SpeechKit TTS is disabled; set `JARVIS_TTS_YANDEX_ENABLED=1` to enable it.",
+            ),
+        )
+        piper_backend = _FakeBackend(backend_name="local_piper")
+        native_backend = _FakeBackend(backend_name="macos_native")
+        legacy_backend = _FakeBackend(backend_name="macos_say_legacy")
+
+        with patch(
+            "voice.backends.yandex_speechkit.YandexSpeechKitTTSBackend",
+            return_value=yandex_backend,
+        ), patch(
+            "voice.backends.piper.PiperTTSBackend",
+            return_value=piper_backend,
+        ), patch(
+            "voice.backends.macos_native.MacOSNativeTTSBackend",
+            return_value=native_backend,
+        ), patch(
+            "voice.tts_macos.MacOSTTSProvider",
+            return_value=legacy_backend,
+        ):
+            manager = build_default_tts_manager(
+                platform="darwin",
+                environ={
+                    "JARVIS_TTS_YANDEX_ENABLED": "0",
+                    "JARVIS_TTS_YANDEX_API_KEY": "secret",
+                    "JARVIS_TTS_PIPER_MODEL_RU": "/tmp/ru.onnx",
+                },
+            )
+
+        self.assertEqual(manager.backend_name(), "local_piper")
+        self.assertEqual(
+            [status.backend_name for status in manager.backend_diagnostics()],
+            ["yandex_speechkit", "local_piper", "macos_native", "macos_say_legacy"],
+        )
+
+    def test_build_default_tts_manager_supports_explicit_russian_backend_pin(self) -> None:
+        yandex_backend = _FakeBackend(backend_name="yandex_speechkit")
+        piper_backend = _FakeBackend(backend_name="local_piper")
+        native_backend = _FakeBackend(backend_name="macos_native")
+        legacy_backend = _FakeBackend(backend_name="macos_say_legacy")
+
+        with patch(
+            "voice.backends.yandex_speechkit.YandexSpeechKitTTSBackend",
+            return_value=yandex_backend,
+        ), patch(
+            "voice.backends.piper.PiperTTSBackend",
+            return_value=piper_backend,
+        ), patch(
+            "voice.backends.macos_native.MacOSNativeTTSBackend",
+            return_value=native_backend,
+        ), patch(
+            "voice.tts_macos.MacOSTTSProvider",
+            return_value=legacy_backend,
+        ):
+            manager = build_default_tts_manager(
+                platform="darwin",
+                environ={
+                    "JARVIS_TTS_YANDEX_ENABLED": "1",
+                    "JARVIS_TTS_YANDEX_API_KEY": "secret",
+                    "JARVIS_TTS_PIPER_MODEL_RU": "/tmp/ru.onnx",
+                    "JARVIS_TTS_RU_BACKEND": "yandex",
+                    "JARVIS_TTS_EN_BACKEND": "piper",
+                },
+            )
+
+        self.assertEqual(manager.backend_name(), "yandex_speechkit")
+
     def test_build_default_tts_manager_prefers_local_piper_when_repo_runtime_is_configured(self) -> None:
         piper_backend = _FakeBackend(backend_name="local_piper")
         native_backend = _FakeBackend(backend_name="macos_native")
@@ -283,7 +632,10 @@ class TTSManagerTests(unittest.TestCase):
             "voice.tts_macos.MacOSTTSProvider",
             return_value=legacy_backend,
         ):
-            manager = build_default_tts_manager(platform="darwin")
+            manager = build_default_tts_manager(
+                platform="darwin",
+                environ={"JARVIS_TTS_YANDEX_ENABLED": "0"},
+            )
 
         self.assertEqual(manager.backend_name(), "local_piper")
 

@@ -134,6 +134,8 @@ class OpenAIResponsesPayloadContractTests(unittest.TestCase):
         self.assertIn("do not imply that any command was executed", instructions)
         self.assertIn("use those concrete values explicitly", instructions)
         self.assertIn("do not artificially cap citations", instructions)
+        self.assertIn("Keep answer_text in one language only", instructions)
+        self.assertIn("Follow the Preferred answer language line", instructions)
         self.assertIn(ANSWER_SCHEMA_VERSION, instructions)
 
     def test_payload_user_input_contains_question_and_allowed_sources(self) -> None:
@@ -152,6 +154,7 @@ class OpenAIResponsesPayloadContractTests(unittest.TestCase):
         input_text = str(content_items[0].get("text", "") or "")
         self.assertIn("Question type: capabilities", input_text)
         self.assertIn("Question: What can you do?", input_text)
+        self.assertIn("Preferred answer language: English.", input_text)
         self.assertIn("Question-specific guidance:", input_text)
         self.assertIn("supported command families", input_text)
         self.assertIn("answer questions or explain capabilities in read-only grounded mode", input_text)
@@ -180,6 +183,25 @@ class OpenAIResponsesPayloadContractTests(unittest.TestCase):
         input_text = str((((payload.get("input") or [])[0].get("content") or [])[0].get("text")) or "")
         self.assertIn("Question-specific guidance:", input_text)
         self.assertIn("ambiguity, missing data, low confidence, or routing ambiguity", input_text)
+
+    def test_grounded_payload_prefers_russian_when_question_is_russian(self) -> None:
+        russian_question = QuestionRequest(
+            raw_input="JARVIS, что ты умеешь?",
+            question_type=QuestionType.CAPABILITIES,
+            scope="capabilities",
+            confidence=0.95,
+        )
+        russian_bundle = build_grounding_bundle(russian_question)
+
+        payload = self.provider.build_request_payload(
+            russian_question,
+            grounding_bundle=russian_bundle,
+            config=self._config(),
+        )
+
+        input_text = str((((payload.get("input") or [])[0].get("content") or [])[0].get("text")) or "")
+        self.assertIn("Preferred answer language: Russian.", input_text)
+        self.assertIn("first meaningful words", input_text)
 
     def test_repo_structure_payload_requires_both_code_and_doc_citations(self) -> None:
         repo_question = QuestionRequest(
@@ -280,6 +302,7 @@ class OpenAIResponsesPayloadContractTests(unittest.TestCase):
         self.assertEqual(metadata.get("answer_mode"), "open_domain")
         self.assertEqual(format_config.get("name"), GENERAL_ANSWER_SCHEMA_NAME)
         self.assertIn("Question-specific follow-up guidance:", input_text)
+        self.assertIn("Preferred answer language: English.", input_text)
         self.assertIn("This follow-up continues the previous model-knowledge answer", input_text)
         self.assertIn("answer directly instead of asking what the user wants explained", input_text)
         self.assertIn("For explain_more, provide a fuller explanation of the same subject", input_text)
@@ -328,8 +351,48 @@ class OpenAIResponsesPayloadContractTests(unittest.TestCase):
         instructions = str(payload.get("instructions", "") or "")
         input_text = str((((payload.get("input") or [])[0].get("content") or [])[0].get("text")) or "")
         self.assertIn("Keep answer_text in one language only", instructions)
+        self.assertIn("Follow the Preferred answer language line", instructions)
+        self.assertIn("Preferred answer language: Russian.", input_text)
         self.assertIn("Answer fully in Russian because the recent answer anchor is in Russian.", input_text)
         self.assertIn("Do not switch languages mid-answer", input_text)
+
+    def test_russian_follow_up_request_language_overrides_canonicalized_english_surface(self) -> None:
+        session_context = SessionContext()
+        session_context.set_recent_answer_context(
+            topic="open_domain_general",
+            scope="open_domain",
+            sources=[],
+            answer_text="Tony Stark is a fictional Marvel character.",
+            answer_kind="open_domain_model",
+            answer_provenance="model_knowledge",
+        )
+        follow_up_question = QuestionRequest(
+            raw_input="Explain more",
+            question_type=QuestionType.ANSWER_FOLLOW_UP,
+            scope="open_domain",
+            confidence=0.92,
+            context_refs={
+                "follow_up_kind": "explain_more",
+                "answer_topic": "open_domain_general",
+                "answer_scope": "open_domain",
+                "answer_sources": [],
+                "answer_text": "Tony Stark is a fictional Marvel character.",
+                "answer_kind": "open_domain_model",
+                "answer_provenance": "model_knowledge",
+                "request_language": "ru",
+            },
+        )
+        follow_up_bundle = build_grounding_bundle(follow_up_question, session_context=session_context)
+
+        payload = self.provider.build_request_payload(
+            follow_up_question,
+            grounding_bundle=follow_up_bundle,
+            config=self._config(),
+        )
+
+        input_text = str((((payload.get("input") or [])[0].get("content") or [])[0].get("text")) or "")
+        self.assertIn("Preferred answer language: Russian.", input_text)
+        self.assertIn("Answer fully in Russian because the current follow-up is in Russian.", input_text)
 
     def test_open_domain_payload_uses_general_schema_and_metadata(self) -> None:
         payload = self.provider.build_request_payload(
@@ -362,8 +425,28 @@ class OpenAIResponsesPayloadContractTests(unittest.TestCase):
         content_items = input_items[0].get("content") or []
         input_text = str(content_items[0].get("text", "") or "")
         self.assertIn("Question type: open_domain_general", input_text)
+        self.assertIn("Preferred answer language: English.", input_text)
         self.assertIn("Local grounded sources: none for this answer mode.", input_text)
         self.assertNotIn("Allowed local sources:", input_text)
+
+    def test_open_domain_payload_prefers_russian_when_question_is_russian(self) -> None:
+        russian_question = QuestionRequest(
+            raw_input="OpenAI, что такое интернет вещей?",
+            question_type=QuestionType.OPEN_DOMAIN_GENERAL,
+            scope="open_domain",
+            confidence=0.7,
+            requires_grounding=False,
+        )
+        russian_bundle = build_grounding_bundle(russian_question)
+
+        payload = self.provider.build_request_payload(
+            russian_question,
+            grounding_bundle=russian_bundle,
+            config=self._config(),
+        )
+
+        input_text = str((((payload.get("input") or [])[0].get("content") or [])[0].get("text")) or "")
+        self.assertIn("Preferred answer language: Russian.", input_text)
 
     def test_open_domain_payload_includes_temporal_boundary_metadata_and_warning_hint(self) -> None:
         payload = self.provider.build_request_payload(

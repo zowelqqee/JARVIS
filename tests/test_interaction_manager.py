@@ -68,6 +68,15 @@ class InteractionManagerTests(unittest.TestCase):
         self.assertIsNone(result.runtime_result)
         self.assertEqual((result.visibility or {}).get("interaction_mode"), "question")
 
+    def test_russian_question_input_returns_russian_template_answer(self) -> None:
+        result = self.manager.handle_input("Что ты умеешь?", session_context=self.session_context)
+
+        self.assertEqual(getattr(result.interaction_mode, "value", ""), "question")
+        self.assertIsNotNone(result.answer_result)
+        self.assertIn("Я поддерживаю командные интенты", getattr(result.answer_result, "answer_text", ""))
+        self.assertIsNone(result.runtime_result)
+        self.assertEqual((result.visibility or {}).get("interaction_mode"), "question")
+
     def test_command_input_delegates_to_runtime_manager(self) -> None:
         result = self.manager.handle_input("open telegram", session_context=self.session_context)
 

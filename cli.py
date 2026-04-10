@@ -73,6 +73,7 @@ from voice.session_state import (
     VoiceSessionState,
     build_default_voice_session_state,
     format_voice_last_event,
+    format_voice_tts_last_result,
 )
 from voice.speech_presenter import latency_filler_utterance
 from voice.status import (
@@ -95,7 +96,8 @@ from voice.telemetry import (
     load_voice_telemetry_snapshot,
     write_voice_telemetry_artifact,
 )
-from voice.tts_provider import TTSProvider, build_default_tts_provider, stop_speech_if_supported
+from voice.tts_provider import SpeechUtterance, TTSProvider, TTSResult, build_default_tts_provider, stop_speech_if_supported
+from voice.tts_runtime_env import apply_cli_tts_env_defaults
 
 _VOICE_CAPTURE_TIMEOUT_SECONDS = 7.0
 _VOICE_LATENCY_FILLER_DELAY_SECONDS = 0.6
@@ -118,6 +120,7 @@ _LIVE_SMOKE_ARTIFACT_MAX_AGE_HOURS = 24.0
 
 def main() -> int:
     """Run a small REPL over the current supervised runtime."""
+    apply_cli_tts_env_defaults()
     runtime_manager = RuntimeManager()
     interaction_manager = _build_default_interaction_manager(runtime_manager)
     session_context = SessionContext()
@@ -240,6 +243,10 @@ def _handle_cli_command(
             _print_voice_last(voice_session_state)
             return False, speak_enabled
 
+        if lowered in {"voice tts last", "/voice tts last"}:
+            _print_voice_tts_last(voice_session_state)
+            return False, speak_enabled
+
         if lowered in {"voice status", "/voice status"}:
             _print_voice_status(speak_enabled=speak_enabled, telemetry=telemetry)
             return False, speak_enabled
@@ -258,6 +265,10 @@ def _handle_cli_command(
 
         if lowered in {"voice tts doctor", "/voice tts doctor"}:
             _print_voice_tts_doctor(tts_provider or build_default_tts_provider())
+            return False, speak_enabled
+
+        if _is_voice_tts_say_command(raw_input):
+            _run_voice_tts_say(raw_input, tts_provider)
             return False, speak_enabled
 
         if lowered in {"voice gate", "/voice gate"}:
@@ -310,6 +321,8 @@ def _handle_cli_command(
             speech_locale_hint=_preferred_speech_locale_hint(raw_input) if speak_enabled else None,
             tts_provider=tts_provider,
             audio_policy=audio_policy,
+            telemetry=telemetry,
+            voice_session_state=voice_session_state,
         )
         return False, speak_enabled
     except KeyboardInterrupt:
@@ -363,6 +376,8 @@ def _print_help() -> None:
     print("  /voice mode      Show the current bounded voice-conversation mode.")
     print("  voice last       Show the last voice event in this CLI session.")
     print("  /voice last      Show the last voice event in this CLI session.")
+    print("  voice tts last   Show the last TTS attempt in this CLI session.")
+    print("  /voice tts last  Show the last TTS attempt in this CLI session.")
     print("  voice status     Show current CLI voice-session status and counters.")
     print("  /voice status    Show current CLI voice-session status and counters.")
     print("  voice tts backend Show the active TTS backend and capabilities.")
@@ -373,6 +388,8 @@ def _print_help() -> None:
     print("  /voice tts current Show current product-level TTS profile resolution.")
     print("  voice tts doctor  Show aggregated TTS backend diagnostics and next steps.")
     print("  /voice tts doctor Show aggregated TTS backend diagnostics and next steps.")
+    print("  voice tts say [ru|en] <text> Speak text directly through the active TTS backend.")
+    print("  /voice tts say [ru|en] <text> Speak text directly through the active TTS backend.")
     print("  voice gate       Show the offline voice rollout gate verdict.")
     print("  /voice gate      Show the offline voice rollout gate verdict.")
     print("  voice telemetry  Show in-memory voice metrics for this CLI session.")
@@ -440,7 +457,7 @@ def _dispatch_and_render_voice_turn(
         tts_provider=tts_provider,
         earcon_provider=earcon_provider,
         audio_policy=audio_policy,
-        on_speech_result=telemetry.record_tts_result if telemetry is not None else None,
+        on_speech_result=_compose_tts_result_handler(telemetry=telemetry, voice_session_state=voice_session_state),
     )
     return voice_dispatch
 
@@ -935,6 +952,8 @@ def _handle_runtime_input(
     speech_locale_hint: str | None = None,
     tts_provider: TTSProvider | None = None,
     audio_policy: HalfDuplexAudioPolicy | None = None,
+    telemetry: VoiceTelemetryCollector | None = None,
+    voice_session_state: VoiceSessionState | None = None,
 ) -> None:
     """Run one text input through the dual-mode interaction layer and print the visible result."""
     active_interaction_manager = interaction_manager or _build_default_interaction_manager(runtime_manager)
@@ -950,6 +969,7 @@ def _handle_runtime_input(
         emit_line=print,
         tts_provider=(tts_provider or build_default_tts_provider()) if speak_enabled else None,
         audio_policy=audio_policy,
+        on_speech_result=_compose_tts_result_handler(telemetry=telemetry, voice_session_state=voice_session_state),
     )
 
 
@@ -963,6 +983,8 @@ def _dispatch_runtime_input(
     speech_locale_hint: str | None = None,
     tts_provider: TTSProvider | None = None,
     audio_policy: HalfDuplexAudioPolicy | None = None,
+    telemetry: VoiceTelemetryCollector | None = None,
+    voice_session_state: VoiceSessionState | None = None,
 ) -> None:
     """Preserve the legacy runtime-call shape unless a TTS provider is supplied."""
     call_kwargs = {
@@ -978,7 +1000,29 @@ def _dispatch_runtime_input(
         call_kwargs["tts_provider"] = tts_provider
     if audio_policy is not None:
         call_kwargs["audio_policy"] = audio_policy
+    if telemetry is not None:
+        call_kwargs["telemetry"] = telemetry
+    if voice_session_state is not None:
+        call_kwargs["voice_session_state"] = voice_session_state
     _handle_runtime_input(raw_input, **call_kwargs)
+
+
+def _compose_tts_result_handler(
+    *,
+    telemetry: VoiceTelemetryCollector | None = None,
+    voice_session_state: VoiceSessionState | None = None,
+):
+    """Build one shared TTS-result callback for telemetry and CLI debug helpers."""
+    if telemetry is None and voice_session_state is None:
+        return None
+
+    def _handle_tts_result(utterance: SpeechUtterance, result: object) -> None:
+        if telemetry is not None and isinstance(result, TTSResult):
+            telemetry.record_tts_result(utterance, result)
+        if voice_session_state is not None and isinstance(result, TTSResult):
+            voice_session_state.record_tts_result(utterance, result)
+
+    return _handle_tts_result
 
 
 def _preferred_speech_locale_hint(text: str) -> str | None:
@@ -1430,6 +1474,11 @@ def _print_voice_last(voice_session_state: VoiceSessionState | None) -> None:
     print(format_voice_last_event(voice_session_state))
 
 
+def _print_voice_tts_last(voice_session_state: VoiceSessionState | None) -> None:
+    """Print the last current-session TTS attempt summary."""
+    print(format_voice_tts_last_result(voice_session_state))
+
+
 def _print_voice_status(
     *,
     speak_enabled: bool,
@@ -1465,6 +1514,75 @@ def _print_voice_tts_current(tts_provider: TTSProvider | None) -> None:
 def _print_voice_tts_doctor(tts_provider: TTSProvider | None) -> None:
     """Print aggregated TTS diagnostics and next-step hints."""
     print(format_tts_doctor_status(build_tts_doctor_status(tts_provider)))
+
+
+def _run_voice_tts_say(raw_input: str, tts_provider: TTSProvider | None) -> None:
+    """Speak direct operator-provided text without going through the QA path."""
+    parsed = _parse_voice_tts_say_command(raw_input)
+    if parsed is None:
+        print("voice tts say usage: voice tts say [ru|en] <text>")
+        return
+    locale, text = parsed
+    if not text:
+        print("voice tts say usage: voice tts say [ru|en] <text>")
+        return
+    provider = tts_provider or build_default_tts_provider()
+    result = provider.speak(SpeechUtterance(text=text, locale=locale))
+    backend_name = str(result.backend_name or getattr(provider, "backend_name", lambda: "")()).strip() or "unknown"
+    if result.ok:
+        message = f"voice tts say: ok ({backend_name}, locale={locale})"
+        if result.voice_id:
+            message = f"{message}, voice={result.voice_id}"
+        print(message)
+        return
+    detail = str(result.error_message or result.error_code or "speech unavailable").strip() or "speech unavailable"
+    print(f"voice tts say: failed ({backend_name}): {detail}")
+
+
+def _is_voice_tts_say_command(raw_input: str) -> bool:
+    """Return whether one shell input is the direct TTS sandbox helper."""
+    return _parse_voice_tts_say_command(raw_input) is not None
+
+
+def _parse_voice_tts_say_command(raw_input: str) -> tuple[str, str] | None:
+    """Parse one direct TTS helper command into locale plus text."""
+    current = str(raw_input or "").strip()
+    if not current:
+        return None
+    normalized = current[1:] if current.startswith("/") else current
+    prefix = "voice tts say"
+    lowered = normalized.lower()
+    if not lowered.startswith(prefix):
+        return None
+    if len(normalized) > len(prefix) and not normalized[len(prefix)].isspace():
+        return None
+    remainder = normalized[len(prefix):].strip()
+    if not remainder:
+        return "", ""
+    locale, text = _split_voice_tts_say_locale_and_text(remainder)
+    return locale, text
+
+
+def _split_voice_tts_say_locale_and_text(remainder: str) -> tuple[str, str]:
+    """Resolve an optional locale token from the direct TTS helper tail."""
+    current = str(remainder or "").strip()
+    if not current:
+        return "", ""
+    first, separator, tail = current.partition(" ")
+    locale = _voice_tts_say_locale(first)
+    if locale is None:
+        return detect_spoken_locale(current), current
+    return locale, tail.strip() if separator else ""
+
+
+def _voice_tts_say_locale(token: str) -> str | None:
+    """Normalize one optional helper locale token."""
+    current = str(token or "").strip().lower()
+    if current in {"ru", "ru-ru", "russian"}:
+        return "ru-RU"
+    if current in {"en", "en-us", "english"}:
+        return "en-US"
+    return None
 
 
 def _write_voice_readiness() -> None:

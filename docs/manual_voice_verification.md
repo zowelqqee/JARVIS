@@ -44,6 +44,15 @@
 - To verify automatic blocking follow-up, run: `JARVIS_VOICE_CONTINUOUS_MODE=1 python3 cli.py`
 - To verify optional earcons, run: `JARVIS_VOICE_EARCONS=1 python3 cli.py`
 - Optional TTS tuning:
+  - plain `python3 cli.py` now also looks for repo-local TTS defaults in `tmp/runtime/jarvis_tts.env`; it only fills missing `JARVIS_TTS_*` keys, so explicit shell `export` values still win
+  - that local runtime file may also carry `JARVIS_TTS_YANDEX_API_KEY` when you want the Russian cloud voice to work from any terminal tab without re-exporting the key every time
+  - `voice tts backend` now surfaces when those local defaults were loaded, plus which keys were actually applied
+  - set `JARVIS_TTS_YANDEX_ENABLED=1` plus `JARVIS_TTS_YANDEX_API_KEY=...` to try the optional Yandex SpeechKit cloud backend for Russian TTS; the current default voice/style are `JARVIS_TTS_YANDEX_VOICE=ermil` and `JARVIS_TTS_YANDEX_ROLE=good`
+  - if you want deterministic language routing during manual smoke, set `JARVIS_TTS_RU_BACKEND=yandex_speechkit` and keep English on the local backend with `JARVIS_TTS_EN_BACKEND=local_piper`
+  - when Yandex SpeechKit is enabled and available, Russian speech now stays on the Yandex route by default instead of silently falling through to the old local Russian model; set `JARVIS_TTS_RU_ALLOW_FALLBACK=1` only if you explicitly want the old fallback chain back
+  - when `JARVIS_TTS_RU_BACKEND=yandex_speechkit` is set, Russian speech now stays on that pinned Yandex route by default instead of silently falling through to the old local Russian model; set `JARVIS_TTS_RU_ALLOW_FALLBACK=1` only if you explicitly want the old fallback chain back
+  - Yandex SpeechKit is only wired when explicitly enabled, sends spoken text to Yandex Cloud, and falls back through the existing local backend chain when unavailable or when a non-Russian utterance is routed
+  - if Yandex credentials are present but `JARVIS_TTS_YANDEX_ENABLED` is still unset or `0`, `voice tts backend` now surfaces `yandex_speechkit` as disabled instead of hiding it from diagnostics
   - on macOS, if the repo-local Piper runtime is present, `local_piper` now wins before native `macos_native` and legacy `say`
   - set `JARVIS_TTS_PIPER_ENABLED=0` if you need to temporarily opt out of the local-model backend during debugging
   - native TTS still remains available behind the manager; set `JARVIS_TTS_MACOS_NATIVE=0` to force the legacy `say` fallback, or keep `JARVIS_TTS_MACOS_NATIVE=1` as an explicit pin during rollout smoke
@@ -58,6 +67,7 @@
   - `voice tts voices` inside CLI to inspect voices visible to the active backend
   - `voice tts current` inside CLI to inspect how core product-level voice profiles resolve right now
   - `voice tts doctor` inside CLI to inspect fallback reasons, profile resolution, voice visibility, and suggested next checks in one place
+  - `voice tts say [ru|en] <text>` inside CLI to speak one direct operator-provided line through the active backend without going through QA/OpenAI
   - for native macOS fallback debugging, `voice tts doctor` may now report specific startup classes such as `HOST_TOOLCHAIN_MISSING`, `HOST_SDK_MISMATCH`, `HOST_SWIFT_BRIDGING_CONFLICT`, or `HOST_COMPILE_FAILED`
   - for `HOST_SDK_MISMATCH`, helper output may now also show the exact `sdk toolchain`, `active compiler`, current `active developer dir`, and active `swiftc` path taken from local diagnostics
   - when native smoke is running through an explicit `DEVELOPER_DIR=...` override, helper output may now also show `developer dir override: ...` so the current env-based workaround is visible without changing global `xcode-select`

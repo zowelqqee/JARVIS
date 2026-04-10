@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 import json
 import math
 import os
@@ -122,12 +123,70 @@ _PROFILE_BY_LANGUAGE_AND_FAMILY = {
     ("en", "female"): VOICE_PROFILE_EN_ASSISTANT_FEMALE,
     ("en", "any"): VOICE_PROFILE_EN_ASSISTANT_ANY,
 }
+_PIPER_ARG_BY_MANIFEST_KEY = {
+    "length_scale": "--length-scale",
+    "sentence_silence": "--sentence-silence",
+}
 _ELLIPSIS_RE = re.compile(r"(?:\.{3,}|\u2026)+")
 _MULTISPACE_RE = re.compile(r"\s+")
 _SPACE_BEFORE_PUNCTUATION_RE = re.compile(r"\s+([,.;:!?])")
-_DASH_PAUSE_RE = re.compile(r"\s*[\u2013\u2014-]\s*")
 _DOUBLE_COMMA_RE = re.compile(r"(,\s*){2,}")
 _DOUBLE_SENTENCE_BREAK_RE = re.compile(r"([.!?])(?:\s*[,:;])+\s*")
+_RU_DASH_BREAK_RE = re.compile(r"\s*[\u2013\u2014]\s*|(?<=\s)-(?=\s)")
+_RU_SOFT_COMMA_BEFORE_RE = re.compile(
+    r",\s+(?=(?:что|чтобы|чтоб|как|если|когда|где|куда|откуда|почему|зачем|"
+    r"котор[а-яё]*|потому|поэтому|то есть|например|и|или)\b)",
+    flags=re.IGNORECASE,
+)
+_RU_SOFT_COMMA_AFTER_RE = re.compile(
+    r"\b(?P<lead>да|нет|окей|ладно|хорошо|смотри|слушай|кажется|похоже|например|то есть),\s+",
+    flags=re.IGNORECASE,
+)
+_RU_SOFT_PAUSE_MARKER = "__JARVIS_TTS_SHORT_PAUSE__"
+_LANGUAGE_WORD_RE = re.compile(r"[A-Za-zА-Яа-яЁё]+")
+_LATIN_WORD_RE = re.compile(r"[A-Za-z][A-Za-z0-9'_-]*")
+_ENGLISH_ISLAND_RE = re.compile(
+    r"(?<![A-Za-z0-9_./-])"
+    r"(?P<island>[A-Za-z][A-Za-z0-9'_-]*(?:[ \t]+[A-Za-z][A-Za-z0-9'_-]*)+)"
+    r"(?![A-Za-z0-9_./-])"
+)
+_RU_TECH_TOKEN_PRONUNCIATIONS = {
+    "API": "эй пи ай",
+    "ASR": "эй эс ар",
+    "CLI": "си эль ай",
+    "Docker": "докер",
+    "FAQ": "эф эй кью",
+    "Git": "гит",
+    "GitHub": "Гитхаб",
+    "GUI": "джи ю ай",
+    "HTTP": "эйч ти ти пи",
+    "HTTPS": "эйч ти ти пи эс",
+    "JSON": "джейсон",
+    "JARVIS": "Джарвис",
+    "LLM": "эль эль эм",
+    "MVP": "эм ви пи",
+    "OpenAI": "Оупен эй ай",
+    "Piper": "Пайпер",
+    "Postgres": "постгрес",
+    "Python": "Пайтон",
+    "QA": "кью эй",
+    "Swift": "свифт",
+    "TOML": "томл",
+    "TTS": "ти ти эс",
+    "URL": "ю ар эл",
+    "YAML": "ямл",
+    "macOS": "мак о эс",
+}
+_PLAYBACK_LEADING_SILENCE_MS = 30
+_PLAYBACK_TRAILING_SILENCE_MS = 45
+_PLAYBACK_INTER_SEGMENT_SILENCE_MS = 35
+
+
+@dataclass(frozen=True)
+class _PiperSpeechSegment:
+    text: str
+    descriptor: VoiceDescriptor
+    slot_config: Mapping[str, object] | None
 
 
 class PiperTTSBackend:
@@ -182,66 +241,70 @@ class PiperTTSBackend:
                 backend_name=_BACKEND_NAME,
             )
 
-        slot_config = self._slot_config_for_model_path(model_descriptor.id)
-        prepared_message = self._prepare_message_for_piper(
-            message,
-            locale=getattr(utterance, "locale", None),
-            slot_config=slot_config,
+        speech_segments = self._speech_segments_for_utterance(
+            utterance,
+            fallback_descriptor=model_descriptor,
         )
-        with tempfile.NamedTemporaryFile(prefix="jarvis_piper_", suffix=".wav", delete=False) as handle:
-            output_path = Path(handle.name)
+        output_paths: list[Path] = []
 
         try:
-            generation_command = [binary_path, "--model", model_descriptor.id]
-            config_path = _model_config_path(model_descriptor.id)
-            if config_path is not None:
-                generation_command.extend(["--config", config_path])
-            generation_command.extend(["--output_file", str(output_path)])
-            generation = subprocess.run(
-                generation_command,
-                input=prepared_message,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=True,
-                check=False,
-            )
-            if generation.returncode != 0:
-                return TTSResult(
-                    ok=False,
-                    error_code="TTS_FAILED",
-                    error_message=_first_meaningful_line(generation.stderr or generation.stdout)
-                    or "Local Piper speech generation failed.",
-                    backend_name=_BACKEND_NAME,
-                    voice_id=model_descriptor.id,
+            for segment in speech_segments:
+                with tempfile.NamedTemporaryFile(prefix="jarvis_piper_", suffix=".wav", delete=False) as handle:
+                    output_path = Path(handle.name)
+                output_paths.append(output_path)
+                generation_result = self._generate_speech_segment(
+                    binary_path=binary_path,
+                    segment=segment,
+                    output_path=output_path,
                 )
-            _postprocess_wav_file(output_path, slot_config=slot_config)
+                if generation_result is not None:
+                    return generation_result
+                _pad_wav_file_edges(
+                    output_path,
+                    leading_silence_ms=_PLAYBACK_LEADING_SILENCE_MS,
+                    trailing_silence_ms=_PLAYBACK_TRAILING_SILENCE_MS,
+                )
 
-            process = subprocess.Popen(
-                [*player_command, str(output_path)],
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=True,
-            )
-            self._set_current_process(process)
-            try:
-                stdout, stderr = process.communicate()
-            finally:
-                self._clear_current_process(process)
+            playback_paths = list(output_paths)
+            if len(output_paths) > 1:
+                with tempfile.NamedTemporaryFile(prefix="jarvis_piper_combined_", suffix=".wav", delete=False) as handle:
+                    combined_path = Path(handle.name)
+                output_paths.append(combined_path)
+                if _combine_wav_files(
+                    playback_paths,
+                    combined_path,
+                    inter_segment_silence_ms=_PLAYBACK_INTER_SEGMENT_SILENCE_MS,
+                ):
+                    playback_paths = [combined_path]
 
-            if process.returncode == 0:
-                return TTSResult(ok=True, backend_name=_BACKEND_NAME, voice_id=model_descriptor.id)
-            return TTSResult(
-                ok=False,
-                error_code="TTS_FAILED",
-                error_message=_first_meaningful_line(stderr or stdout) or "Local Piper audio playback failed.",
-                backend_name=_BACKEND_NAME,
-                voice_id=model_descriptor.id,
-            )
+            for output_path in playback_paths:
+                process = subprocess.Popen(
+                    [*player_command, str(output_path)],
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    text=True,
+                )
+                self._set_current_process(process)
+                try:
+                    stdout, stderr = process.communicate()
+                finally:
+                    self._clear_current_process(process)
+
+                if process.returncode != 0:
+                    return TTSResult(
+                        ok=False,
+                        error_code="TTS_FAILED",
+                        error_message=_first_meaningful_line(stderr or stdout) or "Local Piper audio playback failed.",
+                        backend_name=_BACKEND_NAME,
+                        voice_id=model_descriptor.id,
+                    )
+            return TTSResult(ok=True, backend_name=_BACKEND_NAME, voice_id=model_descriptor.id)
         finally:
-            try:
-                output_path.unlink(missing_ok=True)
-            except OSError:
-                pass
+            for output_path in output_paths:
+                try:
+                    output_path.unlink(missing_ok=True)
+                except OSError:
+                    pass
 
     def stop(self) -> bool:
         """Stop active playback when one is running."""
@@ -504,7 +567,7 @@ class PiperTTSBackend:
             {
                 key: value
                 for key, value in manifest_slot.items()
-                if key in {"path", "display_name", "locale", "gender_hint", "audio_postprocess"}
+                if key in {"path", "display_name", "locale", "gender_hint", "piper_args", "audio_postprocess"}
             }
         )
         return merged
@@ -543,6 +606,91 @@ class PiperTTSBackend:
                 return self._slot_config_for_env(env_name)
         return None
 
+    def _speech_segments_for_utterance(
+        self,
+        utterance: SpeechUtterance | None,
+        *,
+        fallback_descriptor: VoiceDescriptor,
+    ) -> tuple[_PiperSpeechSegment, ...]:
+        current = utterance or SpeechUtterance(text="")
+        fallback_slot = self._slot_config_for_model_path(fallback_descriptor.id)
+        fallback_segment = _PiperSpeechSegment(
+            text=self._prepare_message_for_piper(
+                current.text,
+                locale=current.locale,
+                slot_config=fallback_slot,
+            ),
+            descriptor=fallback_descriptor,
+            slot_config=fallback_slot,
+        )
+        raw_segments = _split_mixed_language_segments(current.text)
+        if len(raw_segments) <= 1:
+            return _speech_segments_from_prepared_text(
+                fallback_segment.text,
+                descriptor=fallback_descriptor,
+                slot_config=fallback_slot,
+            )
+
+        segments: list[_PiperSpeechSegment] = []
+        for language, raw_text in raw_segments:
+            locale = _DEFAULT_LOCALE_BY_LANGUAGE.get(language)
+            profile = _profile_for_language(current.voice_profile, language)
+            descriptor = self._descriptor_for_profile(profile, locale)
+            if descriptor is None:
+                return (fallback_segment,)
+            slot_config = self._slot_config_for_model_path(descriptor.id)
+            prepared_text = self._prepare_message_for_piper(
+                raw_text,
+                locale=locale,
+                slot_config=slot_config,
+            )
+            for prepared_part in _split_prepared_text_on_soft_pause(prepared_text):
+                segments.append(
+                    _PiperSpeechSegment(
+                        text=prepared_part,
+                        descriptor=descriptor,
+                        slot_config=slot_config,
+                    )
+                )
+        return tuple(segments) if len(segments) > 1 else _speech_segments_from_prepared_text(
+            fallback_segment.text,
+            descriptor=fallback_descriptor,
+            slot_config=fallback_slot,
+        )
+
+    def _generate_speech_segment(
+        self,
+        *,
+        binary_path: str,
+        segment: _PiperSpeechSegment,
+        output_path: Path,
+    ) -> TTSResult | None:
+        generation_command = [binary_path, "--model", segment.descriptor.id]
+        config_path = _model_config_path(segment.descriptor.id)
+        if config_path is not None:
+            generation_command.extend(["--config", config_path])
+        generation_command.extend(_piper_args_from_slot_config(segment.slot_config))
+        generation_command.extend(["--output_file", str(output_path)])
+        generation = subprocess.run(
+            generation_command,
+            input=segment.text,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            check=False,
+        )
+        if generation.returncode != 0:
+            return TTSResult(
+                ok=False,
+                error_code="TTS_FAILED",
+                error_message=_first_meaningful_line(generation.stderr or generation.stdout)
+                or "Local Piper speech generation failed.",
+                backend_name=_BACKEND_NAME,
+                voice_id=segment.descriptor.id,
+            )
+        _postprocess_wav_file(output_path, slot_config=segment.slot_config)
+        return None
+
     def _prepare_message_for_piper(
         self,
         message: str,
@@ -555,7 +703,6 @@ class PiperTTSBackend:
             return current
         current = _ELLIPSIS_RE.sub(". ", current)
         current = _DOUBLE_SENTENCE_BREAK_RE.sub(r"\1 ", current)
-        current = _DASH_PAUSE_RE.sub(", ", current)
         current = _SPACE_BEFORE_PUNCTUATION_RE.sub(r"\1", current)
         current = _DOUBLE_COMMA_RE.sub(", ", current)
         current = _MULTISPACE_RE.sub(" ", current).strip()
@@ -781,14 +928,48 @@ def _profile_for_language(profile: str | None, language: str) -> str | None:
     return _PROFILE_BY_LANGUAGE_AND_FAMILY.get((language, family))
 
 
+def _speech_segments_from_prepared_text(
+    prepared_text: str,
+    *,
+    descriptor: VoiceDescriptor,
+    slot_config: Mapping[str, object] | None,
+) -> tuple[_PiperSpeechSegment, ...]:
+    parts = _split_prepared_text_on_soft_pause(prepared_text)
+    return tuple(
+        _PiperSpeechSegment(text=part, descriptor=descriptor, slot_config=slot_config)
+        for part in parts
+    )
+
+
+def _split_prepared_text_on_soft_pause(prepared_text: str) -> tuple[str, ...]:
+    parts = tuple(part.strip() for part in str(prepared_text or "").split(_RU_SOFT_PAUSE_MARKER))
+    return tuple(part for part in parts if part)
+
+
 def _dominant_language_from_text(text: str | None) -> str:
-    candidate = str(text or "")
+    candidate = _text_without_ru_tech_tokens(str(text or ""))
+    first_language = _first_language_signal_from_text(candidate)
+    if first_language:
+        return first_language
     latin_letters = sum(1 for char in candidate if ("a" <= char.lower() <= "z"))
     cyrillic_letters = sum(1 for char in candidate if _is_cyrillic(char))
-    if latin_letters >= max(4, cyrillic_letters * 2):
+    if latin_letters >= max(4, cyrillic_letters + 1):
         return "en"
-    if cyrillic_letters >= max(4, latin_letters * 2):
+    if cyrillic_letters >= max(4, latin_letters + 1):
         return "ru"
+    return ""
+
+
+def _first_language_signal_from_text(text: str | None) -> str:
+    for match in _LANGUAGE_WORD_RE.finditer(str(text or "")):
+        token = match.group(0)
+        if any(_is_cyrillic(character) for character in token):
+            return "ru"
+        if any("a" <= character.lower() <= "z" for character in token):
+            normalized = token.lower()
+            if normalized in {"ok", "okay"}:
+                continue
+            return "en"
     return ""
 
 
@@ -810,6 +991,21 @@ def _model_config_path(model_path: str | None) -> str | None:
     return None
 
 
+def _piper_args_from_slot_config(slot_config: Mapping[str, object] | None) -> list[str]:
+    if not isinstance(slot_config, Mapping):
+        return []
+    raw_args = slot_config.get("piper_args")
+    if not isinstance(raw_args, Mapping):
+        return []
+    command_args: list[str] = []
+    for key, option in _PIPER_ARG_BY_MANIFEST_KEY.items():
+        value = raw_args.get(key)
+        if value is None or value == "":
+            continue
+        command_args.extend([option, str(value)])
+    return command_args
+
+
 def _postprocess_wav_file(path: Path, *, slot_config: Mapping[str, object] | None) -> None:
     options = _audio_postprocess_options(slot_config)
     if not options:
@@ -822,7 +1018,7 @@ def _postprocess_wav_file(path: Path, *, slot_config: Mapping[str, object] | Non
             comptype = reader.getcomptype()
             compname = reader.getcompname()
             frames = reader.readframes(reader.getnframes())
-    except (wave.Error, OSError):
+    except (EOFError, wave.Error, OSError):
         return
     if sampwidth != 2 or not frames:
         return
@@ -837,15 +1033,170 @@ def _postprocess_wav_file(path: Path, *, slot_config: Mapping[str, object] | Non
     )
     if processed == frames:
         return
+    output_framerate = max(1, int(round(framerate * options["sample_rate_scale"])))
+    try:
+        with wave.open(str(path), "wb") as writer:
+            writer.setnchannels(nchannels)
+            writer.setsampwidth(sampwidth)
+            writer.setframerate(output_framerate)
+            writer.setcomptype(comptype, compname)
+            writer.writeframes(processed)
+    except (EOFError, wave.Error, OSError):
+        return
+
+
+def _pad_wav_file_edges(path: Path, *, leading_silence_ms: int, trailing_silence_ms: int) -> None:
+    leading_ms = max(0, int(leading_silence_ms))
+    trailing_ms = max(0, int(trailing_silence_ms))
+    if leading_ms <= 0 and trailing_ms <= 0:
+        return
+    try:
+        with wave.open(str(path), "rb") as reader:
+            nchannels = reader.getnchannels()
+            sampwidth = reader.getsampwidth()
+            framerate = reader.getframerate()
+            comptype = reader.getcomptype()
+            compname = reader.getcompname()
+            frames = reader.readframes(reader.getnframes())
+    except (EOFError, wave.Error, OSError):
+        return
+    if comptype != "NONE" or nchannels <= 0 or sampwidth <= 0 or framerate <= 0 or not frames:
+        return
+
+    leading = _pcm_silence_bytes(
+        nchannels=nchannels,
+        sampwidth=sampwidth,
+        framerate=framerate,
+        duration_ms=leading_ms,
+    )
+    trailing = _pcm_silence_bytes(
+        nchannels=nchannels,
+        sampwidth=sampwidth,
+        framerate=framerate,
+        duration_ms=trailing_ms,
+    )
     try:
         with wave.open(str(path), "wb") as writer:
             writer.setnchannels(nchannels)
             writer.setsampwidth(sampwidth)
             writer.setframerate(framerate)
             writer.setcomptype(comptype, compname)
-            writer.writeframes(processed)
-    except (wave.Error, OSError):
+            writer.writeframes(leading + frames + trailing)
+    except (EOFError, wave.Error, OSError):
         return
+
+
+def _combine_wav_files(
+    input_paths: list[Path],
+    output_path: Path,
+    *,
+    inter_segment_silence_ms: int,
+) -> bool:
+    if not input_paths:
+        return False
+
+    target_nchannels: int | None = None
+    target_sampwidth: int | None = None
+    target_framerate: int | None = None
+    combined_frames: list[bytes] = []
+
+    for input_path in input_paths:
+        try:
+            with wave.open(str(input_path), "rb") as reader:
+                nchannels = reader.getnchannels()
+                sampwidth = reader.getsampwidth()
+                framerate = reader.getframerate()
+                comptype = reader.getcomptype()
+                frames = reader.readframes(reader.getnframes())
+        except (EOFError, wave.Error, OSError):
+            return False
+
+        if comptype != "NONE" or nchannels <= 0 or sampwidth != 2 or framerate <= 0 or not frames:
+            return False
+        if target_nchannels is None:
+            target_nchannels = nchannels
+            target_sampwidth = sampwidth
+            target_framerate = framerate
+        if nchannels != target_nchannels or sampwidth != target_sampwidth:
+            return False
+        if target_framerate is not None and framerate != target_framerate:
+            frames = _resample_pcm16_frames(
+                frames,
+                nchannels=nchannels,
+                source_framerate=framerate,
+                target_framerate=target_framerate,
+            )
+        combined_frames.append(frames)
+
+    if target_nchannels is None or target_sampwidth is None or target_framerate is None:
+        return False
+
+    silence = _pcm_silence_bytes(
+        nchannels=target_nchannels,
+        sampwidth=target_sampwidth,
+        framerate=target_framerate,
+        duration_ms=max(0, int(inter_segment_silence_ms)),
+    )
+    combined = bytearray()
+    for index, frames in enumerate(combined_frames):
+        if index > 0:
+            combined.extend(silence)
+        combined.extend(frames)
+
+    try:
+        with wave.open(str(output_path), "wb") as writer:
+            writer.setnchannels(target_nchannels)
+            writer.setsampwidth(target_sampwidth)
+            writer.setframerate(target_framerate)
+            writer.writeframes(bytes(combined))
+    except (EOFError, wave.Error, OSError):
+        return False
+    return True
+
+
+def _resample_pcm16_frames(
+    frames: bytes,
+    *,
+    nchannels: int,
+    source_framerate: int,
+    target_framerate: int,
+) -> bytes:
+    if nchannels <= 0 or source_framerate <= 0 or target_framerate <= 0 or source_framerate == target_framerate:
+        return frames
+
+    frame_width = nchannels * 2
+    source_frame_count = len(frames) // frame_width
+    if source_frame_count <= 1:
+        return frames
+
+    source_samples = [
+        int.from_bytes(frames[index : index + 2], byteorder="little", signed=True)
+        for index in range(0, source_frame_count * frame_width, 2)
+    ]
+    target_frame_count = max(1, int(round(source_frame_count * target_framerate / source_framerate)))
+    resampled = bytearray()
+    for target_index in range(target_frame_count):
+        source_position = min(
+            float(source_frame_count - 1),
+            target_index * source_framerate / target_framerate,
+        )
+        left_frame = int(math.floor(source_position))
+        right_frame = min(left_frame + 1, source_frame_count - 1)
+        fraction = source_position - left_frame
+        for channel_index in range(nchannels):
+            left_sample = source_samples[(left_frame * nchannels) + channel_index]
+            right_sample = source_samples[(right_frame * nchannels) + channel_index]
+            sample = int(round(left_sample + ((right_sample - left_sample) * fraction)))
+            sample = max(-32768, min(32767, sample))
+            resampled.extend(sample.to_bytes(2, byteorder="little", signed=True))
+    return bytes(resampled)
+
+
+def _pcm_silence_bytes(*, nchannels: int, sampwidth: int, framerate: int, duration_ms: int) -> bytes:
+    if nchannels <= 0 or sampwidth <= 0 or framerate <= 0 or duration_ms <= 0:
+        return b""
+    frame_count = int(round(framerate * (duration_ms / 1000.0)))
+    return b"\x00" * max(0, frame_count) * nchannels * sampwidth
 
 
 def _audio_postprocess_options(slot_config: Mapping[str, object] | None) -> dict[str, float]:
@@ -858,14 +1209,16 @@ def _audio_postprocess_options(slot_config: Mapping[str, object] | None) -> dict
         bass_boost = float(raw_options.get("bass_boost", 0.0))
         bass_cutoff_hz = float(raw_options.get("bass_cutoff_hz", 0.0))
         output_gain = float(raw_options.get("output_gain", 1.0))
+        sample_rate_scale = float(raw_options.get("sample_rate_scale", 1.0))
     except (TypeError, ValueError):
         return {}
-    if bass_boost <= 0.0 or bass_cutoff_hz <= 0.0 or output_gain <= 0.0:
+    if bass_boost <= 0.0 or bass_cutoff_hz <= 0.0 or output_gain <= 0.0 or sample_rate_scale <= 0.0:
         return {}
     return {
         "bass_boost": bass_boost,
         "bass_cutoff_hz": bass_cutoff_hz,
         "output_gain": output_gain,
+        "sample_rate_scale": sample_rate_scale,
     }
 
 
@@ -908,12 +1261,96 @@ def _prepare_russian_piper_text(message: str) -> str:
     current = str(message or "").strip()
     if not current:
         return current
-    current = current.replace("JARVIS", "Джарвис")
-    current = current.replace("CLI", "си эль ай")
-    current = current.replace("MVP", "эм ви пи")
+    current = _replace_ru_tech_tokens_for_speech(current)
+    current = _soften_russian_punctuation_for_piper(current)
     current = current.replace(": ", ". ")
     current = current.replace(";", ",")
     current = _MULTISPACE_RE.sub(" ", current).strip()
     if current and current[-1] not in ".!?":
         current = f"{current}."
+    return current
+
+
+def _soften_russian_punctuation_for_piper(message: str) -> str:
+    current = str(message or "").strip()
+    if not current:
+        return current
+    current = _RU_DASH_BREAK_RE.sub(" ", current)
+    current = _RU_SOFT_COMMA_AFTER_RE.sub(rf"\g<lead> {_RU_SOFT_PAUSE_MARKER} ", current)
+    current = _RU_SOFT_COMMA_BEFORE_RE.sub(f" {_RU_SOFT_PAUSE_MARKER} ", current)
+    current = _SPACE_BEFORE_PUNCTUATION_RE.sub(r"\1", current)
+    current = _DOUBLE_COMMA_RE.sub(", ", current)
+    return _MULTISPACE_RE.sub(" ", current).strip()
+
+
+def _split_mixed_language_segments(message: str | None) -> tuple[tuple[str, str], ...]:
+    current = str(message or "").strip()
+    if not current or not any(_is_cyrillic(character) for character in current):
+        return ()
+    segments: list[tuple[str, str]] = []
+    cursor = 0
+    for match in _ENGLISH_ISLAND_RE.finditer(current):
+        island = str(match.group("island") or "")
+        if not _should_split_english_island(island):
+            continue
+        start, end = match.span("island")
+        while end < len(current) and current[end] in ",.;:!?":
+            end += 1
+        _append_language_segment(segments, "ru", current[cursor:start])
+        _append_language_segment(segments, "en", current[start:end])
+        cursor = end
+    _append_language_segment(segments, "ru", current[cursor:])
+    languages = {language for language, text in segments if text.strip()}
+    if len(segments) <= 1 or not {"ru", "en"}.issubset(languages):
+        return ()
+    return tuple(segments)
+
+
+def _append_language_segment(segments: list[tuple[str, str]], language: str, text: str) -> None:
+    normalized_text = str(text or "").strip()
+    if not normalized_text:
+        return
+    if segments and segments[-1][0] == language:
+        previous_language, previous_text = segments[-1]
+        segments[-1] = (previous_language, f"{previous_text} {normalized_text}".strip())
+        return
+    segments.append((language, normalized_text))
+
+
+def _should_split_english_island(island: str) -> bool:
+    words = _LATIN_WORD_RE.findall(str(island or ""))
+    non_tech_words = [word for word in words if not _is_ru_tech_token(word)]
+    if len(non_tech_words) >= 3:
+        return True
+    return len(non_tech_words) >= 2 and sum(len(word) for word in non_tech_words) >= 14
+
+
+def _is_ru_tech_token(token: str) -> bool:
+    normalized = str(token or "").strip().lower()
+    return normalized in {key.lower() for key in _RU_TECH_TOKEN_PRONUNCIATIONS}
+
+
+def _replace_ru_tech_tokens_for_speech(message: str) -> str:
+    current = str(message or "")
+    for token in sorted(_RU_TECH_TOKEN_PRONUNCIATIONS, key=len, reverse=True):
+        current = _replace_standalone_latin_token(
+            current,
+            token,
+            _RU_TECH_TOKEN_PRONUNCIATIONS[token],
+        )
+    return current
+
+
+def _replace_standalone_latin_token(message: str, token: str, replacement: str) -> str:
+    pattern = re.compile(
+        rf"(?<![A-Za-z0-9_./-]){re.escape(token)}(?![A-Za-z0-9_/-]|\.[A-Za-z0-9])",
+        flags=re.IGNORECASE,
+    )
+    return pattern.sub(replacement, message)
+
+
+def _text_without_ru_tech_tokens(message: str) -> str:
+    current = str(message or "")
+    for token in sorted(_RU_TECH_TOKEN_PRONUNCIATIONS, key=len, reverse=True):
+        current = _replace_standalone_latin_token(current, token, " ")
     return current
