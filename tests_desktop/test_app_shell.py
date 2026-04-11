@@ -25,4 +25,4 @@ class DesktopShellTests(unittest.TestCase):
         self.assertEqual(window.windowTitle(), "JARVIS")
         self.assertGreaterEqual(window.minimumWidth(), 900)
         self.assertGreaterEqual(window.minimumHeight(), 600)
-        self.assertEqual(window.statusBar().currentMessage(), "Connected to JARVIS core")
+        self.assertEqual(window.statusBar().currentMessage(), "JARVIS shell connected")

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import importlib.util
+import sys
 import unittest
 
 
@@ -27,8 +28,13 @@ class MainWindowUiTests(unittest.TestCase):
         self.assertIsNotNone(window.status_panel)
         self.assertIsNotNone(window.controller)
         self.assertEqual(window.conversation_view.list_widget.count(), 1)
-        self.assertEqual(window.composer.send_button.text(), "Send")
+        expected_voice_label = "Start Listening" if sys.platform == "darwin" else "Voice Unavailable"
+        self.assertEqual(window.composer.voice_button.text(), expected_voice_label)
+        self.assertEqual(window.composer.send_button.text(), "Send Text")
         self.assertEqual(window.status_panel._speech_toggle_button.text(), "Enable Speech")
+        self.assertEqual(window.status_panel._cancel_button.text(), "Cancel Flow")
+        self.assertEqual(window.status_panel._retry_button.text(), "Retry Prompt")
+        self.assertEqual(window.status_panel._reset_button.text(), "New Session")
 
     def test_submission_appends_backend_entries(self) -> None:
         from desktop.app.application import build_application

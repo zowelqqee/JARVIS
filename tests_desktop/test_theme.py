@@ -18,11 +18,20 @@ class ThemeTests(unittest.TestCase):
         self.assertIn("QWidget#conversationCard", stylesheet)
         self.assertIn("QWidget#composerCard", stylesheet)
         self.assertIn("QWidget#statusCard", stylesheet)
+        self.assertIn("QWidget#composerVoicePanel", stylesheet)
+        self.assertIn("QPushButton#composerVoiceButton", stylesheet)
+        self.assertIn("QFrame#transcriptEntryCard", stylesheet)
+        self.assertIn("QLabel#transcriptRolePill", stylesheet)
+        self.assertIn("QLabel#transcriptStatePill", stylesheet)
+        self.assertIn("QFrame#transcriptResultItem", stylesheet)
+        self.assertIn("QPushButton#transcriptReplyChipButton", stylesheet)
+        self.assertIn("QPushButton#statusActionButton", stylesheet)
 
     def test_stylesheet_includes_accent_controls(self) -> None:
         stylesheet = build_stylesheet()
 
         self.assertIn("QPushButton#composerSendButton", stylesheet)
+        self.assertIn("QLabel#composerVoiceStatePill", stylesheet)
         self.assertIn("QPlainTextEdit#composerInput:focus", stylesheet)
         self.assertIn("#0f766e", stylesheet)
 

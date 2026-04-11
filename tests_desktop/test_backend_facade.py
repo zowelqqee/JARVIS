@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from types import SimpleNamespace
 import unittest
+from unittest.mock import patch
 
 from desktop.backend.engine_facade import EngineFacade, build_default_engine_facade
 from desktop.backend.speech_service import SpeechState
@@ -40,6 +41,7 @@ class _FakeSpeechService:
     message: str | None = "Speech output is off."
     spoken_texts: list[str] | None = None
     next_result: TTSResult | None = None
+    stop_calls: int = 0
 
     def __post_init__(self) -> None:
         if self.spoken_texts is None:
@@ -73,6 +75,10 @@ class _FakeSpeechService:
         else:
             self.message = str(result.error_message or "").strip() or "Speech output failed."
         return result
+
+    def stop(self) -> bool:
+        self.stop_calls += 1
+        return True
 
 
 class EngineFacadeTests(unittest.TestCase):
@@ -194,6 +200,23 @@ class EngineFacadeTests(unittest.TestCase):
         self.assertEqual(speech_service.spoken_texts, ["Grounded product help."])
         self.assertTrue(turn.status.speech_enabled)
         self.assertEqual(turn.status.speech_backend, "fake_tts")
+
+    def test_capture_voice_text_uses_existing_voice_capture_hook(self) -> None:
+        speech_service = _FakeSpeechService(enabled=True, message="Speech output enabled via fake_tts.")
+        facade = EngineFacade(
+            interaction_manager=_FakeInteractionManager(),
+            speech_service=speech_service,
+        )
+
+        with patch(
+            "desktop.backend.engine_facade.capture_cli_voice_turn",
+            return_value=SimpleNamespace(normalized_text="Open Safari"),
+        ) as capture_mock:
+            transcript = facade.capture_voice_text()
+
+        self.assertEqual(transcript, "Open Safari")
+        self.assertEqual(speech_service.stop_calls, 1)
+        capture_mock.assert_called_once()
 
     def test_speech_failure_adds_visible_warning(self) -> None:
         manager = _FakeInteractionManager(

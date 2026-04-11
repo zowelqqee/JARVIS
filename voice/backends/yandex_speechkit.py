@@ -49,6 +49,12 @@ _DEFAULT_TIMEOUT_SECONDS = 12.0
 _DEFAULT_MAX_TEXT_CHARS = 220
 _DEFAULT_JOIN_SILENCE_MS = 90
 _STD_CA_BUNDLE_ENVS = (_CA_BUNDLE_ENV, "SSL_CERT_FILE", "REQUESTS_CA_BUNDLE")
+_FALLBACK_CA_BUNDLE_PATHS = (
+    "/etc/ssl/cert.pem",
+    "/private/etc/ssl/cert.pem",
+    "/opt/homebrew/etc/openssl@3/cert.pem",
+    "/usr/local/etc/openssl@3/cert.pem",
+)
 _DEFAULT_PLAYER_BY_PLATFORM = {
     "darwin": ("afplay",),
 }
@@ -716,13 +722,25 @@ def _ca_bundle_path(environ: Mapping[str, str] | None = None) -> str | None:
     current = os.environ if environ is None else environ
     for env_name in _STD_CA_BUNDLE_ENVS:
         bundle_path = str(current.get(env_name, "") or "").strip()
-        if bundle_path:
+        if bundle_path and Path(bundle_path).is_file():
             return bundle_path
     try:
         import certifi
     except ImportError:
-        return None
-    return str(certifi.where()).strip() or None
+        certifi_path = None
+    else:
+        certifi_path = str(certifi.where()).strip() or None
+    if certifi_path and Path(certifi_path).is_file():
+        return certifi_path
+
+    default_verify_paths = ssl.get_default_verify_paths()
+    for candidate in (
+        str(getattr(default_verify_paths, "cafile", "") or "").strip(),
+        *(_FALLBACK_CA_BUNDLE_PATHS),
+    ):
+        if candidate and Path(candidate).is_file():
+            return candidate
+    return None
 
 
 def _ssl_cert_error_message(error: BaseException) -> str:

@@ -4,9 +4,12 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
+import os
+from typing import MutableMapping
 
 from voice.status import TTSBackendStatus, build_tts_backend_status
 from voice.tts_provider import SpeechUtterance, TTSProvider, TTSResult, build_default_tts_provider, stop_speech_if_supported
+from voice.tts_runtime_env import apply_cli_tts_env_defaults
 
 
 @dataclass(slots=True)
@@ -27,9 +30,12 @@ class DesktopSpeechService:
         *,
         tts_provider: TTSProvider | None = None,
         provider_factory: Callable[[], TTSProvider] | None = None,
+        environ: MutableMapping[str, str] | None = None,
     ) -> None:
+        self._environ = dict(os.environ) if environ is None else environ
+        apply_cli_tts_env_defaults(self._environ)
         self._provider = tts_provider
-        self._provider_factory = provider_factory or build_default_tts_provider
+        self._provider_factory = provider_factory or (lambda: build_default_tts_provider(environ=self._environ))
         self._enabled = False
         self._backend_name: str | None = None
         self._available: bool | None = None
@@ -109,6 +115,10 @@ class DesktopSpeechService:
                 self._available = False
             self._message = detail
         return result
+
+    def stop(self) -> bool:
+        """Stop any active speech output before an explicit new voice capture."""
+        return stop_speech_if_supported(self._provider)
 
     def _ensure_provider(self) -> TTSProvider | None:
         if self._provider is None:

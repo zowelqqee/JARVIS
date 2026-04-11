@@ -9,10 +9,14 @@ from desktop.backend.presenters import present_interaction_result
 from desktop.backend.session_service import BackendSessionService
 from desktop.backend.speech_service import DesktopSpeechService, SpeechState
 from desktop.backend.view_models import SessionSnapshotViewModel, StatusViewModel, TranscriptEntry, TurnViewModel
+from input.voice_input import VoiceInputError
 from interaction.interaction_manager import InteractionManager
 from voice.dispatcher import dispatch_interaction_input
 from voice.language import detect_spoken_locale
+from voice.session import capture_cli_voice_turn
 from voice.tts_provider import TTSResult
+
+_VOICE_CAPTURE_TIMEOUT_SECONDS = 8.0
 
 
 class EngineFacade:
@@ -84,6 +88,15 @@ class EngineFacade:
         self.session_context.clear_expired_or_resettable_context(preserve_recent_context=False)
         self._session_service.reset()
         return self.snapshot()
+
+    def capture_voice_text(self) -> str:
+        """Capture one spoken request for the desktop shell and return its transcript."""
+        self._speech_service.stop()
+        voice_turn = capture_cli_voice_turn(timeout_seconds=_VOICE_CAPTURE_TIMEOUT_SECONDS)
+        transcript = str(getattr(voice_turn, "normalized_text", "") or "").strip()
+        if transcript:
+            return transcript
+        raise VoiceInputError("EMPTY_RECOGNITION", "No speech was recognized. Try again.")
 
     def _handle_shell_command(self, raw_input: str) -> TurnViewModel | None:
         lowered = raw_input.casefold()

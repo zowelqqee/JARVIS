@@ -88,6 +88,65 @@ def build_stylesheet() -> str:
         background-color: #fcf7ef;
     }
 
+    QWidget#composerVoicePanel,
+    QWidget#composerTextPanel {
+        background-color: #fcf7ef;
+        border: 1px solid #dfd2c0;
+        border-radius: 16px;
+    }
+
+    QLabel#composerSectionLabel {
+        color: #1f2933;
+        font-size: 13px;
+        font-weight: 700;
+    }
+
+    QLabel#composerTextHint,
+    QLabel#composerSupportText,
+    QLabel#composerVoiceDetail,
+    QLabel#composerDivider {
+        color: #6d665b;
+        font-size: 12px;
+        line-height: 1.35;
+    }
+
+    QLabel#composerDivider {
+        color: #8b816f;
+        font-size: 11px;
+        font-weight: 700;
+        letter-spacing: 1.4px;
+        padding: 0 2px;
+    }
+
+    QLabel#composerVoiceStatePill {
+        background-color: #dff0ec;
+        border: 1px solid #9ecac2;
+        border-radius: 10px;
+        color: #0f5f5a;
+        font-size: 11px;
+        font-weight: 700;
+        padding: 3px 8px;
+    }
+
+    QLabel#composerVoiceStatePill[voiceState="listening"] {
+        background-color: #eef6f4;
+        border-color: #0f766e;
+        color: #0b635d;
+    }
+
+    QLabel#composerVoiceStatePill[voiceState="routing"] {
+        background-color: #f7f1e7;
+        border-color: #dbc9a6;
+        color: #7a6130;
+    }
+
+    QLabel#composerVoiceStatePill[voiceState="error"],
+    QLabel#composerVoiceStatePill[voiceState="unavailable"] {
+        background-color: #fff1ee;
+        border-color: #e0b0a7;
+        color: #8a4a3c;
+    }
+
     QListWidget#conversationList {
         background: transparent;
         border: none;
@@ -96,18 +155,139 @@ def build_stylesheet() -> str:
     }
 
     QListWidget#conversationList::item {
-        background-color: #fbf6ee;
-        border: 1px solid #dfd2c0;
-        border-radius: 14px;
+        background: transparent;
+        border: none;
         color: #22303a;
-        padding: 12px 14px;
+        padding: 0;
         margin: 0 0 10px 0;
     }
 
     QListWidget#conversationList::item:selected {
-        background-color: #e7f2ef;
-        border: 1px solid #90c3bc;
+        background: transparent;
+        border: none;
         color: #123136;
+    }
+
+    QFrame#transcriptEntryCard {
+        background-color: #fbf6ee;
+        border: 1px solid #dfd2c0;
+        border-radius: 14px;
+    }
+
+    QFrame#transcriptEntryCard[entryRole="user"] {
+        background-color: #eef5f3;
+        border-color: #b7d8d1;
+    }
+
+    QFrame#transcriptEntryCard[surfaceKind="question_answer"],
+    QFrame#transcriptEntryCard[surfaceKind="command_completion"] {
+        border-color: #c6d9cf;
+    }
+
+    QFrame#transcriptEntryCard[surfaceKind="clarification_prompt"],
+    QFrame#transcriptEntryCard[surfaceKind="confirmation_prompt"],
+    QFrame#transcriptEntryCard[surfaceKind="command_blocked"] {
+        background-color: #fff8ec;
+        border-color: #e4cf9f;
+    }
+
+    QFrame#transcriptEntryCard[surfaceKind="command_failure"],
+    QFrame#transcriptEntryCard[surfaceKind="question_failure"] {
+        background-color: #fff1ee;
+        border-color: #e0b0a7;
+    }
+
+    QFrame#transcriptEntryCard[surfaceKind="system_warning"] {
+        background-color: #fff7e3;
+        border-color: #dfc37c;
+    }
+
+    QLabel#transcriptRolePill,
+    QLabel#transcriptSurfacePill,
+    QLabel#transcriptStatePill,
+    QLabel#transcriptReplyChip,
+    QPushButton#transcriptReplyChipButton {
+        background-color: #f0e7da;
+        border: 1px solid #d8cab6;
+        border-radius: 10px;
+        color: #5e574d;
+        font-size: 11px;
+        font-weight: 700;
+        padding: 3px 8px;
+    }
+
+    QLabel#transcriptSurfacePill {
+        background-color: #dff0ec;
+        border-color: #9ecac2;
+        color: #0f5f5a;
+    }
+
+    QLabel#transcriptStatePill {
+        background-color: #f7f1e7;
+        border-color: #dbc9a6;
+        color: #7a6130;
+    }
+
+    QLabel#transcriptReplyChip {
+        background-color: #f3ece2;
+        color: #574d40;
+    }
+
+    QPushButton#transcriptReplyChipButton:hover {
+        border-color: #0f766e;
+        color: #0f5f5a;
+        background-color: #edf6f4;
+    }
+
+    QPushButton#transcriptReplyChipButton:pressed {
+        background-color: #dff0ec;
+    }
+
+    QLabel#transcriptSummaryText {
+        color: #0f5f5a;
+        font-size: 12px;
+        font-weight: 700;
+    }
+
+    QLabel#transcriptPrimaryText {
+        color: #22303a;
+        font-size: 13px;
+        line-height: 1.45;
+    }
+
+    QLabel#transcriptSectionHeading {
+        color: #1f2933;
+        font-size: 12px;
+        font-weight: 700;
+        margin-top: 4px;
+    }
+
+    QLabel#transcriptSecondaryText,
+    QLabel#transcriptListMeta {
+        color: #5e574d;
+        font-size: 12px;
+        line-height: 1.35;
+    }
+
+    QLabel#transcriptListMeta {
+        color: #7b7367;
+    }
+
+    QFrame#transcriptResultItem {
+        background-color: #fffdfa;
+        border: 1px solid #e1d7c9;
+        border-radius: 10px;
+    }
+
+    QLabel#transcriptResultItemTitle {
+        color: #24323b;
+        font-size: 12px;
+        font-weight: 700;
+    }
+
+    QLabel#transcriptResultItemDetail {
+        color: #7b7367;
+        font-size: 11px;
     }
 
     QPlainTextEdit#composerInput {
@@ -131,22 +311,48 @@ def build_stylesheet() -> str:
         color: #756f66;
     }
 
-    QPushButton#composerSendButton {
-        min-width: 108px;
-        padding: 10px 18px;
+    QPushButton#composerVoiceButton {
+        min-height: 52px;
+        padding: 12px 18px;
         border: none;
         border-radius: 14px;
         background-color: #0f766e;
         color: #fffdf8;
+        font-size: 14px;
+        font-weight: 700;
+    }
+
+    QPushButton#composerVoiceButton:hover:enabled {
+        background-color: #0b635d;
+    }
+
+    QPushButton#composerVoiceButton:pressed:enabled {
+        background-color: #0a5450;
+    }
+
+    QPushButton#composerVoiceButton:disabled {
+        background-color: #cfc8bd;
+        color: #8f877a;
+    }
+
+    QPushButton#composerSendButton {
+        min-width: 108px;
+        padding: 10px 18px;
+        border: 1px solid #d4c5b2;
+        border-radius: 14px;
+        background-color: #f7f1e7;
+        color: #1f2933;
         font-weight: 700;
     }
 
     QPushButton#composerSendButton:hover {
-        background-color: #0b635d;
+        border-color: #0f766e;
+        color: #0f5f5a;
+        background-color: #eef6f4;
     }
 
     QPushButton#composerSendButton:pressed {
-        background-color: #0a5450;
+        background-color: #dff0ec;
     }
 
     QPushButton#composerSendButton:disabled {
@@ -175,8 +381,38 @@ def build_stylesheet() -> str:
         color: #0d4f4a;
     }
 
+    QPushButton#statusActionButton {
+        min-height: 38px;
+        padding: 8px 12px;
+        border-radius: 12px;
+        border: 1px solid #d4c5b2;
+        background-color: #f7f1e7;
+        color: #1f2933;
+        font-weight: 600;
+    }
+
+    QPushButton#statusActionButton:hover:enabled {
+        border-color: #0f766e;
+        color: #0f5f5a;
+        background-color: #eef6f4;
+    }
+
+    QPushButton#statusActionButton:pressed:enabled {
+        background-color: #dff0ec;
+    }
+
+    QPushButton#statusActionButton:disabled {
+        background-color: #f4eee5;
+        color: #9a9184;
+        border-color: #ddd2c3;
+    }
+
     QLabel {
         color: #1f2933;
+    }
+
+    QLabel#statusPanelValue {
+        color: #2e3a42;
     }
 
     QStatusBar#appStatusBar {

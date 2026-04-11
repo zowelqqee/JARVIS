@@ -24,7 +24,7 @@ icon = /Users/arseniyabramidze/JARVIS/.venv-desktop-packaging/lib/python3.13/sit
 python_path = /Users/arseniyabramidze/JARVIS/.venv-desktop-packaging/bin/python
 
 # python packages to install
-packages = Nuitka==2.7.11
+packages = Nuitka==2.7.11,certifi>=2024.0.0
 
 # buildozer = for deploying Android application
 android_packages = buildozer==1.5.0,cython==0.29.33
@@ -94,4 +94,3 @@ local_libs =
 
 # architecture of deployed platform
 arch = 
-

@@ -13,6 +13,7 @@ import wave
 from voice.backends.yandex_speechkit import (
     YandexSpeechKitTTSBackend,
     _audio_bytes_from_response_body,
+    _ca_bundle_path,
     yandex_speechkit_backend_configured,
     yandex_speechkit_backend_requested,
 )
@@ -272,6 +273,20 @@ class YandexSpeechKitTTSBackendTests(unittest.TestCase):
         self.assertFalse(result.ok)
         self.assertEqual(result.error_code, "YANDEX_TLS_CERT_ERROR")
         self.assertIn("JARVIS_TTS_YANDEX_CA_BUNDLE", str(result.error_message))
+
+    def test_ca_bundle_path_falls_back_to_existing_system_bundle(self) -> None:
+        with patch.object(
+            Path,
+            "is_file",
+            autospec=True,
+            side_effect=lambda path: str(path) == "/etc/ssl/cert.pem",
+        ), patch(
+            "voice.backends.yandex_speechkit.ssl.get_default_verify_paths",
+            return_value=__import__("types").SimpleNamespace(cafile="/missing/python/cert.pem"),
+        ), patch.dict("sys.modules", {"certifi": None}):
+            bundle_path = _ca_bundle_path({})
+
+        self.assertEqual(bundle_path, "/etc/ssl/cert.pem")
 
     def test_audio_parser_accepts_newline_delimited_yandex_chunks(self) -> None:
         first = base64.b64encode(b"RIFF").decode("ascii")
