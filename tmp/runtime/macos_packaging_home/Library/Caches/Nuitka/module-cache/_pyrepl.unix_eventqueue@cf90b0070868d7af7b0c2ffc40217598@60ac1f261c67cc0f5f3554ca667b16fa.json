@@ -1,0 +1,98 @@
+{
+  "distribution_names": {},
+  "file_format_version": 7,
+  "module_name": "_pyrepl.unix_eventqueue",
+  "modules_used": [
+    {
+      "filename": "/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/_pyrepl",
+      "finding": "absolute",
+      "level": 1,
+      "module_kind": "py",
+      "module_name": "_pyrepl",
+      "reason": "import",
+      "source_ref_line": 21
+    },
+    {
+      "filename": "/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/_pyrepl/curses.py",
+      "finding": "relative",
+      "level": 1,
+      "module_kind": "py",
+      "module_name": "_pyrepl.curses",
+      "reason": "import fromlist",
+      "source_ref_line": 21
+    },
+    {
+      "filename": "/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/_pyrepl",
+      "finding": "absolute",
+      "level": 0,
+      "module_kind": "py",
+      "module_name": "_pyrepl",
+      "reason": "import path parent",
+      "source_ref_line": 22
+    },
+    {
+      "filename": "/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/_pyrepl/trace.py",
+      "finding": "absolute",
+      "level": 0,
+      "module_kind": "py",
+      "module_name": "_pyrepl.trace",
+      "reason": "import",
+      "source_ref_line": 22
+    },
+    {
+      "filename": "/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/_pyrepl",
+      "finding": "absolute",
+      "level": 0,
+      "module_kind": "py",
+      "module_name": "_pyrepl",
+      "reason": "import path parent",
+      "source_ref_line": 23
+    },
+    {
+      "filename": "/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/_pyrepl/base_eventqueue.py",
+      "finding": "absolute",
+      "level": 0,
+      "module_kind": "py",
+      "module_name": "_pyrepl.base_eventqueue",
+      "reason": "import",
+      "source_ref_line": 23
+    },
+    {
+      "filename": "/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/lib-dynload/termios.cpython-313-darwin.so",
+      "finding": "absolute",
+      "level": 0,
+      "module_kind": "extension",
+      "module_name": "termios",
+      "reason": "import",
+      "source_ref_line": 24
+    },
+    {
+      "filename": "/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/os.py",
+      "finding": "absolute",
+      "level": 0,
+      "module_kind": "py",
+      "module_name": "os",
+      "reason": "import",
+      "source_ref_line": 25
+    }
+  ],
+  "timing_infos": [
+    [
+      1,
+      0.008655833997181617,
+      5,
+      {
+        "1": 66,
+        "2": 45,
+        "3": 5,
+        "5": 5,
+        "8": 3,
+        "10": 5,
+        "11": 5,
+        "13": 6,
+        "14": 1,
+        "15": 5
+      }
+    ]
+  ]
+}

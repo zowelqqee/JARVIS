@@ -1,0 +1,33 @@
+{
+  "distribution_names": {},
+  "file_format_version": 7,
+  "module_name": "encodings.hp_roman8",
+  "modules_used": [
+    {
+      "filename": "/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/codecs.py",
+      "finding": "absolute",
+      "level": 0,
+      "module_kind": "py",
+      "module_name": "codecs",
+      "reason": "import",
+      "source_ref_line": 12
+    }
+  ],
+  "timing_infos": [
+    [
+      1,
+      0.01200716600578744,
+      4,
+      {
+        "1": 93,
+        "2": 60,
+        "5": 12,
+        "6": 8,
+        "7": 8,
+        "15": 4,
+        "16": 8,
+        "17": 8
+      }
+    ]
+  ]
+}

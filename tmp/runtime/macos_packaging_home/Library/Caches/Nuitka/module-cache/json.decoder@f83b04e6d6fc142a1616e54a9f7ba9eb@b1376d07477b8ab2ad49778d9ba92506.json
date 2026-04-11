@@ -1,0 +1,79 @@
+{
+  "distribution_names": {},
+  "file_format_version": 7,
+  "module_name": "json.decoder",
+  "modules_used": [
+    {
+      "filename": "/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/re",
+      "finding": "absolute",
+      "level": 0,
+      "module_kind": "py",
+      "module_name": "re",
+      "reason": "import",
+      "source_ref_line": 3
+    },
+    {
+      "filename": "/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/json",
+      "finding": "absolute",
+      "level": 0,
+      "module_kind": "py",
+      "module_name": "json",
+      "reason": "import",
+      "source_ref_line": 5
+    },
+    {
+      "filename": "/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/json/scanner.py",
+      "finding": "relative",
+      "level": 1,
+      "module_kind": "py",
+      "module_name": "json.scanner",
+      "reason": "import fromlist",
+      "source_ref_line": 5
+    },
+    {
+      "filename": "/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/lib-dynload/_json.cpython-313-darwin.so",
+      "finding": "absolute",
+      "level": 0,
+      "module_kind": "extension",
+      "module_name": "_json",
+      "reason": "import",
+      "source_ref_line": 7
+    }
+  ],
+  "timing_infos": [
+    [
+      1,
+      0.06778295799449552,
+      6,
+      {
+        "1": 198,
+        "2": 265,
+        "3": 56,
+        "4": 43,
+        "5": 20,
+        "6": 22,
+        "7": 14,
+        "8": 8,
+        "9": 4,
+        "10": 2,
+        "11": 4,
+        "12": 8,
+        "13": 8,
+        "14": 9,
+        "15": 7,
+        "18": 4,
+        "20": 2,
+        "24": 2,
+        "47": 4,
+        "48": 1,
+        "52": 1,
+        "56": 4,
+        "58": 1,
+        "59": 1,
+        "88": 4,
+        "89": 1,
+        "94": 1
+      }
+    ]
+  ]
+}

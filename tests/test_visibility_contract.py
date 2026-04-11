@@ -28,6 +28,18 @@ class VisibilityContractTests(unittest.TestCase):
             status_message="Parsed",
         )
 
+    def _russian_command(self) -> Command:
+        return Command(
+            raw_input="открой Telegram",
+            intent=IntentType.OPEN_APP,
+            targets=[Target(type=TargetType.APPLICATION, name="Telegram")],
+            parameters={},
+            confidence=0.9,
+            requires_confirmation=False,
+            execution_steps=[],
+            status_message="Parsed",
+        )
+
     def test_completed_payload_omits_failure_and_hint_fields(self) -> None:
         step = Step(
             id="step_1",
@@ -131,6 +143,74 @@ class VisibilityContractTests(unittest.TestCase):
         self.assertIn("failure_message", visibility)
         self.assertEqual(visibility.get("next_step_hint"), "Try using the app name instead of a window reference.")
         self.assertNotIn("completion_result", visibility)
+
+    def test_russian_completed_payload_localizes_generic_completion_result(self) -> None:
+        step = Step(
+            id="step_1",
+            action=StepAction.OPEN_APP,
+            target=Target(type=TargetType.APPLICATION, name="Telegram"),
+            status=StepStatus.DONE,
+            requires_confirmation=False,
+        )
+        visibility = map_visibility(
+            state="completed",
+            command=self._russian_command(),
+            completed_steps=[step],
+            completion_result="Completed open_app with 1 step(s).",
+        )
+
+        self.assertEqual(visibility.get("completion_result"), "Завершил open_app: 1 шаг.")
+
+    def test_russian_awaiting_clarification_payload_localizes_question_and_hint(self) -> None:
+        clarification = ClarificationRequest(
+            message="Which app do you want?",
+            code=ErrorCode.TARGET_NOT_FOUND.value,
+            options=["Telegram", "Safari"],
+        )
+        error = JarvisError(
+            category=ErrorCategory.VALIDATION_ERROR,
+            code=ErrorCode.MULTIPLE_MATCHES,
+            message="Multiple matching targets require clarification.",
+            details=None,
+            blocking=True,
+            terminal=False,
+        )
+        visibility = map_visibility(
+            state="awaiting_clarification",
+            command=self._russian_command(),
+            clarification=clarification,
+            error=error,
+        )
+
+        self.assertEqual(visibility.get("clarification_question"), "Какое приложение ты имеешь в виду?")
+        self.assertEqual(visibility.get("next_step_hint"), "Назови приложение или файл точнее.")
+
+    def test_russian_awaiting_confirmation_payload_localizes_message_and_hint(self) -> None:
+        confirmation = ConfirmationRequest(
+            message="Approve close_app for Telegram?",
+            affected_targets=[Target(type=TargetType.APPLICATION, name="Telegram")],
+            boundary_type=ConfirmationBoundaryType.STEP,
+        )
+        visibility = map_visibility(
+            state="awaiting_confirmation",
+            command=Command(
+                raw_input="закрой Telegram",
+                intent=IntentType.CLOSE_APP,
+                targets=[Target(type=TargetType.APPLICATION, name="Telegram")],
+                parameters={},
+                confidence=0.9,
+                requires_confirmation=True,
+                execution_steps=[],
+                status_message="Parsed",
+            ),
+            confirmation=confirmation,
+        )
+
+        self.assertEqual(
+            (visibility.get("confirmation_request") or {}).get("message"),
+            "Подтвердить close_app для Telegram?",
+        )
+        self.assertEqual(visibility.get("next_step_hint"), "Скажи да, чтобы продолжить, или нет, чтобы отменить.")
 
 
 if __name__ == "__main__":

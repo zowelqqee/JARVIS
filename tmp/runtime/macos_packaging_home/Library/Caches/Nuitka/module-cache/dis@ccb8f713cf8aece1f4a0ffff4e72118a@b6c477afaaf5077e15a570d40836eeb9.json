@@ -1,0 +1,148 @@
+{
+  "distribution_names": {},
+  "file_format_version": 7,
+  "module_name": "dis",
+  "modules_used": [
+    {
+      "filename": null,
+      "finding": "absolute",
+      "level": 0,
+      "module_kind": "built-in",
+      "module_name": "sys",
+      "reason": "import",
+      "source_ref_line": 3
+    },
+    {
+      "filename": "/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/types.py",
+      "finding": "absolute",
+      "level": 0,
+      "module_kind": "py",
+      "module_name": "types",
+      "reason": "import",
+      "source_ref_line": 4
+    },
+    {
+      "filename": "/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/collections",
+      "finding": "absolute",
+      "level": 0,
+      "module_kind": "py",
+      "module_name": "collections",
+      "reason": "import",
+      "source_ref_line": 5
+    },
+    {
+      "filename": "/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/io.py",
+      "finding": "absolute",
+      "level": 0,
+      "module_kind": "py",
+      "module_name": "io",
+      "reason": "import",
+      "source_ref_line": 6
+    },
+    {
+      "filename": "/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/opcode.py",
+      "finding": "absolute",
+      "level": 0,
+      "module_kind": "py",
+      "module_name": "opcode",
+      "reason": "import",
+      "source_ref_line": 8
+    },
+    {
+      "filename": "/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/opcode.py",
+      "finding": "absolute",
+      "level": 0,
+      "module_kind": "py",
+      "module_name": "opcode",
+      "reason": "import",
+      "source_ref_line": 9
+    },
+    {
+      "filename": "/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/lib-dynload/_opcode.cpython-313-darwin.so",
+      "finding": "absolute",
+      "level": 0,
+      "module_kind": "extension",
+      "module_name": "_opcode",
+      "reason": "import",
+      "source_ref_line": 20
+    },
+    {
+      "filename": "/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/io.py",
+      "finding": "absolute",
+      "level": 0,
+      "module_kind": "py",
+      "module_name": "io",
+      "reason": "import",
+      "source_ref_line": 417
+    },
+    {
+      "filename": "/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/io.py",
+      "finding": "absolute",
+      "level": 0,
+      "module_kind": "py",
+      "module_name": "io",
+      "reason": "import",
+      "source_ref_line": 1024
+    },
+    {
+      "filename": "/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/argparse.py",
+      "finding": "absolute",
+      "level": 0,
+      "module_kind": "py",
+      "module_name": "argparse",
+      "reason": "import",
+      "source_ref_line": 1055
+    }
+  ],
+  "timing_infos": [
+    [
+      1,
+      0.3490338330011582,
+      7,
+      {
+        "1": 1053,
+        "2": 1073,
+        "3": 218,
+        "4": 100,
+        "5": 178,
+        "6": 103,
+        "7": 51,
+        "8": 33,
+        "9": 24,
+        "10": 3,
+        "11": 12,
+        "12": 12,
+        "13": 23,
+        "14": 40,
+        "15": 14,
+        "16": 24,
+        "17": 8,
+        "18": 7,
+        "19": 11,
+        "20": 17,
+        "21": 1,
+        "22": 1,
+        "23": 19,
+        "24": 5,
+        "25": 2,
+        "26": 7,
+        "27": 5,
+        "28": 1,
+        "31": 2,
+        "35": 7,
+        "39": 7,
+        "43": 14,
+        "47": 7,
+        "56": 6,
+        "59": 1,
+        "61": 5,
+        "62": 1,
+        "72": 7,
+        "74": 1,
+        "85": 6,
+        "90": 7,
+        "100": 1
+      }
+    ]
+  ]
+}

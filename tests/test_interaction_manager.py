@@ -167,6 +167,15 @@ class InteractionManagerTests(unittest.TestCase):
         self.assertIn("open_app", getattr(result.runtime_result, "command_summary", "") or "")
         self.assertIsNone(self.session_context.get_pending_interaction_clarification())
 
+    def test_mixed_input_russian_question_returns_russian_clarification_surface(self) -> None:
+        result = self.manager.handle_input("Что ты умеешь and open Safari", session_context=self.session_context)
+
+        self.assertEqual(getattr(result.interaction_mode, "value", ""), "clarification")
+        self.assertEqual(
+            getattr(result.clarification_request, "message", ""),
+            "Сначала ответить или мне открыть Safari?",
+        )
+
     def test_mixed_input_unclear_reply_repeats_narrower_clarification(self) -> None:
         self.manager.handle_input("What can you do and open Safari", session_context=self.session_context)
 
@@ -176,6 +185,14 @@ class InteractionManagerTests(unittest.TestCase):
         self.assertEqual(getattr(result.clarification_request, "message", ""), "Please reply with answer or execute.")
         pending = self.session_context.get_pending_interaction_clarification()
         self.assertEqual((pending or {}).get("command_input"), "open Safari")
+
+    def test_mixed_input_unclear_russian_reply_repeats_russian_narrower_clarification(self) -> None:
+        self.manager.handle_input("Что ты умеешь and open Safari", session_context=self.session_context)
+
+        result = self.manager.handle_input("да", session_context=self.session_context)
+
+        self.assertEqual(getattr(result.interaction_mode, "value", ""), "clarification")
+        self.assertEqual(getattr(result.clarification_request, "message", ""), "Скажи: ответить или выполнить.")
 
     def test_blocked_state_question_returns_grounded_answer_without_runtime_execution(self) -> None:
         self.manager.runtime_manager.current_state = "awaiting_confirmation"

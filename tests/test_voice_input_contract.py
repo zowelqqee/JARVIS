@@ -31,6 +31,18 @@ class VoiceInputContractTests(unittest.TestCase):
         self.assertIsNotNone(error.hint)
         self.assertIn("Privacy & Security", error.hint or "")
 
+    def test_permission_denied_localizes_to_russian_for_russian_locale_chain(self) -> None:
+        error = voice_input._voice_error_from_result(
+            1,
+            "PERMISSION_DENIED|Speech recognition access was denied.",
+            preferred_locales=("ru-RU", "en-US"),
+        )
+
+        self.assertEqual(error.code, "PERMISSION_DENIED")
+        self.assertIn("распознаванию речи", str(error))
+        self.assertIsNotNone(error.hint)
+        self.assertIn("Проверь настройки macOS", error.hint or "")
+
     def test_permission_denied_with_noisy_prefix_keeps_structured_mapping(self) -> None:
         raw_message = (
             "2026-03-22 helper runtime warning from LaunchServices\n"

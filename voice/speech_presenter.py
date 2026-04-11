@@ -160,6 +160,7 @@ _SPOKEN_INTENT_TEMPLATES = {
         "open_file": "Opened file {targets}.",
         "open_folder": "Opened folder {targets}.",
         "prepare_workspace": "Prepared workspace: {targets}.",
+        "run_protocol": "Ran protocol {targets}.",
     },
     "ru": {
         "close_app": "Закрыл {targets}.",
@@ -167,6 +168,7 @@ _SPOKEN_INTENT_TEMPLATES = {
         "open_file": "Открыл файл {targets}.",
         "open_folder": "Открыл папку {targets}.",
         "prepare_workspace": "Подготовил рабочее пространство: {targets}.",
+        "run_protocol": "Запустил протокол {targets}.",
     },
 }
 

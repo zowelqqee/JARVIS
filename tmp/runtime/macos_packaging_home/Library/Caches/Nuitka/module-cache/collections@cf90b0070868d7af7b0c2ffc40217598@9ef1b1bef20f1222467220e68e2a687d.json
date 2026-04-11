@@ -1,0 +1,225 @@
+{
+  "distribution_names": {},
+  "file_format_version": 7,
+  "module_name": "collections",
+  "modules_used": [
+    {
+      "filename": "/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/os.py",
+      "finding": "absolute",
+      "level": 0,
+      "module_kind": "py",
+      "module_name": "os",
+      "reason": "import",
+      "source_ref_line": 1
+    },
+    {
+      "filename": "/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/_collections_abc.py",
+      "finding": "absolute",
+      "level": 0,
+      "module_kind": "py",
+      "module_name": "_collections_abc",
+      "reason": "import",
+      "source_ref_line": 29
+    },
+    {
+      "filename": null,
+      "finding": "absolute",
+      "level": 0,
+      "module_kind": "built-in",
+      "module_name": "sys",
+      "reason": "import",
+      "source_ref_line": 30
+    },
+    {
+      "filename": null,
+      "finding": "absolute",
+      "level": 0,
+      "module_kind": "built-in",
+      "module_name": "itertools",
+      "reason": "import",
+      "source_ref_line": 35
+    },
+    {
+      "filename": null,
+      "finding": "absolute",
+      "level": 0,
+      "module_kind": "built-in",
+      "module_name": "itertools",
+      "reason": "import",
+      "source_ref_line": 36
+    },
+    {
+      "filename": null,
+      "finding": "absolute",
+      "level": 0,
+      "module_kind": "built-in",
+      "module_name": "itertools",
+      "reason": "import",
+      "source_ref_line": 37
+    },
+    {
+      "filename": "/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/keyword.py",
+      "finding": "absolute",
+      "level": 0,
+      "module_kind": "py",
+      "module_name": "keyword",
+      "reason": "import",
+      "source_ref_line": 38
+    },
+    {
+      "filename": "/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/operator.py",
+      "finding": "absolute",
+      "level": 0,
+      "module_kind": "py",
+      "module_name": "operator",
+      "reason": "import",
+      "source_ref_line": 39
+    },
+    {
+      "filename": "/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/operator.py",
+      "finding": "absolute",
+      "level": 0,
+      "module_kind": "py",
+      "module_name": "operator",
+      "reason": "import",
+      "source_ref_line": 40
+    },
+    {
+      "filename": "/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/reprlib.py",
+      "finding": "absolute",
+      "level": 0,
+      "module_kind": "py",
+      "module_name": "reprlib",
+      "reason": "import",
+      "source_ref_line": 41
+    },
+    {
+      "filename": null,
+      "finding": "absolute",
+      "level": 0,
+      "module_kind": "built-in",
+      "module_name": "_weakref",
+      "reason": "import",
+      "source_ref_line": 42
+    },
+    {
+      "filename": null,
+      "finding": "absolute",
+      "level": 0,
+      "module_kind": "built-in",
+      "module_name": "_collections",
+      "reason": "import",
+      "source_ref_line": 45
+    },
+    {
+      "filename": null,
+      "finding": "absolute",
+      "level": 0,
+      "module_kind": "built-in",
+      "module_name": "_collections",
+      "reason": "import",
+      "source_ref_line": 52
+    },
+    {
+      "filename": null,
+      "finding": "absolute",
+      "level": 0,
+      "module_kind": "built-in",
+      "module_name": "_collections",
+      "reason": "import",
+      "source_ref_line": 57
+    },
+    {
+      "filename": null,
+      "finding": "absolute",
+      "level": 0,
+      "module_kind": "built-in",
+      "module_name": "_collections",
+      "reason": "import",
+      "source_ref_line": 343
+    },
+    {
+      "filename": null,
+      "finding": "absolute",
+      "level": 0,
+      "module_kind": "built-in",
+      "module_name": "_collections",
+      "reason": "import",
+      "source_ref_line": 354
+    },
+    {
+      "filename": null,
+      "finding": "absolute",
+      "level": 0,
+      "module_kind": "built-in",
+      "module_name": "_collections",
+      "reason": "import",
+      "source_ref_line": 544
+    },
+    {
+      "filename": "/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/heapq.py",
+      "finding": "absolute",
+      "level": 0,
+      "module_kind": "py",
+      "module_name": "heapq",
+      "reason": "import",
+      "source_ref_line": 635
+    },
+    {
+      "filename": "/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/copy.py",
+      "finding": "absolute",
+      "level": 0,
+      "module_kind": "py",
+      "module_name": "copy",
+      "reason": "import",
+      "source_ref_line": 1196
+    }
+  ],
+  "timing_infos": [
+    [
+      1,
+      0.501586041005794,
+      7,
+      {
+        "1": 1594,
+        "2": 1368,
+        "3": 279,
+        "4": 176,
+        "5": 118,
+        "6": 143,
+        "7": 73,
+        "8": 118,
+        "9": 43,
+        "10": 51,
+        "11": 41,
+        "12": 23,
+        "13": 25,
+        "14": 48,
+        "15": 26,
+        "16": 63,
+        "17": 7,
+        "18": 19,
+        "19": 18,
+        "20": 1,
+        "21": 2,
+        "22": 4,
+        "23": 9,
+        "24": 2,
+        "26": 4,
+        "28": 1,
+        "30": 1,
+        "37": 15,
+        "38": 6,
+        "53": 4,
+        "54": 1,
+        "56": 2,
+        "66": 1,
+        "68": 4,
+        "90": 5,
+        "91": 2,
+        "99": 1,
+        "124": 1
+      }
+    ]
+  ]
+}

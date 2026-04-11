@@ -1,0 +1,288 @@
+{
+  "distribution_names": {},
+  "file_format_version": 7,
+  "module_name": "typing",
+  "modules_used": [
+    {
+      "filename": "/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/abc.py",
+      "finding": "absolute",
+      "level": 0,
+      "module_kind": "py",
+      "module_name": "abc",
+      "reason": "import",
+      "source_ref_line": 21
+    },
+    {
+      "filename": "/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/collections",
+      "finding": "absolute",
+      "level": 0,
+      "module_kind": "py",
+      "module_name": "collections",
+      "reason": "import",
+      "source_ref_line": 22
+    },
+    {
+      "filename": "/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/collections",
+      "finding": "absolute",
+      "level": 0,
+      "module_kind": "py",
+      "module_name": "collections",
+      "reason": "import",
+      "source_ref_line": 23
+    },
+    {
+      "filename": null,
+      "finding": "not-found",
+      "level": 1,
+      "module_kind": null,
+      "module_name": "collections.defaultdict",
+      "reason": "import fromlist",
+      "source_ref_line": 23
+    },
+    {
+      "filename": "/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/collections",
+      "finding": "absolute",
+      "level": 0,
+      "module_kind": "py",
+      "module_name": "collections",
+      "reason": "import path parent",
+      "source_ref_line": 24
+    },
+    {
+      "filename": null,
+      "finding": "not-found",
+      "level": 0,
+      "module_kind": null,
+      "module_name": "collections.abc",
+      "reason": "import",
+      "source_ref_line": 24
+    },
+    {
+      "filename": "/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/copyreg.py",
+      "finding": "absolute",
+      "level": 0,
+      "module_kind": "py",
+      "module_name": "copyreg",
+      "reason": "import",
+      "source_ref_line": 25
+    },
+    {
+      "filename": "/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/functools.py",
+      "finding": "absolute",
+      "level": 0,
+      "module_kind": "py",
+      "module_name": "functools",
+      "reason": "import",
+      "source_ref_line": 26
+    },
+    {
+      "filename": "/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/operator.py",
+      "finding": "absolute",
+      "level": 0,
+      "module_kind": "py",
+      "module_name": "operator",
+      "reason": "import",
+      "source_ref_line": 27
+    },
+    {
+      "filename": null,
+      "finding": "absolute",
+      "level": 0,
+      "module_kind": "built-in",
+      "module_name": "sys",
+      "reason": "import",
+      "source_ref_line": 28
+    },
+    {
+      "filename": "/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/types.py",
+      "finding": "absolute",
+      "level": 0,
+      "module_kind": "py",
+      "module_name": "types",
+      "reason": "import",
+      "source_ref_line": 29
+    },
+    {
+      "filename": "/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/types.py",
+      "finding": "absolute",
+      "level": 0,
+      "module_kind": "py",
+      "module_name": "types",
+      "reason": "import",
+      "source_ref_line": 30
+    },
+    {
+      "filename": null,
+      "finding": "absolute",
+      "level": 0,
+      "module_kind": "built-in",
+      "module_name": "_typing",
+      "reason": "import",
+      "source_ref_line": 32
+    },
+    {
+      "filename": "/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/warnings.py",
+      "finding": "absolute",
+      "level": 0,
+      "module_kind": "py",
+      "module_name": "warnings",
+      "reason": "import",
+      "source_ref_line": 442
+    },
+    {
+      "filename": "/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/warnings.py",
+      "finding": "absolute",
+      "level": 0,
+      "module_kind": "py",
+      "module_name": "warnings",
+      "reason": "import",
+      "source_ref_line": 1690
+    },
+    {
+      "filename": "/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/inspect.py",
+      "finding": "absolute",
+      "level": 0,
+      "module_kind": "py",
+      "module_name": "inspect",
+      "reason": "import",
+      "source_ref_line": 2007
+    },
+    {
+      "filename": "/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/warnings.py",
+      "finding": "absolute",
+      "level": 0,
+      "module_kind": "py",
+      "module_name": "warnings",
+      "reason": "import",
+      "source_ref_line": 2672
+    },
+    {
+      "filename": "/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/functools.py",
+      "finding": "absolute",
+      "level": 0,
+      "module_kind": "py",
+      "module_name": "functools",
+      "reason": "import",
+      "source_ref_line": 2693
+    },
+    {
+      "filename": "/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/warnings.py",
+      "finding": "absolute",
+      "level": 0,
+      "module_kind": "py",
+      "module_name": "warnings",
+      "reason": "import",
+      "source_ref_line": 3103
+    },
+    {
+      "filename": "/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/warnings.py",
+      "finding": "absolute",
+      "level": 0,
+      "module_kind": "py",
+      "module_name": "warnings",
+      "reason": "import",
+      "source_ref_line": 3296
+    },
+    {
+      "filename": "/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/re",
+      "finding": "absolute",
+      "level": 0,
+      "module_kind": "py",
+      "module_name": "re",
+      "reason": "import",
+      "source_ref_line": 3801
+    },
+    {
+      "filename": "/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/contextlib.py",
+      "finding": "absolute",
+      "level": 0,
+      "module_kind": "py",
+      "module_name": "contextlib",
+      "reason": "import",
+      "source_ref_line": 3804
+    },
+    {
+      "filename": "/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/warnings.py",
+      "finding": "absolute",
+      "level": 0,
+      "module_kind": "py",
+      "module_name": "warnings",
+      "reason": "import",
+      "source_ref_line": 3807
+    }
+  ],
+  "timing_infos": [
+    [
+      1,
+      2.107891500010737,
+      7,
+      {
+        "1": 3840,
+        "2": 3497,
+        "3": 349,
+        "4": 194,
+        "5": 214,
+        "6": 233,
+        "7": 144,
+        "8": 74,
+        "9": 86,
+        "10": 64,
+        "11": 46,
+        "12": 66,
+        "13": 54,
+        "14": 78,
+        "15": 134,
+        "16": 68,
+        "17": 77,
+        "18": 28,
+        "19": 20,
+        "20": 22,
+        "21": 59,
+        "22": 12,
+        "23": 21,
+        "24": 9,
+        "25": 5,
+        "26": 7,
+        "27": 13,
+        "28": 9,
+        "29": 1,
+        "30": 2,
+        "31": 9,
+        "32": 1,
+        "33": 6,
+        "34": 1,
+        "35": 2,
+        "36": 9,
+        "37": 5,
+        "38": 7,
+        "39": 6,
+        "40": 11,
+        "43": 6,
+        "44": 1,
+        "45": 5,
+        "46": 6,
+        "47": 4,
+        "48": 2,
+        "50": 11,
+        "51": 1,
+        "53": 1,
+        "55": 2,
+        "56": 1,
+        "57": 1,
+        "58": 1,
+        "59": 2,
+        "60": 11,
+        "61": 1,
+        "63": 1,
+        "67": 1,
+        "69": 1,
+        "72": 1,
+        "77": 1,
+        "79": 1,
+        "81": 5,
+        "142": 5,
+        "148": 2
+      }
+    ]
+  ]
+}

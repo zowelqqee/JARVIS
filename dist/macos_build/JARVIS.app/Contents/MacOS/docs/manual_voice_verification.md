@@ -1,0 +1,294 @@
+# JARVIS Manual Voice Verification
+
+## Purpose
+- Provide one focused manual checklist for the current one-shot CLI voice path.
+- Keep voice verification separate from the broader shell and QA operator checklists.
+- Make the current supported surface and current limitations explicit before live microphone testing.
+
+## Current Scope
+- Voice entry point is `voice` or `/voice` inside `python3 cli.py`.
+- Voice capture is macOS-only and depends on the local helper in `input/macos_voice_capture.m`.
+- The current mode is still not a continuous conversation loop.
+- CLI may open a bounded sequence of immediate blocking follow-up replies only when `JARVIS_VOICE_CONTINUOUS_MODE=1`.
+- Spoken output is optional and controlled by `speak on` / `speak off`.
+- Optional earcons can be enabled with `JARVIS_VOICE_EARCONS=1`.
+- Interruptible local TTS backends may now stop in-flight speech before a new listening phase begins.
+- macOS TTS now prefers livelier male-first English voices when they are installed locally.
+- Russian TTS now prefers a male-first voice chain when available locally, otherwise falls back to the installed Russian default voice.
+- Russian and English are both expected to work for the MVP voice surface.
+
+## Current Limitations
+- No managed continuous listening session yet.
+- Advanced voice follow-up mode is disabled by default until manual QA is complete.
+- No automatic unbounded multi-turn loop even when the flag is enabled.
+- When `JARVIS_VOICE_CONTINUOUS_MODE=1`, CLI may auto-capture at most two extra follow-up replies after the initial voice turn.
+- Short-answer follow-up opens only when `JARVIS_VOICE_CONTINUOUS_MODE=1` and spoken output is enabled via `speak on`.
+- No live microphone smoke is implied by unit tests; this checklist must be run manually.
+- Spoken output is summary-oriented and may differ from terminal output by design.
+
+## Setup
+- Run: `python3 cli.py`
+- Plain `python3 cli.py` is now enough for the normal smoke path.
+- On this machine, plain `python3 cli.py` currently prefers the repo-local independent backend `local_piper` because `tmp/runtime/piper` is populated with a real Piper runtime and local models.
+- Current local-model slots on this machine:
+  - `tmp/runtime/piper/models/ru_male.onnx`
+  - `tmp/runtime/piper/models/en_male.onnx`
+- Native macOS and legacy `say` remain fallback/debug paths behind the manager, but they are no longer the preferred spoken-output path while the repo-local Piper runtime is present.
+- If you want one explicit pinned launcher that keeps the Xcode developer dir visible in the command itself, run: `scripts/run_voice_native_smoke.sh`
+- If the repo-local Piper runtime is disabled or unavailable, plain `python3 cli.py` on this machine can still prefer the native backend because it auto-selects the known-good Xcode developer dir when no explicit `DEVELOPER_DIR` override is set.
+- `scripts/run_voice_native_smoke.sh` still remains a useful explicit pinned shortcut for manual smoke and override debugging, but helper output now prefers plain `python3 cli.py` when no explicit override is needed.
+- The macOS voice capture helper now rebuilds into repo-local `tmp/runtime/voice_capture`, so the permission target stays stable across runs instead of depending on `/tmp`.
+- If macOS Privacy settings does not show a friendly app name, look for `jarvis_macos_voice_capture` or bundle id `com.jarvis.voice.capture.helper`.
+- Current known blocker on this machine: plain `python3 cli.py` now reaches `macos_native`, but a real `voice` turn still stops at `Speech recognition access was denied.` until macOS `Speech Recognition` permission is granted.
+- After permissions are granted, rerun the same plain CLI path and finish the evidence flow with `voice`, `voice telemetry write`, and then `voice readiness write`.
+- To verify automatic blocking follow-up, run: `JARVIS_VOICE_CONTINUOUS_MODE=1 python3 cli.py`
+- To verify optional earcons, run: `JARVIS_VOICE_EARCONS=1 python3 cli.py`
+- Optional TTS tuning:
+  - plain `python3 cli.py` now also looks for repo-local TTS defaults in `tmp/runtime/jarvis_tts.env`; it only fills missing `JARVIS_TTS_*` keys, so explicit shell `export` values still win
+  - that local runtime file may also carry `JARVIS_TTS_YANDEX_API_KEY` when you want the Russian cloud voice to work from any terminal tab without re-exporting the key every time
+  - `voice tts backend` now surfaces when those local defaults were loaded, plus which keys were actually applied
+  - set `JARVIS_TTS_YANDEX_ENABLED=1` plus `JARVIS_TTS_YANDEX_API_KEY=...` to try the optional Yandex SpeechKit cloud backend for Russian TTS; the current default voice/style are `JARVIS_TTS_YANDEX_VOICE=ermil` and `JARVIS_TTS_YANDEX_ROLE=good`
+  - if you want deterministic language routing during manual smoke, set `JARVIS_TTS_RU_BACKEND=yandex_speechkit` and keep English on the local backend with `JARVIS_TTS_EN_BACKEND=local_piper`
+  - when Yandex SpeechKit is enabled and available, Russian speech now stays on the Yandex route by default instead of silently falling through to the old local Russian model; set `JARVIS_TTS_RU_ALLOW_FALLBACK=1` only if you explicitly want the old fallback chain back
+  - when `JARVIS_TTS_RU_BACKEND=yandex_speechkit` is set, Russian speech now stays on that pinned Yandex route by default instead of silently falling through to the old local Russian model; set `JARVIS_TTS_RU_ALLOW_FALLBACK=1` only if you explicitly want the old fallback chain back
+  - Yandex SpeechKit is only wired when explicitly enabled, sends spoken text to Yandex Cloud, and falls back through the existing local backend chain when unavailable or when a non-Russian utterance is routed
+  - if Yandex credentials are present but `JARVIS_TTS_YANDEX_ENABLED` is still unset or `0`, `voice tts backend` now surfaces `yandex_speechkit` as disabled instead of hiding it from diagnostics
+  - on macOS, if the repo-local Piper runtime is present, `local_piper` now wins before native `macos_native` and legacy `say`
+  - set `JARVIS_TTS_PIPER_ENABLED=0` if you need to temporarily opt out of the local-model backend during debugging
+  - native TTS still remains available behind the manager; set `JARVIS_TTS_MACOS_NATIVE=0` to force the legacy `say` fallback, or keep `JARVIS_TTS_MACOS_NATIVE=1` as an explicit pin during rollout smoke
+  - `JARVIS_TTS_EN_VOICE` / `JARVIS_TTS_RU_VOICE` to override the selected macOS voice
+  - `JARVIS_TTS_RATE`, `JARVIS_TTS_EN_RATE`, `JARVIS_TTS_RU_RATE` to tune speaking rate
+- Optional offline rollout helpers:
+  - `voice mode` inside CLI to inspect whether bounded advanced follow-up mode is currently enabled
+  - `voice last` inside CLI to inspect the most recent voice dispatch, follow-up control, or speech interruption handled in this session
+  - `voice status` inside CLI to inspect current session voice state, `speak on/off`, bounded-loop counters, and speech interruption counts
+  - `voice tts backend` inside CLI to inspect which TTS backend is currently active and which capabilities it reports
+  - for native macOS fallback debugging, `voice tts backend` may now also surface compact recovery guidance when the preferred backend is unavailable
+  - `voice tts voices` inside CLI to inspect voices visible to the active backend
+  - `voice tts current` inside CLI to inspect how core product-level voice profiles resolve right now
+  - `voice tts doctor` inside CLI to inspect fallback reasons, profile resolution, voice visibility, and suggested next checks in one place
+  - `voice tts say [ru|en] <text>` inside CLI to speak one direct operator-provided line through the active backend without going through QA/OpenAI
+  - for native macOS fallback debugging, `voice tts doctor` may now report specific startup classes such as `HOST_TOOLCHAIN_MISSING`, `HOST_SDK_MISMATCH`, `HOST_SWIFT_BRIDGING_CONFLICT`, or `HOST_COMPILE_FAILED`
+  - for `HOST_SDK_MISMATCH`, helper output may now also show the exact `sdk toolchain`, `active compiler`, current `active developer dir`, and active `swiftc` path taken from local diagnostics
+  - when native smoke is running through an explicit `DEVELOPER_DIR=...` override, helper output may now also show `developer dir override: ...` so the current env-based workaround is visible without changing global `xcode-select`
+  - for `HOST_COMPILE_FAILED`, helper output may now also keep current runtime toolchain context such as `developer dir override`, `active developer dir`, and `active swiftc`
+  - when a native blocker already carries `developer dir override: ...`, helper follow-up commands may now also include the same `DEVELOPER_DIR=...` prefix automatically
+  - when native smoke is already ready via `DEVELOPER_DIR=...`, `voice readiness` and `voice gate` may now also keep that override in the suggested CLI command instead of dropping back to a generic `python3 cli.py`
+  - for `HOST_TIMEOUT`, helper output may now still show runtime toolchain details such as `active developer dir` and active `swiftc`, even when the native host never answers the initial ping
+  - for `HOST_TIMEOUT`, `voice readiness` and `voice gate` may now also switch to a timeout-specific `next step` that points back to the native doctor helper plus current toolchain details
+  - for `HOST_SDK_MISMATCH`, both `voice tts backend` and `voice tts doctor` may now suggest checking `xcode-select -p` so the active developer dir can be aligned with the reported SDK/compiler pair before rerunning typecheck
+  - if native macOS diagnostics point at toolchain or compile issues, run `xcrun swiftc -typecheck voice/native_hosts/macos_tts_host.swift` for one direct offline check of the active Swift toolchain
+  - for one explicit pinned native smoke path, `scripts/run_voice_native_smoke.sh` still wraps the known-good `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer` launch without requiring a global `xcode-select` switch
+  - `voice readiness` inside CLI or `python3 -m voice.readiness`
+  - when native TTS is enabled for the current macOS run, `voice readiness` and `voice gate` now also surface a separate `native tts smoke` status, reason, and diagnostic detail lines
+  - those helpers may now also run a side-effect-minimal live-capture permission preflight, so they can surface `live capture preflight status` and a permission-aware `next step` even before any telemetry artifact exists
+  - after manual verification is already recorded, those helpers may also switch `next step` directly to a native-specific recovery path such as `resolve_native_tts_sdk_mismatch`
+  - for `HOST_SDK_MISMATCH`, `voice readiness` and `voice gate` may also show `next step detail` lines such as `xcode-select -p` so the active developer dir can be aligned with the reported SDK/compiler/developer-dir/swiftc details before rerunning typecheck
+  - `voice readiness write` inside CLI to persist the final readiness artifact when unblocked
+  - `voice gate` inside CLI or `python3 -m voice.gate`
+  - shell wrapper: `scripts/run_voice_readiness_gate.sh`
+- For offline QA artifacts outside the default `tmp/qa` location, both Python helpers also accept `--artifact-path` and `--telemetry-artifact-path`.
+- Optional session metrics helper inside CLI: `voice telemetry`
+- `voice telemetry` now also shows `follow-up relisten count` and `follow-up dismiss count` for `listen again` / `stop speaking` style control replies.
+- `voice telemetry` also shows `max follow-up chain length` and `follow-up limit hit count` for the bounded multi-turn loop.
+- `voice telemetry` now also shows `speech interrupt count` for any local TTS interruption in the session and `speech interrupt for capture count` for the narrower case where the next listening phase barges in on active speech.
+- `voice telemetry` also separates `speech interrupt for response count`, so interrupted latency fillers are visible apart from capture-side barging.
+- If a new capture cannot interrupt active speech, CLI should print `voice: Cannot interrupt active speech for capture.`, `voice telemetry` should increment `speech interrupt conflict count`, and `voice last` should show an `interruption_conflict` event.
+- If a latency filler is interrupted because the final spoken answer is ready, `voice last` should show an `interruption` event with reason `final_answer_start`.
+- After `voice telemetry write`, the saved telemetry artifact is also surfaced by `voice readiness` and `voice gate`, including `speech interrupt conflict count` for failed barge-in attempts during live QA.
+  - To inspect the saved telemetry artifact later, run: `voice telemetry artifact` inside CLI or `python3 -m voice.telemetry`
+  - the saved telemetry artifact may now also retain the latest live capture blocker and hint, for example `PERMISSION_DENIED` plus the macOS privacy-settings hint
+  - To persist the current session snapshot to `tmp/qa`, run: `voice telemetry write`
+  - After saving telemetry, `voice readiness` and `voice gate` will also surface the saved follow-up relisten/dismiss counts as rollout evidence.
+  - if the latest recorded live capture failed before dispatch, those helpers may now also surface `latest recorded live capture status`, the blocker reason, and a permission-aware `next step` instead of only saying that manual verification is still missing
+- Confirm the shell banner includes `voice` and `speak on`.
+- On first use, allow macOS `Microphone` and `Speech Recognition` permissions if prompted.
+- If capture fails immediately, verify macOS Settings -> Privacy & Security -> Microphone / Speech Recognition.
+- If `voice readiness` or `voice gate` already reports `grant_live_voice_permissions`, treat that as the current rollout blocker and rerun the same CLI path after granting access instead of debugging TTS first.
+- If spoken output is needed, run `speak on` first.
+
+## Expected General Behavior
+- `voice` prints `voice: listening... speak now.`
+- After capture, CLI prints one normalized `recognized: "..."` line.
+- If the first initial capture looks like locale-noise fallback gibberish, CLI may ask once more with `voice: didn't catch that clearly. speak again.` and retry the initial capture with the alternate locale order before routing.
+- If `JARVIS_VOICE_CONTINUOUS_MODE=1` and a voice turn ends in blocking clarification or confirmation, CLI should print `voice: follow-up... speak now.` and may continue for up to two extra follow-up replies in the same bounded loop.
+- If `JARVIS_VOICE_CONTINUOUS_MODE=1`, `speak on` is enabled, and a question answer is short enough, CLI may keep the bounded loop alive for one more immediate answer follow-up.
+- If the bounded loop still wants another follow-up after those two extra turns, CLI should stop cleanly with `voice: follow-up limit reached.`
+- With `JARVIS_VOICE_EARCONS=1`, that limit-reached close may also emit a short error cue.
+- With `speak on`, a slow question or answer-follow-up may briefly emit `voice: thinking...` plus a short spoken filler such as `One moment.` or `Одну секунду.` before the final answer.
+- If that short filler is still speaking when the next listening phase starts, the local TTS backend may stop it instead of waiting for the whole utterance to finish.
+- With `JARVIS_VOICE_EARCONS=1`, CLI may emit short non-verbal cues for listening start, listening stop, error, and speech start.
+- The normalized line may be English even for Russian fixed phrases and follow-ups.
+- Runtime behavior must stay deterministic after normalization.
+- Spoken output should be shorter and friendlier than terminal output.
+
+## Checklist
+
+### 1) Russian open-app command
+- Shell input: `voice`
+- Spoken input: `Джарвис, открой телеграм`
+- Expected recognized text: `open telegram`
+- Expected result: command path executes or returns explicit `APP_UNAVAILABLE`; no question fallback.
+
+### 2) English open-app command
+- Shell input: `voice`
+- Spoken input: `open Safari`
+- Expected recognized text: `open Safari`
+- Expected result: command path executes or returns explicit app availability failure.
+
+### 3) Russian open-domain question
+- Shell input: `voice`
+- Spoken input: `Кто президент Франции`
+- Expected recognized text: `Кто президент Франции`
+- Expected result: question path, no command execution.
+- Important: answer freshness depends on the configured QA backend and environment.
+- Spoken answers should now return immediately as a short two-sentence summary instead of ending with a follow-up teaser phrase.
+- For unsafe or refusal question cases, spoken output should stay short; if the refusal includes immediate self-harm safety guidance, it may mention `988` briefly instead of reading a long policy-style answer aloud.
+
+### 4) Fixed Russian capabilities prompt
+- Shell input: `voice`
+- Spoken input: `Что ты умеешь что ты умеешь`
+- Expected recognized text: `what can you do`
+- Expected result: grounded question answer, no clarification loop.
+
+### 5) Russian mixed question + command
+- Shell input: `voice`
+- Spoken input: `Что ты умеешь и открой сафари`
+- Expected recognized text: `Что ты умеешь and open safari`
+- Expected result: routing clarification only; no silent answer-plus-execute behavior.
+- For ambiguous target prompts, spoken clarification should avoid reading full paths aloud and should stay short enough to answer by voice.
+- If clarification or failure text accidentally contains debug tails like `Debug:` or `request_id=...`, spoken output should drop them before speaking.
+- For short English failures with a known `next_step_hint`, spoken output may include that hint as a second short sentence instead of dropping it.
+
+### 6) Russian clarification follow-up by voice
+- Precondition: run CLI with `JARVIS_VOICE_CONTINUOUS_MODE=1`.
+- Precondition: trigger the mixed interaction scenario above from one `voice` command.
+- Shell input: `voice`
+- Spoken input sequence:
+  - first turn: `Что ты умеешь и открой сафари`
+  - follow-up turn after `voice: follow-up... speak now.`: `ответить`
+- Expected result: question branch executes and the pending mixed clarification clears.
+- English follow-up variants like `just answer`, `go ahead`, `do it`, or `open it` should also resolve naturally inside the same mixed clarification window.
+- Repeat with:
+  - first turn: `Что ты умеешь и открой сафари`
+  - follow-up turn: `выполнить`
+- Expected result: command branch executes and the pending mixed clarification clears.
+- If the follow-up reply is missed once, CLI should give one more short prompt like `voice: didn't catch that. speak again.`
+- With `JARVIS_VOICE_EARCONS=1`, that missed follow-up retry should also emit a short error cue.
+- If the follow-up is still missed after that retry, the window should close cleanly instead of crashing the voice shell.
+
+### 7) Russian answer follow-up by voice
+- Precondition: ask any grounded question that leaves recent answer context, for example `Что ты умеешь`.
+- Precondition: if you want the immediate auto-follow-up window, run CLI with `JARVIS_VOICE_CONTINUOUS_MODE=1` and `speak on`.
+- Shell input sequence:
+  - first `voice` turn: ask the grounded question
+  - if the immediate follow-up window opens: say `скажи подробнее`
+  - otherwise start a second fresh `voice` turn and say `скажи подробнее`
+- Expected recognized text for the follow-up reply: `Explain more`
+- Expected result: answer-follow-up path reuses recent answer context and returns a more detailed grounded answer.
+- If that follow-up still ends in a short spoken answer, CLI may open one more immediate follow-up window before the bounded loop stops.
+- English voice variants like `tell me more`, `which source`, `where is that from`, `why is that`, and `say that again` should normalize to the same follow-up surface.
+- For source-oriented follow-ups, spoken output should shorten absolute file or folder paths to short names instead of reading full `/Users/...` or `/tmp/...` paths aloud.
+- In the Russian voice path, short source answers should also use a Russian spoken cue such as `Источник:` or `Источники:` instead of leaving English prefixes like `Relevant sources:`.
+- The same source-aware rendering should work when the upstream answer text itself already uses Russian prefixes like `Источник:` or `Источники:`.
+- It should also work for dash-style prefixes like `Sources -`, `Источник -`, or `Источники —`, not only for the colon form.
+- If a source-oriented spoken answer contains a long list of files or hosts, TTS should shorten it to the first two short labels plus a brief tail like `and 2 more` or `и ещё 2 источника`.
+- If a source list mixes file labels and website hosts, spoken output should still keep clean short labels like `clarification_rules.md` and `docs.python.org` and should not leave a raw `and` attached to the final label.
+- For a short mixed pair like `file + host`, spoken output may also use a natural conjunction such as `clarification_rules.md and docs.python.org` or `clarification_rules.md и docs.python.org`.
+- If the underlying answer text already includes a short source cue after the first sentence, spoken output may keep both pieces: first the answer summary, then a second short phrase like `Sources: ...` or `Источники: ...`.
+- Even if that source cue is attached with punctuation like `; Relevant sources: ...`, spoken output should still separate the answer summary from the source phrase cleanly.
+- The same cleanup should hold when the source cue appears after parentheses or dash-like punctuation, for example `(Relevant sources: ...)` or `— Relevant sources: ...`.
+- The same cleanup should also hold when the source cue is wrapped in quotes or guillemets, so spoken output does not keep stray quote characters around the summary or source labels.
+- If such an answer also carries a warning, spoken output should keep a natural order: answer first, then source cue, then warning.
+- In the same heavier cases, the warning itself may also shorten to a tighter spoken form like `Warning: May be out of date.` or `Предупреждение: Ответ может быть неактуален.`
+- Provenance-style warnings about local sources or model knowledge may also switch to a lighter spoken prefix like `Note:` or `Примечание:` in those heavier cases.
+- If the spoken answer references repo-relative paths like `docs/clarification_rules.md` or contains light markdown formatting, TTS should still say a short clean phrase such as `clarification_rules.md`, not read slashes, backticks, or formatting markers aloud.
+- If the spoken answer includes a website URL, TTS should prefer a short host like `docs.python.org` instead of reading `https://...` literally.
+- If QA/debug noise leaks into the answer text, spoken output should drop tails like `Debug:`, `Traceback`, `request_id=...`, or `latency_ms=...` instead of reading them aloud.
+- If voice/TTS is running with an explicit locale hint, utterance locale selection should keep that explicit locale even when the spoken message itself is mixed-language or Cyrillic-heavy.
+- Repeat with:
+  - follow-up reply or second fresh `voice` turn: `какой источник`
+- Expected recognized text: `Which source?`
+- Expected result: answer-follow-up path points to the recent grounded sources instead of falling back to a generic question.
+- Repeat with:
+  - follow-up reply or second fresh `voice` turn: `где это написано`
+- Expected recognized text: `Where is that written`
+- Expected result: answer-follow-up path points back to the recent grounded sources in a voice-friendly form.
+- Repeat with:
+  - follow-up reply or second fresh `voice` turn: `почему`
+- Expected recognized text: `Why is that`
+- Expected result: answer-follow-up path explains why the previous grounded answer had that boundary or behavior.
+- Repeat with:
+  - follow-up reply or second fresh `voice` turn: `повтори`
+- Expected recognized text: `Repeat that`
+- Expected result: answer-follow-up path repeats the previous answer text instead of falling back to a new generic question or command.
+- If the follow-up capture was noisy, say `слушай снова`.
+- Expected recognized text: `listen again`
+- Expected result: the current follow-up window reopens once and waits for the real reply instead of routing `listen again` as a command.
+- Natural relisten variants like `послушай снова` or English `try again` should behave the same way inside the current follow-up window.
+- With `JARVIS_VOICE_EARCONS=1`, this intentional relisten control should not sound like an error.
+- If the immediate follow-up reply is missed without any control phrase, CLI should retry once with `voice: didn't catch that. speak again.`
+- If that second follow-up capture is also empty, CLI should print `voice: no follow-up reply detected.` and close the current follow-up window.
+- With `JARVIS_VOICE_EARCONS=1`, each missed follow-up attempt may also emit a short error cue before the next retry or close.
+- If you want to dismiss the immediate follow-up window, say `замолчи`.
+- Expected recognized text: `stop speaking`
+- Expected result: the current follow-up window closes without routing `stop speaking` as a command reply.
+- Natural dismiss variants like `прекрати говорить` or English `stop talking` should also close the current follow-up window.
+- With `JARVIS_VOICE_EARCONS=1`, this intentional dismiss should also stay quiet instead of emitting an error cue.
+- For a short-answer follow-up window, `стоп` / `отмена` and natural dismiss replies like `не сейчас`, `not now`, or `no thanks` may also close the offered extra follow-up instead of routing a command-path cancel.
+
+### 8) Confirmation approve by voice
+- Precondition: run CLI with `JARVIS_VOICE_CONTINUOUS_MODE=1`.
+- Precondition: use a voice command that reaches `awaiting_confirmation`, for example `Джарвис, закрой телеграм`.
+- Shell input: `voice`
+- Spoken input sequence:
+  - first turn: close command
+  - follow-up turn after `voice: follow-up... speak now.`: `да`
+- Expected spoken confirmation prompt: for destructive close actions, JARVIS should use a short yes-or-no prompt rather than a dry runtime log.
+- Expected recognized text: canonical approval reply such as `yes`
+- Expected result: blocked command resumes and executes from the confirmation boundary.
+- Natural English confirmations like `sure`, `do it`, or `sounds good` should also approve the blocked command.
+
+### 9) Confirmation deny by voice
+- Precondition: run CLI with `JARVIS_VOICE_CONTINUOUS_MODE=1`.
+- Precondition: use a voice command that reaches `awaiting_confirmation`.
+- Shell input: `voice`
+- Spoken input sequence:
+  - first turn: close command
+  - follow-up turn: `нет` or `отмена`
+- Expected recognized text: canonical denial reply such as `no` or `cancel`
+- Expected result: runtime becomes `cancelled`; blocked step does not execute.
+- Natural English denials like `not now` or `no thanks` should also cancel the blocked command.
+
+### 10) Repeated follow-up noise
+- Precondition: run CLI with `JARVIS_VOICE_CONTINUOUS_MODE=1`.
+- Precondition: use a voice command that reaches `awaiting_confirmation`.
+- Shell input: `voice`
+- Spoken input sequence:
+  - first turn: close command
+  - follow-up turn: `да да`
+- Expected recognized text: canonical single approval reply
+- Expected result: same as one clean approval reply.
+
+### 10) Russian spoken output
+- Shell input:
+  - `speak on`
+  - `voice`
+- Spoken input: `Джарвис, открой телеграм`
+- Expected result:
+  - TTS attempts a Russian spoken confirmation when the voice input was Russian.
+  - Spoken output should not read raw terminal traces like `Completed open_app with 1 step(s).`
+
+### 11) Voice failure diagnostics
+- Shell input: `voice`
+- Induce one failure path if possible:
+  - deny permission;
+  - mute/incorrect input device;
+  - unsupported environment.
+- Expected result: concise `voice: ...` message plus `hint: ...` when available, without generic misleading success text.
+
+## Regression Notes
+- English text-first behavior must remain unchanged when voice is not used.
+- `speak off` must suppress TTS attempts but keep normal terminal output.
+- Russian fixed prompts may normalize to English canonical text; this is expected for the current MVP.
+- Live microphone behavior should be recorded separately from unit-test results.

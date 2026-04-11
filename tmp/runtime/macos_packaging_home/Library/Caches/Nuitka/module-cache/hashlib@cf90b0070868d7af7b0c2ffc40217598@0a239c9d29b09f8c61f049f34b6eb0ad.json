@@ -1,0 +1,130 @@
+{
+  "distribution_names": {},
+  "file_format_version": 7,
+  "module_name": "hashlib",
+  "modules_used": [
+    {
+      "filename": "/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/lib-dynload/_sha1.cpython-313-darwin.so",
+      "finding": "absolute",
+      "level": 0,
+      "module_kind": "extension",
+      "module_name": "_sha1",
+      "reason": "import",
+      "source_ref_line": 89
+    },
+    {
+      "filename": "/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/lib-dynload/_md5.cpython-313-darwin.so",
+      "finding": "absolute",
+      "level": 0,
+      "module_kind": "extension",
+      "module_name": "_md5",
+      "reason": "import",
+      "source_ref_line": 92
+    },
+    {
+      "filename": "/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/lib-dynload/_sha2.cpython-313-darwin.so",
+      "finding": "absolute",
+      "level": 0,
+      "module_kind": "extension",
+      "module_name": "_sha2",
+      "reason": "import",
+      "source_ref_line": 95
+    },
+    {
+      "filename": "/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/lib-dynload/_sha2.cpython-313-darwin.so",
+      "finding": "absolute",
+      "level": 0,
+      "module_kind": "extension",
+      "module_name": "_sha2",
+      "reason": "import",
+      "source_ref_line": 99
+    },
+    {
+      "filename": "/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/lib-dynload/_blake2.cpython-313-darwin.so",
+      "finding": "absolute",
+      "level": 0,
+      "module_kind": "extension",
+      "module_name": "_blake2",
+      "reason": "import",
+      "source_ref_line": 103
+    },
+    {
+      "filename": "/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/lib-dynload/_sha3.cpython-313-darwin.so",
+      "finding": "absolute",
+      "level": 0,
+      "module_kind": "extension",
+      "module_name": "_sha3",
+      "reason": "import",
+      "source_ref_line": 107
+    },
+    {
+      "filename": "/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/lib-dynload/_sha3.cpython-313-darwin.so",
+      "finding": "absolute",
+      "level": 0,
+      "module_kind": "extension",
+      "module_name": "_sha3",
+      "reason": "import",
+      "source_ref_line": 113
+    },
+    {
+      "filename": "/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/lib-dynload/_hashlib.cpython-313-darwin.so",
+      "finding": "absolute",
+      "level": 0,
+      "module_kind": "extension",
+      "module_name": "_hashlib",
+      "reason": "import",
+      "source_ref_line": 170
+    },
+    {
+      "filename": "/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/lib-dynload/_hashlib.cpython-313-darwin.so",
+      "finding": "absolute",
+      "level": 0,
+      "module_kind": "extension",
+      "module_name": "_hashlib",
+      "reason": "import",
+      "source_ref_line": 182
+    },
+    {
+      "filename": "/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/lib-dynload/_hashlib.cpython-313-darwin.so",
+      "finding": "absolute",
+      "level": 0,
+      "module_kind": "extension",
+      "module_name": "_hashlib",
+      "reason": "import",
+      "source_ref_line": 190
+    },
+    {
+      "filename": "/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/logging",
+      "finding": "absolute",
+      "level": 0,
+      "module_kind": "py",
+      "module_name": "logging",
+      "reason": "import",
+      "source_ref_line": 249
+    }
+  ],
+  "timing_infos": [
+    [
+      1,
+      0.1034008749993518,
+      5,
+      {
+        "1": 46,
+        "2": 93,
+        "3": 48,
+        "4": 23,
+        "5": 12,
+        "6": 10,
+        "7": 6,
+        "8": 3,
+        "9": 1,
+        "10": 1,
+        "32": 2,
+        "35": 1,
+        "36": 5,
+        "42": 1,
+        "44": 1
+      }
+    ]
+  ]
+}

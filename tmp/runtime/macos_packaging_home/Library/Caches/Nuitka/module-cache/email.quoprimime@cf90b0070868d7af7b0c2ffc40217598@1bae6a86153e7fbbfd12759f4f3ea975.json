@@ -1,0 +1,55 @@
+{
+  "distribution_names": {},
+  "file_format_version": 7,
+  "module_name": "email.quoprimime",
+  "modules_used": [
+    {
+      "filename": "/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/re",
+      "finding": "absolute",
+      "level": 0,
+      "module_kind": "py",
+      "module_name": "re",
+      "reason": "import",
+      "source_ref_line": 42
+    },
+    {
+      "filename": "/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/string.py",
+      "finding": "absolute",
+      "level": 0,
+      "module_kind": "py",
+      "module_name": "string",
+      "reason": "import",
+      "source_ref_line": 44
+    }
+  ],
+  "timing_infos": [
+    [
+      1,
+      0.04487300000619143,
+      7,
+      {
+        "1": 234,
+        "2": 140,
+        "3": 15,
+        "4": 11,
+        "5": 25,
+        "6": 19,
+        "7": 7,
+        "8": 7,
+        "9": 7,
+        "15": 7,
+        "17": 5,
+        "20": 5,
+        "21": 1,
+        "22": 2,
+        "26": 1,
+        "54": 5,
+        "60": 5,
+        "63": 1,
+        "64": 1,
+        "74": 1,
+        "75": 1
+      }
+    ]
+  ]
+}

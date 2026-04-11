@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from input.adapter import normalize_input
+from protocols.registry import match_protocol_trigger, resolve_protocol_reference
 
 if TYPE_CHECKING:
     from context.session_context import SessionContext
@@ -84,6 +85,7 @@ _SCOPED_OPEN_SEARCH_PATTERN = re.compile(
     r"^(?:open|find)\s+(.+?)\s+in\s+(.+)$",
     flags=re.IGNORECASE,
 )
+_PROTOCOL_PREFIX_PATTERN = re.compile(r"^(?:protocol|протокол)\s+(.+)$", flags=re.IGNORECASE)
 _UNSUPPORTED_WINDOW_MANAGEMENT_PATTERNS = (
     re.compile(r"^(?:close|quit)\s+everything\s+except\s+.+$", flags=re.IGNORECASE),
     re.compile(r"^keep\s+.+\s+and\s+close\s+(?:the\s+)?rest\.?$", flags=re.IGNORECASE),
@@ -203,7 +205,7 @@ def parse_command(raw_input: str, session_context: SessionContext | None) -> Com
         targets=targets,
         parameters=parameters,
         confidence=confidence,
-        requires_confirmation=intent in {"close_app", "close_window"},
+        requires_confirmation=intent in {"close_app", "close_window"} or bool(parameters.get("requires_confirmation")),
         execution_steps=[],
         status_message=_status_message(intent),
     )
@@ -217,6 +219,10 @@ def _infer_command(
     confirm_intent = _parse_confirm_intent(lowered_text)
     if confirm_intent is not None:
         return "confirm", [], {"response": confirm_intent}
+
+    protocol_command = _parse_protocol_command(original_text)
+    if protocol_command is not None:
+        return protocol_command
 
     if lowered_text in _CLARIFY_PHRASES or lowered_text.endswith("?"):
         return "clarify", [], {}
@@ -269,6 +275,65 @@ def _parse_explicitly_unsupported_command(original_text: str) -> tuple[str, list
                 {"unsupported_reason": "window_management_batch"},
             )
     return None
+
+
+def _parse_protocol_command(original_text: str) -> tuple[str, list[Target], dict[str, Any]] | None:
+    trigger_matches = match_protocol_trigger(original_text)
+    if len(trigger_matches) == 1:
+        return _protocol_command_payload(trigger_matches[0].definition, requested_text=original_text, trigger_text=getattr(trigger_matches[0].trigger, "phrase", None))
+    if len(trigger_matches) > 1:
+        requested_text = original_text.strip()
+        return (
+            "run_protocol",
+            [Target(type=TargetType.UNKNOWN, name=requested_text)],
+            {
+                "protocol_ambiguous": True,
+                "requested_protocol_name": requested_text,
+                "protocol_candidates": [match.definition.title for match in trigger_matches],
+            },
+        )
+
+    explicit_match = _PROTOCOL_PREFIX_PATTERN.match(original_text)
+    if explicit_match is None:
+        return None
+
+    requested_name = explicit_match.group(1).strip()
+    if not requested_name:
+        return "run_protocol", [], {}
+
+    explicit_matches = resolve_protocol_reference(requested_name)
+    if len(explicit_matches) == 1:
+        return _protocol_command_payload(explicit_matches[0].definition, requested_text=requested_name, trigger_text=None)
+    if len(explicit_matches) > 1:
+        return (
+            "run_protocol",
+            [Target(type=TargetType.UNKNOWN, name=requested_name)],
+            {
+                "protocol_ambiguous": True,
+                "requested_protocol_name": requested_name,
+                "protocol_candidates": [match.definition.title for match in explicit_matches],
+            },
+        )
+
+    return (
+        "run_protocol",
+        [Target(type=TargetType.UNKNOWN, name=requested_name)],
+        {"requested_protocol_name": requested_name},
+    )
+
+
+def _protocol_command_payload(definition: object, *, requested_text: str, trigger_text: str | None) -> tuple[str, list[Target], dict[str, Any]]:
+    confirmation_mode = str(getattr(getattr(definition, "confirmation_policy", None), "mode", "") or "").strip()
+    parameters = {
+        "protocol_id": str(getattr(definition, "id", "") or "").strip(),
+        "protocol_display_name": str(getattr(definition, "title", "") or "").strip(),
+        "protocol_source": str(getattr(definition, "source", "") or "").strip() or "builtin",
+        "requested_protocol_name": str(requested_text or "").strip(),
+        "requires_confirmation": confirmation_mode == "always",
+    }
+    if trigger_text:
+        parameters["protocol_trigger"] = str(trigger_text).strip()
+    return "run_protocol", [], parameters
 
 
 def _parse_list_windows_command(
@@ -1482,6 +1547,7 @@ def _compute_confidence(intent: str, targets: list[Target], parameters: dict[str
         "confirm": 0.95,
         "clarify": 0.7,
         "list_windows": 0.95,
+        "run_protocol": 0.96,
         "open_website": 0.92,
         "open_app": 0.9,
         "open_file": 0.88,
@@ -1519,6 +1585,12 @@ def _compute_confidence(intent: str, targets: list[Target], parameters: dict[str
         elif not parameters:
             confidence -= 0.2
 
+    if intent == "run_protocol":
+        if not str(parameters.get("protocol_id", "")).strip():
+            confidence -= 0.35
+        if bool(parameters.get("protocol_ambiguous")):
+            confidence -= 0.2
+
     return round(max(0.0, min(1.0, confidence)), 2)
 
 
@@ -1534,6 +1606,7 @@ def _status_message(intent: str) -> str:
         "list_windows": "Parsed window listing request.",
         "search_local": "Parsed local search request.",
         "prepare_workspace": "Parsed workspace preparation request.",
+        "run_protocol": "Parsed named protocol request.",
         "clarify": "Clarification is likely required.",
         "confirm": "Parsed confirmation response.",
         "switch_window": "Parsed unsupported window-management request.",

@@ -1,0 +1,137 @@
+{
+  "distribution_names": {},
+  "file_format_version": 7,
+  "module_name": "socket",
+  "modules_used": [
+    {
+      "filename": "/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/lib-dynload/_socket.cpython-313-darwin.so",
+      "finding": "absolute",
+      "level": 0,
+      "module_kind": "extension",
+      "module_name": "_socket",
+      "reason": "import",
+      "source_ref_line": 52
+    },
+    {
+      "filename": "/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/lib-dynload/_socket.cpython-313-darwin.so",
+      "finding": "absolute",
+      "level": 0,
+      "module_kind": "extension",
+      "module_name": "_socket",
+      "reason": "import",
+      "source_ref_line": 53
+    },
+    {
+      "filename": "/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/os.py",
+      "finding": "absolute",
+      "level": 0,
+      "module_kind": "py",
+      "module_name": "os",
+      "reason": "import",
+      "source_ref_line": 55
+    },
+    {
+      "filename": null,
+      "finding": "absolute",
+      "level": 0,
+      "module_kind": "built-in",
+      "module_name": "sys",
+      "reason": "import",
+      "source_ref_line": 55
+    },
+    {
+      "filename": "/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/io.py",
+      "finding": "absolute",
+      "level": 0,
+      "module_kind": "py",
+      "module_name": "io",
+      "reason": "import",
+      "source_ref_line": 55
+    },
+    {
+      "filename": "/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/selectors.py",
+      "finding": "absolute",
+      "level": 0,
+      "module_kind": "py",
+      "module_name": "selectors",
+      "reason": "import",
+      "source_ref_line": 55
+    },
+    {
+      "filename": "/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/enum.py",
+      "finding": "absolute",
+      "level": 0,
+      "module_kind": "py",
+      "module_name": "enum",
+      "reason": "import",
+      "source_ref_line": 56
+    },
+    {
+      "filename": null,
+      "finding": "absolute",
+      "level": 0,
+      "module_kind": "built-in",
+      "module_name": "errno",
+      "reason": "import",
+      "source_ref_line": 59
+    },
+    {
+      "filename": "/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/lib-dynload/array.cpython-313-darwin.so",
+      "finding": "absolute",
+      "level": 0,
+      "module_kind": "extension",
+      "module_name": "array",
+      "reason": "import",
+      "source_ref_line": 552
+    },
+    {
+      "filename": "/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/lib-dynload/array.cpython-313-darwin.so",
+      "finding": "absolute",
+      "level": 0,
+      "module_kind": "extension",
+      "module_name": "array",
+      "reason": "import",
+      "source_ref_line": 564
+    }
+  ],
+  "timing_infos": [
+    [
+      1,
+      0.19786212500184774,
+      5,
+      {
+        "1": 353,
+        "2": 604,
+        "3": 103,
+        "4": 119,
+        "5": 53,
+        "6": 51,
+        "7": 22,
+        "8": 20,
+        "9": 19,
+        "10": 26,
+        "11": 10,
+        "12": 8,
+        "13": 15,
+        "14": 4,
+        "15": 11,
+        "16": 6,
+        "17": 13,
+        "18": 1,
+        "21": 6,
+        "22": 5,
+        "24": 10,
+        "25": 10,
+        "26": 2,
+        "27": 5,
+        "35": 4,
+        "38": 1,
+        "39": 4,
+        "40": 1,
+        "41": 4,
+        "48": 5,
+        "52": 1
+      }
+    ]
+  ]
+}

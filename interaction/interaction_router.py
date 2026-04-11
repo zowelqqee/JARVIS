@@ -8,6 +8,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from user_language import prefers_russian_text
+
 if TYPE_CHECKING:
     from context.session_context import SessionContext
 
@@ -296,7 +298,7 @@ def route_interaction(
             normalized_input=normalized,
             confidence=0.8,
             reason="mixed_interaction",
-            clarification_message=_mixed_interaction_message(command_input),
+            clarification_message=_mixed_interaction_message(command_input, source_text=normalized),
             question_input=question_input,
             command_input=command_input,
         )
@@ -308,7 +310,7 @@ def route_interaction(
             normalized_input=normalized,
             confidence=0.78,
             reason="mixed_interaction",
-            clarification_message=_mixed_interaction_message(command_input),
+            clarification_message=_mixed_interaction_message(command_input, source_text=normalized),
             question_input=question_input,
             command_input=command_input,
         )
@@ -381,11 +383,47 @@ def looks_like_fresh_interaction_input(raw_input: str) -> bool:
     )
 
 
-def _mixed_interaction_message(command_input: str | None) -> str:
+def _mixed_interaction_message(command_input: str | None, *, source_text: str | None = None) -> str:
     normalized_command = _normalize_for_routing(command_input or "").strip(" \t\r\n,.!?;:")
     if not normalized_command:
+        if prefers_russian_text(source_text or ""):
+            return "Сначала ответить или выполнить команду?"
         return "Do you want an answer first or should I execute the command?"
+    if prefers_russian_text(source_text or "", normalized_command):
+        russian_command = _russian_mixed_command_surface(normalized_command)
+        if russian_command:
+            return f"Сначала ответить или мне {russian_command}?"
+        return "Сначала ответить или выполнить команду?"
     return f"Do you want an answer first or should I {normalized_command}?"
+
+
+def _russian_mixed_command_surface(command_input: str) -> str:
+    normalized = _normalize_for_routing(command_input).strip(" \t\r\n,.!?;:")
+    lowered = normalized.lower()
+    starters = (
+        ("open ", "открыть "),
+        ("launch ", "запустить "),
+        ("start ", "запустить "),
+        ("reopen ", "снова открыть "),
+        ("run ", "запустить "),
+        ("close ", "закрыть "),
+        ("list ", "показать "),
+        ("show ", "показать "),
+        ("find ", "найти "),
+        ("search ", "найти "),
+        ("prepare ", "подготовить "),
+        ("set up ", "подготовить "),
+        ("focus ", "переключиться на "),
+        ("switch ", "переключиться на "),
+        ("use ", "использовать "),
+    )
+    for prefix, translated_prefix in starters:
+        if lowered.startswith(prefix):
+            remainder = normalized[len(prefix) :].strip()
+            if not remainder:
+                return translated_prefix.strip()
+            return f"{translated_prefix}{remainder}".strip()
+    return ""
 
 
 def _looks_like_command(text: str) -> bool:

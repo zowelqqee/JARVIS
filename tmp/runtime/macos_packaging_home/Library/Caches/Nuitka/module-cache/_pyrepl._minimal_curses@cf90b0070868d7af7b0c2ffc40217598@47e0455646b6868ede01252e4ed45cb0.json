@@ -1,0 +1,55 @@
+{
+  "distribution_names": {},
+  "file_format_version": 7,
+  "module_name": "_pyrepl._minimal_curses",
+  "modules_used": [
+    {
+      "filename": "/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/ctypes",
+      "finding": "absolute",
+      "level": 0,
+      "module_kind": "py",
+      "module_name": "ctypes",
+      "reason": "import",
+      "source_ref_line": 12
+    },
+    {
+      "filename": "/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/ctypes",
+      "finding": "absolute",
+      "level": 0,
+      "module_kind": "py",
+      "module_name": "ctypes",
+      "reason": "import path parent",
+      "source_ref_line": 13
+    },
+    {
+      "filename": "/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/ctypes/util.py",
+      "finding": "absolute",
+      "level": 0,
+      "module_kind": "py",
+      "module_name": "ctypes.util",
+      "reason": "import",
+      "source_ref_line": 13
+    }
+  ],
+  "timing_infos": [
+    [
+      1,
+      0.008312917008879595,
+      6,
+      {
+        "1": 61,
+        "2": 30,
+        "3": 4,
+        "4": 1,
+        "5": 7,
+        "6": 6,
+        "7": 6,
+        "14": 4,
+        "15": 2,
+        "16": 10,
+        "18": 1,
+        "19": 1
+      }
+    ]
+  ]
+}

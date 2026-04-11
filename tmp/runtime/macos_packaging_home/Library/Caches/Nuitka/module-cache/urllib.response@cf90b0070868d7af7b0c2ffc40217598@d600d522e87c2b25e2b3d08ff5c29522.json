@@ -1,0 +1,35 @@
+{
+  "distribution_names": {},
+  "file_format_version": 7,
+  "module_name": "urllib.response",
+  "modules_used": [
+    {
+      "filename": "/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/tempfile.py",
+      "finding": "absolute",
+      "level": 0,
+      "module_kind": "py",
+      "module_name": "tempfile",
+      "reason": "import",
+      "source_ref_line": 9
+    }
+  ],
+  "timing_infos": [
+    [
+      1,
+      0.018133582998416387,
+      4,
+      {
+        "1": 94,
+        "2": 66,
+        "4": 1,
+        "5": 9,
+        "6": 10,
+        "7": 4,
+        "8": 8,
+        "10": 4,
+        "13": 4,
+        "15": 16
+      }
+    ]
+  ]
+}

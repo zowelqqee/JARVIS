@@ -12,6 +12,8 @@ import tempfile
 from collections.abc import Iterable, Sequence
 from pathlib import Path
 
+from user_language import preferred_language_from_locales
+
 
 class VoiceInputError(RuntimeError):
     """Raised when one-shot voice capture or transcription fails."""
@@ -36,9 +38,15 @@ _DEFAULT_TIMEOUT_SECONDS = 8.0
 _DEFAULT_PREFERRED_LOCALES = ("ru-RU", "en-US")
 _VOICE_LOCALES_ENV = "JARVIS_VOICE_LOCALES"
 _VOICE_PERMISSION_PROBE_ARG = "--probe-permissions"
-_PRIVACY_HINT = "Check macOS Settings -> Privacy & Security -> Microphone / Speech Recognition."
-_VOICE_CRASH_HINT = "Try again. If it keeps failing, check macOS Settings -> Privacy & Security -> Microphone / Speech Recognition."
-_VOICE_EMPTY_HINT = "Speak right after 'voice: listening...' and verify the active input device in macOS Sound settings."
+_PRIVACY_HINT_EN = "Check macOS Settings -> Privacy & Security -> Microphone / Speech Recognition."
+_PRIVACY_HINT_RU = "Проверь настройки macOS: Privacy & Security -> Microphone / Speech Recognition."
+_VOICE_CRASH_HINT_EN = "Try again. If it keeps failing, check macOS Settings -> Privacy & Security -> Microphone / Speech Recognition."
+_VOICE_CRASH_HINT_RU = (
+    "Попробуй ещё раз. Если ошибка повторяется, проверь настройки macOS: "
+    "Privacy & Security -> Microphone / Speech Recognition."
+)
+_VOICE_EMPTY_HINT_EN = "Speak right after 'voice: listening...' and verify the active input device in macOS Sound settings."
+_VOICE_EMPTY_HINT_RU = "Скажи что-нибудь сразу после 'voice: listening...' и проверь активное устройство ввода в настройках звука macOS."
 
 
 def capture_voice_input(
@@ -46,13 +54,20 @@ def capture_voice_input(
     preferred_locales: Sequence[str] | None = None,
 ) -> str:
     """Capture one spoken utterance on macOS and return recognized text."""
+    effective_locales = _resolve_preferred_locales(preferred_locales)
     if sys.platform != "darwin":
-        raise VoiceInputError("UNSUPPORTED_PLATFORM", "Voice input is available only on macOS.")
+        raise VoiceInputError(
+            "UNSUPPORTED_PLATFORM",
+            _localized_voice_text(
+                "Voice input is available only on macOS.",
+                "Голосовой ввод доступен только на macOS.",
+                preferred_locales=effective_locales,
+            ),
+        )
 
     _ensure_helper_binary()
 
     effective_timeout = max(2.0, float(timeout_seconds))
-    effective_locales = _resolve_preferred_locales(preferred_locales)
     result = _run_helper(effective_timeout, effective_locales)
     if result.returncode != 0 and _should_rebuild_after_helper_failure(result):
         _ensure_helper_binary(force_rebuild=True)
@@ -63,11 +78,23 @@ def capture_voice_input(
             result = fallback_result
 
     if result.returncode != 0:
-        raise _voice_error_from_result(result.returncode, result.stderr or result.stdout)
+        raise _voice_error_from_result(
+            result.returncode,
+            result.stderr or result.stdout,
+            preferred_locales=effective_locales,
+        )
 
     recognized_text = (result.stdout or "").strip()
     if not recognized_text:
-        raise VoiceInputError("EMPTY_RECOGNITION", "No speech was recognized. Try again.")
+        raise VoiceInputError(
+            "EMPTY_RECOGNITION",
+            _localized_voice_text(
+                "No speech was recognized. Try again.",
+                "Речь не распознана. Попробуй ещё раз.",
+                preferred_locales=effective_locales,
+            ),
+            hint=_voice_empty_hint(effective_locales),
+        )
     return recognized_text
 
 
@@ -78,16 +105,28 @@ def resolve_capture_locales(preferred_locales: Sequence[str] | None = None) -> t
 
 def probe_voice_input_permissions() -> VoiceInputError | None:
     """Return one current macOS voice-permission blocker without running a full capture."""
+    effective_locales = _resolve_preferred_locales(None)
     if sys.platform != "darwin":
-        return VoiceInputError("UNSUPPORTED_PLATFORM", "Voice input is available only on macOS.")
+        return VoiceInputError(
+            "UNSUPPORTED_PLATFORM",
+            _localized_voice_text(
+                "Voice input is available only on macOS.",
+                "Голосовой ввод доступен только на macOS.",
+                preferred_locales=effective_locales,
+            ),
+        )
     try:
         _ensure_helper_binary()
-        result = _run_permission_probe()
+        result = _run_permission_probe(effective_locales)
     except VoiceInputError as exc:
         return exc
     if result.returncode == 0:
         return None
-    return _voice_error_from_result(result.returncode, result.stderr or result.stdout)
+    return _voice_error_from_result(
+        result.returncode,
+        result.stderr or result.stdout,
+        preferred_locales=effective_locales,
+    )
 
 
 def voice_capture_permission_target_details() -> tuple[str, ...]:
@@ -240,12 +279,27 @@ def _run_helper(timeout_seconds: float, preferred_locales: Sequence[str]) -> sub
             timeout=int(math.ceil(timeout_seconds)) + 5,
         )
     except subprocess.TimeoutExpired as exc:
-        raise VoiceInputError("RECOGNITION_FAILED", "Voice capture timed out. Try again.") from exc
+        raise VoiceInputError(
+            "RECOGNITION_FAILED",
+            _localized_voice_text(
+                "Voice capture timed out. Try again.",
+                "Время ожидания голосового ввода истекло. Попробуй ещё раз.",
+                preferred_locales=preferred_locales,
+            ),
+        ) from exc
     except OSError as exc:
-        raise VoiceInputError("VOICE_SETUP_FAILED", f"Voice helper failed to start: {exc}.") from exc
+        raise VoiceInputError(
+            "VOICE_SETUP_FAILED",
+            _localized_voice_text(
+                f"Voice helper failed to start: {exc}.",
+                f"Не удалось запустить voice helper: {exc}.",
+                preferred_locales=preferred_locales,
+            ),
+            hint=_privacy_hint(preferred_locales),
+        ) from exc
 
 
-def _run_permission_probe() -> subprocess.CompletedProcess[str]:
+def _run_permission_probe(preferred_locales: Sequence[str]) -> subprocess.CompletedProcess[str]:
     try:
         return subprocess.run(
             [str(_HELPER_BINARY), _VOICE_PERMISSION_PROBE_ARG],
@@ -255,9 +309,24 @@ def _run_permission_probe() -> subprocess.CompletedProcess[str]:
             timeout=5,
         )
     except subprocess.TimeoutExpired as exc:
-        raise VoiceInputError("RECOGNITION_FAILED", "Voice permission probe timed out. Try again.") from exc
+        raise VoiceInputError(
+            "RECOGNITION_FAILED",
+            _localized_voice_text(
+                "Voice permission probe timed out. Try again.",
+                "Проверка голосовых разрешений заняла слишком много времени. Попробуй ещё раз.",
+                preferred_locales=preferred_locales,
+            ),
+        ) from exc
     except OSError as exc:
-        raise VoiceInputError("VOICE_SETUP_FAILED", f"Voice helper failed to start: {exc}.") from exc
+        raise VoiceInputError(
+            "VOICE_SETUP_FAILED",
+            _localized_voice_text(
+                f"Voice helper failed to start: {exc}.",
+                f"Не удалось запустить voice helper: {exc}.",
+                preferred_locales=preferred_locales,
+            ),
+            hint=_privacy_hint(preferred_locales),
+        ) from exc
 
 
 def _run_helper_via_open_bundle(
@@ -342,7 +411,11 @@ def _should_retry_with_open(result: subprocess.CompletedProcess[str]) -> bool:
     return "VOICE_SETUP_FAILED|Voice helper crashed with SIGABRT." in detail
 
 
-def _voice_error_from_result(returncode: int, raw_message: str) -> VoiceInputError:
+def _voice_error_from_result(
+    returncode: int,
+    raw_message: str,
+    preferred_locales: Sequence[str] | None = None,
+) -> VoiceInputError:
     message = raw_message.strip()
     code = "RECOGNITION_FAILED"
     detail = message
@@ -353,52 +426,147 @@ def _voice_error_from_result(returncode: int, raw_message: str) -> VoiceInputErr
         detail = _first_meaningful_line(message)
 
     if returncode < 0 and code == "RECOGNITION_FAILED":
-        return _voice_helper_crash_error(returncode, detail)
+        return _voice_helper_crash_error(returncode, detail, preferred_locales=preferred_locales)
 
     if code == "PERMISSION_DENIED":
-        normalized = detail or "Speech recognition permission was denied."
-        return VoiceInputError(code, normalized, hint=_PRIVACY_HINT)
+        normalized = _localized_voice_detail(
+            detail,
+            russian="Доступ к распознаванию речи отклонён.",
+            english_variants=(
+                "Speech recognition permission was denied.",
+                "Speech recognition access was denied.",
+            ),
+            preferred_locales=preferred_locales,
+        )
+        return VoiceInputError(code, normalized, hint=_privacy_hint(preferred_locales))
 
     if code == "PERMISSION_PROMPT_REQUIRED":
-        normalized = detail or "Speech recognition or microphone permission has not been requested yet."
-        return VoiceInputError(code, normalized, hint=_PRIVACY_HINT)
+        normalized = _localized_voice_detail(
+            detail,
+            russian="Разрешение на распознавание речи или микрофон ещё не было запрошено.",
+            english_variants=(
+                "Speech recognition or microphone permission has not been requested yet.",
+                "Speech recognition permission has not been requested yet.",
+            ),
+            preferred_locales=preferred_locales,
+        )
+        return VoiceInputError(code, normalized, hint=_privacy_hint(preferred_locales))
 
     if code == "MICROPHONE_UNAVAILABLE":
-        normalized = detail or "Microphone access is unavailable."
-        return VoiceInputError(code, normalized, hint=_PRIVACY_HINT)
+        normalized = _localized_voice_detail(
+            detail,
+            russian="Доступ к микрофону недоступен.",
+            english_variants=("Microphone access is unavailable.",),
+            preferred_locales=preferred_locales,
+        )
+        return VoiceInputError(code, normalized, hint=_privacy_hint(preferred_locales))
 
     if code == "EMPTY_RECOGNITION":
-        normalized = detail or "No speech was recognized. Try again."
-        return VoiceInputError(code, normalized, hint=_VOICE_EMPTY_HINT)
+        normalized = _localized_voice_detail(
+            detail,
+            russian="Речь не распознана. Попробуй ещё раз.",
+            english_variants=("No speech was recognized. Try again.",),
+            preferred_locales=preferred_locales,
+        )
+        return VoiceInputError(code, normalized, hint=_voice_empty_hint(preferred_locales))
 
     if code == "VOICE_SETUP_FAILED":
-        return VoiceInputError(code, detail or "Voice helper failed to start.", hint=_PRIVACY_HINT)
+        return VoiceInputError(
+            code,
+            detail
+            or _localized_voice_text(
+                "Voice helper failed to start.",
+                "Не удалось запустить voice helper.",
+                preferred_locales=preferred_locales,
+            ),
+            hint=_privacy_hint(preferred_locales),
+        )
 
     if code == "UNSUPPORTED_PLATFORM":
-        return VoiceInputError(code, detail or "Voice input is available only on macOS.")
+        return VoiceInputError(
+            code,
+            detail
+            or _localized_voice_text(
+                "Voice input is available only on macOS.",
+                "Голосовой ввод доступен только на macOS.",
+                preferred_locales=preferred_locales,
+            ),
+        )
 
     if detail:
         return VoiceInputError(code, detail)
 
     return VoiceInputError(
         "RECOGNITION_FAILED",
-        f"Voice helper failed unexpectedly with exit code {returncode}.",
+        _localized_voice_text(
+            f"Voice helper failed unexpectedly with exit code {returncode}.",
+            f"Voice helper неожиданно завершился с кодом {returncode}.",
+            preferred_locales=preferred_locales,
+        ),
     )
 
 
-def _voice_helper_crash_error(returncode: int, detail: str) -> VoiceInputError:
+def _voice_helper_crash_error(
+    returncode: int,
+    detail: str,
+    *,
+    preferred_locales: Sequence[str] | None = None,
+) -> VoiceInputError:
     signal_number = abs(int(returncode))
     signal_name = _signal_name(signal_number)
     if signal_name:
-        message = f"Voice helper crashed with {signal_name}. Try again."
+        message = _localized_voice_text(
+            f"Voice helper crashed with {signal_name}. Try again.",
+            f"Voice helper завершился с ошибкой {signal_name}. Попробуй ещё раз.",
+            preferred_locales=preferred_locales,
+        )
     else:
-        message = f"Voice helper crashed with signal {signal_number}. Try again."
+        message = _localized_voice_text(
+            f"Voice helper crashed with signal {signal_number}. Try again.",
+            f"Voice helper завершился с сигналом {signal_number}. Попробуй ещё раз.",
+            preferred_locales=preferred_locales,
+        )
 
     normalized_detail = detail.strip()
     if normalized_detail and "abort trap" not in normalized_detail.lower():
         message = f"{message} {normalized_detail}"
 
-    return VoiceInputError("VOICE_HELPER_CRASH", message, hint=_VOICE_CRASH_HINT)
+    return VoiceInputError("VOICE_HELPER_CRASH", message, hint=_voice_crash_hint(preferred_locales))
+
+
+def _localized_voice_text(english: str, russian: str, *, preferred_locales: Sequence[str] | None) -> str:
+    return russian if preferred_language_from_locales(preferred_locales) == "ru" else english
+
+
+def _privacy_hint(preferred_locales: Sequence[str] | None) -> str:
+    return _localized_voice_text(_PRIVACY_HINT_EN, _PRIVACY_HINT_RU, preferred_locales=preferred_locales)
+
+
+def _voice_crash_hint(preferred_locales: Sequence[str] | None) -> str:
+    return _localized_voice_text(_VOICE_CRASH_HINT_EN, _VOICE_CRASH_HINT_RU, preferred_locales=preferred_locales)
+
+
+def _voice_empty_hint(preferred_locales: Sequence[str] | None) -> str:
+    return _localized_voice_text(_VOICE_EMPTY_HINT_EN, _VOICE_EMPTY_HINT_RU, preferred_locales=preferred_locales)
+
+
+def _localized_voice_detail(
+    detail: str,
+    *,
+    russian: str,
+    english_variants: Sequence[str],
+    preferred_locales: Sequence[str] | None,
+) -> str:
+    normalized_detail = str(detail or "").strip()
+    if preferred_language_from_locales(preferred_locales) != "ru":
+        return normalized_detail or str(english_variants[0] if english_variants else "")
+    if not normalized_detail:
+        return russian
+    normalized_lower = normalized_detail.lower()
+    for english in english_variants:
+        if normalized_lower == str(english or "").strip().lower():
+            return russian
+    return normalized_detail
 
 
 def _signal_name(signal_number: int) -> str | None:

@@ -1,0 +1,275 @@
+{
+  "distribution_names": {},
+  "file_format_version": 7,
+  "module_name": "_pyrepl.unix_console",
+  "modules_used": [
+    {
+      "filename": "/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/__future__.py",
+      "finding": "absolute",
+      "level": 0,
+      "module_kind": "py",
+      "module_name": "__future__",
+      "reason": "import",
+      "source_ref_line": 22
+    },
+    {
+      "filename": null,
+      "finding": "absolute",
+      "level": 0,
+      "module_kind": "built-in",
+      "module_name": "errno",
+      "reason": "import",
+      "source_ref_line": 24
+    },
+    {
+      "filename": "/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/os.py",
+      "finding": "absolute",
+      "level": 0,
+      "module_kind": "py",
+      "module_name": "os",
+      "reason": "import",
+      "source_ref_line": 25
+    },
+    {
+      "filename": "/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/re",
+      "finding": "absolute",
+      "level": 0,
+      "module_kind": "py",
+      "module_name": "re",
+      "reason": "import",
+      "source_ref_line": 26
+    },
+    {
+      "filename": "/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/lib-dynload/select.cpython-313-darwin.so",
+      "finding": "absolute",
+      "level": 0,
+      "module_kind": "extension",
+      "module_name": "select",
+      "reason": "import",
+      "source_ref_line": 27
+    },
+    {
+      "filename": "/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/signal.py",
+      "finding": "absolute",
+      "level": 0,
+      "module_kind": "py",
+      "module_name": "signal",
+      "reason": "import",
+      "source_ref_line": 28
+    },
+    {
+      "filename": "/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/struct.py",
+      "finding": "absolute",
+      "level": 0,
+      "module_kind": "py",
+      "module_name": "struct",
+      "reason": "import",
+      "source_ref_line": 29
+    },
+    {
+      "filename": "/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/lib-dynload/termios.cpython-313-darwin.so",
+      "finding": "absolute",
+      "level": 0,
+      "module_kind": "extension",
+      "module_name": "termios",
+      "reason": "import",
+      "source_ref_line": 30
+    },
+    {
+      "filename": null,
+      "finding": "absolute",
+      "level": 0,
+      "module_kind": "built-in",
+      "module_name": "time",
+      "reason": "import",
+      "source_ref_line": 31
+    },
+    {
+      "filename": "/Users/arseniyabramidze/JARVIS/desktop/platform",
+      "finding": "absolute",
+      "level": 0,
+      "module_kind": "py",
+      "module_name": "platform",
+      "reason": "import",
+      "source_ref_line": 32
+    },
+    {
+      "filename": "/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/lib-dynload/fcntl.cpython-313-darwin.so",
+      "finding": "absolute",
+      "level": 0,
+      "module_kind": "extension",
+      "module_name": "fcntl",
+      "reason": "import",
+      "source_ref_line": 33
+    },
+    {
+      "filename": "/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/_pyrepl",
+      "finding": "absolute",
+      "level": 1,
+      "module_kind": "py",
+      "module_name": "_pyrepl",
+      "reason": "import",
+      "source_ref_line": 35
+    },
+    {
+      "filename": "/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/_pyrepl/curses.py",
+      "finding": "relative",
+      "level": 1,
+      "module_kind": "py",
+      "module_name": "_pyrepl.curses",
+      "reason": "import fromlist",
+      "source_ref_line": 35
+    },
+    {
+      "filename": "/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/_pyrepl",
+      "finding": "absolute",
+      "level": 0,
+      "module_kind": "py",
+      "module_name": "_pyrepl",
+      "reason": "import path parent",
+      "source_ref_line": 36
+    },
+    {
+      "filename": "/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/_pyrepl/console.py",
+      "finding": "absolute",
+      "level": 0,
+      "module_kind": "py",
+      "module_name": "_pyrepl.console",
+      "reason": "import",
+      "source_ref_line": 36
+    },
+    {
+      "filename": "/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/_pyrepl",
+      "finding": "absolute",
+      "level": 0,
+      "module_kind": "py",
+      "module_name": "_pyrepl",
+      "reason": "import path parent",
+      "source_ref_line": 37
+    },
+    {
+      "filename": "/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/_pyrepl/fancy_termios.py",
+      "finding": "absolute",
+      "level": 0,
+      "module_kind": "py",
+      "module_name": "_pyrepl.fancy_termios",
+      "reason": "import",
+      "source_ref_line": 37
+    },
+    {
+      "filename": "/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/_pyrepl",
+      "finding": "absolute",
+      "level": 0,
+      "module_kind": "py",
+      "module_name": "_pyrepl",
+      "reason": "import path parent",
+      "source_ref_line": 38
+    },
+    {
+      "filename": "/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/_pyrepl/trace.py",
+      "finding": "absolute",
+      "level": 0,
+      "module_kind": "py",
+      "module_name": "_pyrepl.trace",
+      "reason": "import",
+      "source_ref_line": 38
+    },
+    {
+      "filename": "/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/_pyrepl",
+      "finding": "absolute",
+      "level": 0,
+      "module_kind": "py",
+      "module_name": "_pyrepl",
+      "reason": "import path parent",
+      "source_ref_line": 39
+    },
+    {
+      "filename": "/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/_pyrepl/unix_eventqueue.py",
+      "finding": "absolute",
+      "level": 0,
+      "module_kind": "py",
+      "module_name": "_pyrepl.unix_eventqueue",
+      "reason": "import",
+      "source_ref_line": 39
+    },
+    {
+      "filename": "/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/_pyrepl",
+      "finding": "absolute",
+      "level": 0,
+      "module_kind": "py",
+      "module_name": "_pyrepl",
+      "reason": "import path parent",
+      "source_ref_line": 40
+    },
+    {
+      "filename": "/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/_pyrepl/utils.py",
+      "finding": "absolute",
+      "level": 0,
+      "module_kind": "py",
+      "module_name": "_pyrepl.utils",
+      "reason": "import",
+      "source_ref_line": 40
+    },
+    {
+      "filename": null,
+      "finding": "absolute",
+      "level": 0,
+      "module_kind": "built-in",
+      "module_name": "posix",
+      "reason": "import",
+      "source_ref_line": 576
+    }
+  ],
+  "timing_infos": [
+    [
+      1,
+      0.12233258299238514,
+      6,
+      {
+        "1": 474,
+        "2": 599,
+        "3": 99,
+        "4": 82,
+        "5": 51,
+        "6": 51,
+        "7": 26,
+        "8": 25,
+        "9": 8,
+        "10": 3,
+        "11": 15,
+        "12": 14,
+        "13": 12,
+        "14": 4,
+        "15": 19,
+        "16": 3,
+        "17": 6,
+        "18": 12,
+        "20": 4,
+        "21": 1,
+        "22": 5,
+        "23": 1,
+        "24": 1,
+        "30": 4,
+        "32": 2,
+        "33": 5,
+        "34": 3,
+        "42": 5,
+        "43": 2,
+        "44": 1,
+        "52": 4,
+        "54": 1,
+        "56": 6,
+        "58": 5,
+        "59": 1,
+        "60": 1,
+        "87": 6,
+        "162": 4,
+        "176": 4,
+        "193": 1,
+        "195": 1,
+        "197": 1,
+        "199": 1
+      }
+    ]
+  ]
+}

@@ -1,0 +1,14 @@
+{
+  "distribution_names": {},
+  "file_format_version": 7,
+  "module_name": "_sysconfigdata__darwin_darwin",
+  "modules_used": [],
+  "timing_infos": [
+    [
+      1,
+      0.00016891700215637684,
+      3,
+      {}
+    ]
+  ]
+}

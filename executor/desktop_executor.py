@@ -133,6 +133,8 @@ def execute_step(step: Step) -> ActionResult:
             code="UNSUPPORTED_ACTION",
             message="prepare_workspace must execute through planned sub-steps, not as a direct executor action.",
         )
+    if action == DesktopAction.PLAY_MUSIC.value:
+        return _execute_play_music(target)
 
     return _failure(action, target, code="UNSUPPORTED_ACTION", message=f"Unsupported desktop action: {action!r}.")
 
@@ -420,6 +422,51 @@ def _execute_search_local(target: Target, parameters: dict[str, Any]) -> ActionR
         action,
         target,
         details={"query": query, "scope_path": str(scope_path), "matches": matches},
+    )
+
+
+def _execute_play_music(target: Target) -> ActionResult:
+    action = DesktopAction.PLAY_MUSIC.value
+    if _target_type_value(getattr(target, "type", "")) != "application":
+        return _failure(action, target, code="UNSUPPORTED_TARGET", message="play_music requires an application target.")
+
+    app_name = _target_name(target) or "Music"
+    open_result = _execute_open_app(Target(type=target.type, name=app_name, path=getattr(target, "path", None), metadata=getattr(target, "metadata", None)))
+    if not bool(getattr(open_result, "success", False)):
+        open_error = getattr(open_result, "error", None)
+        return _failure(
+            action,
+            target,
+            code=str(getattr(open_error, "code", "") or "EXECUTION_FAILED"),
+            message=str(getattr(open_error, "message", "") or f'Unable to open "{app_name}" for music playback.'),
+        )
+
+    normalized_app_name = app_name.strip().lower()
+    if normalized_app_name in {"music", "apple music"}:
+        script_app_name = "Music"
+    elif normalized_app_name == "spotify":
+        script_app_name = "Spotify"
+    else:
+        return _failure(
+            action,
+            target,
+            code="UNSUPPORTED_TARGET",
+            message=f'play_music currently supports Music or Spotify, not "{app_name}".',
+        )
+
+    result = _run_apple_script(
+        [
+            f'tell application "{_escape_applescript_string(script_app_name)}" to activate',
+            f'tell application "{_escape_applescript_string(script_app_name)}" to play',
+        ]
+    )
+    if result.returncode == 0:
+        return _success(action, target, details={"app": script_app_name, "playing": True})
+    return _command_failure(
+        action,
+        target,
+        result,
+        default_message=f'Unable to start playback in "{script_app_name}".',
     )
 
 

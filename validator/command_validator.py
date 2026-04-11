@@ -7,6 +7,10 @@ import sys
 from pathlib import Path
 from typing import Any, TYPE_CHECKING
 
+from protocols.planner import supported_protocol_action_types
+from protocols.registry import get_protocol_by_id, protocol_suggestions
+from protocols.state_store import ProtocolStateStore
+
 if TYPE_CHECKING:
     from types.command import Command
     from types.validation_result import ValidationResult
@@ -32,6 +36,7 @@ _SUPPORTED_INTENTS = {
     "list_windows",
     "search_local",
     "prepare_workspace",
+    "run_protocol",
     "clarify",
     "confirm",
 }
@@ -80,6 +85,8 @@ def validate_command(command: Command) -> ValidationResult:
         return _validate_search_local(command, targets, parameters)
     if intent == "prepare_workspace":
         return _validate_prepare_workspace(command, targets, parameters)
+    if intent == "run_protocol":
+        return _validate_run_protocol(command, parameters)
     if intent == "clarify":
         return _validate_clarify(command)
     if intent == "confirm":
@@ -314,6 +321,56 @@ def _validate_clarify(command: Command) -> ValidationResult:
     return _invalid(ErrorCode.MISSING_PARAMETER, "clarify intent requires a clear clarification phrase.")
 
 
+def _validate_run_protocol(command: Command, parameters: dict[str, Any]) -> ValidationResult:
+    requested_name = str(parameters.get("requested_protocol_name", "")).strip()
+    protocol_id = str(parameters.get("protocol_id", "")).strip()
+    protocol_candidates = [
+        str(candidate).strip()
+        for candidate in list(parameters.get("protocol_candidates", []) or [])
+        if str(candidate).strip()
+    ]
+    if bool(parameters.get("protocol_ambiguous")) or len(protocol_candidates) > 1:
+        return _invalid(
+            ErrorCode.MULTIPLE_MATCHES,
+            "Multiple matching protocols require clarification.",
+            details={"options": protocol_candidates},
+        )
+
+    definition = get_protocol_by_id(protocol_id) if protocol_id else None
+    if definition is None:
+        suggestions = protocol_suggestions(requested_name or protocol_id)
+        return _invalid(
+            ErrorCode.TARGET_NOT_FOUND,
+            "Requested protocol is not available.",
+            details={"options": suggestions or protocol_candidates},
+        )
+
+    unsupported_actions = sorted(
+        {
+            str(getattr(step, "action_type", "")).strip()
+            for step in getattr(definition, "steps", ())
+            if str(getattr(step, "action_type", "")).strip() not in supported_protocol_action_types()
+        }
+    )
+    if unsupported_actions:
+        return _invalid(
+            ErrorCode.UNSUPPORTED_ACTION,
+            f"Protocol contains unsupported action types: {', '.join(unsupported_actions)}.",
+        )
+
+    stored_state = ProtocolStateStore().load()
+    has_last_workspace = bool(str(stored_state.get("last_workspace_path", "") or "").strip())
+    for step in getattr(definition, "steps", ()):
+        action_type = str(getattr(step, "action_type", "")).strip()
+        on_failure = str(getattr(step, "on_failure", "") or "stop").strip() or "stop"
+        if action_type == "open_last_workspace" and not has_last_workspace and on_failure != "continue_if_safe":
+            return _invalid(
+                ErrorCode.INSUFFICIENT_CONTEXT,
+                "This protocol needs a remembered workspace, but no recent workspace has been stored yet.",
+            )
+    return _valid(command)
+
+
 def _validate_confirm(command: Command, parameters: dict[str, Any]) -> ValidationResult:
     response = str(parameters.get("response", "")).strip().lower()
     if response in {"approved", "denied", "pending"}:
@@ -477,7 +534,7 @@ def _valid(command: Command) -> ValidationResult:
     return ValidationResult(valid=True, validated_command=command, error=None)
 
 
-def _invalid(code: ErrorCode, message: str) -> ValidationResult:
+def _invalid(code: ErrorCode, message: str, details: dict[str, Any] | None = None) -> ValidationResult:
     return ValidationResult(
         valid=False,
         validated_command=None,
@@ -485,7 +542,7 @@ def _invalid(code: ErrorCode, message: str) -> ValidationResult:
             category=ErrorCategory.VALIDATION_ERROR,
             code=code,
             message=message,
-            details=None,
+            details=details,
             blocking=True,
             terminal=False,
         ),

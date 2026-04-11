@@ -19,7 +19,7 @@ class DesktopAction(str, Enum):
     CLOSE_APP = "close_app"
     SEARCH_LOCAL = "search_local"
     PREPARE_WORKSPACE = "prepare_workspace"
+    PLAY_MUSIC = "play_music"
 
 
 DESKTOP_ACTIONS: tuple[str, ...] = tuple(action.value for action in DesktopAction)
-

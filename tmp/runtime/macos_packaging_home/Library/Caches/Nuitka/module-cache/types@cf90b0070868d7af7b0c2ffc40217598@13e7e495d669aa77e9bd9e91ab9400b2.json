@@ -1,0 +1,75 @@
+{
+  "distribution_names": {},
+  "file_format_version": 7,
+  "module_name": "types",
+  "modules_used": [
+    {
+      "filename": null,
+      "finding": "absolute",
+      "level": 0,
+      "module_kind": "built-in",
+      "module_name": "sys",
+      "reason": "import",
+      "source_ref_line": 5
+    },
+    {
+      "filename": "/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/functools.py",
+      "finding": "absolute",
+      "level": 0,
+      "module_kind": "py",
+      "module_name": "functools",
+      "reason": "import",
+      "source_ref_line": 306
+    },
+    {
+      "filename": "/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/_collections_abc.py",
+      "finding": "absolute",
+      "level": 0,
+      "module_kind": "py",
+      "module_name": "_collections_abc",
+      "reason": "import",
+      "source_ref_line": 307
+    },
+    {
+      "filename": "/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/lib-dynload/_socket.cpython-313-darwin.so",
+      "finding": "absolute",
+      "level": 0,
+      "module_kind": "extension",
+      "module_name": "_socket",
+      "reason": "import",
+      "source_ref_line": 336
+    }
+  ],
+  "timing_infos": [
+    [
+      1,
+      0.04829324998718221,
+      6,
+      {
+        "1": 257,
+        "2": 126,
+        "3": 35,
+        "4": 40,
+        "5": 16,
+        "6": 10,
+        "7": 13,
+        "8": 10,
+        "9": 7,
+        "10": 5,
+        "11": 10,
+        "12": 3,
+        "13": 2,
+        "14": 3,
+        "19": 5,
+        "21": 2,
+        "22": 7,
+        "23": 2,
+        "25": 1,
+        "29": 1,
+        "30": 1,
+        "31": 1,
+        "37": 1
+      }
+    ]
+  ]
+}

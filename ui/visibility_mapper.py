@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import re
 import sys
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, TypedDict
 
 from qa.answer_summary import build_answer_summary
+from user_language import prefers_russian_text
 
 if TYPE_CHECKING:
     from types.clarification_request import ClarificationRequest
@@ -86,6 +88,121 @@ _CANCEL_ENABLED_STATES: set[str] = {
 }
 _SEARCH_RESULT_CAP = 5
 _WINDOW_RESULT_CAP = 5
+_MIXED_INTERACTION_CLARIFICATION_RE = re.compile(
+    r"^Do you want an answer first or should I open (?P<target>.+)\?$",
+    flags=re.IGNORECASE,
+)
+_TARGET_NOT_FOUND_WITH_OPTIONS_RE = re.compile(
+    r"^I could not find (?P<target>.+?); did you mean (?P<options>.+)\?$",
+    flags=re.IGNORECASE,
+)
+_TARGET_NOT_FOUND_WITH_TARGET_RE = re.compile(
+    r"^I could not find (?P<target>.+?); which target should I use\?$",
+    flags=re.IGNORECASE,
+)
+_TARGET_NOT_FOUND_GENERIC_OPTIONS_RE = re.compile(
+    r"^I could not find that target; did you mean (?P<options>.+)\?$",
+    flags=re.IGNORECASE,
+)
+_APPROVE_STEP_CONFIRMATION_RE = re.compile(
+    r"^Approve step (?P<action>[a-z_]+) for (?P<target>.+)\?$",
+    flags=re.IGNORECASE,
+)
+_APPROVE_CONFIRMATION_WITH_TARGETS_RE = re.compile(
+    r"^Approve (?P<intent>[a-z_]+) for (?P<targets>.+)\?$",
+    flags=re.IGNORECASE,
+)
+_APPROVE_CONFIRMATION_COMMAND_RE = re.compile(
+    r"^Approve command for (?P<intent>[a-z_]+)\?$",
+    flags=re.IGNORECASE,
+)
+_LIST_WINDOWS_FAILURE_RE = re.compile(
+    r"^Could not list windows(?:: (?P<detail>.+))?$",
+    flags=re.IGNORECASE,
+)
+_OPEN_AFTER_SEARCH_WITH_TARGET_DETAIL_RE = re.compile(
+    r"^Found a matching file, but could not open it: (?P<target>.+?)\. (?P<detail>.+)$",
+    flags=re.IGNORECASE,
+)
+_OPEN_AFTER_SEARCH_WITH_TARGET_RE = re.compile(
+    r"^Found a matching file, but could not open it: (?P<target>.+?)\.$",
+    flags=re.IGNORECASE,
+)
+_OPEN_AFTER_SEARCH_WITH_DETAIL_RE = re.compile(
+    r"^Found a matching file, but could not open it\. (?P<detail>.+)$",
+    flags=re.IGNORECASE,
+)
+_SEARCH_OPEN_EMPTY_RE = re.compile(
+    r"^Search found no matches to open(?:(?:\.|:)\s*(?P<detail>.+))?$",
+    flags=re.IGNORECASE,
+)
+_SEARCH_FOUND_RE = re.compile(
+    r"^Found (?P<count>\d+) (?P<label>match|matches)(?P<scope> in .+)?\.$",
+    flags=re.IGNORECASE,
+)
+_SEARCH_FOUND_AND_OPEN_RE = re.compile(
+    r"^Found (?P<count>\d+) (?P<label>match|matches)(?P<scope> in .+)? and opened a file\.$",
+    flags=re.IGNORECASE,
+)
+_SEARCH_COMPLETED_RE = re.compile(
+    r"^Search completed(?P<scope> in .+)?\.$",
+    flags=re.IGNORECASE,
+)
+_SEARCH_COMPLETED_AND_OPEN_RE = re.compile(
+    r"^Search completed and opened a file\.$",
+    flags=re.IGNORECASE,
+)
+_VISIBLE_WINDOWS_RE = re.compile(
+    r"^Found (?P<count>\d+) visible (?P<label>window|windows)\.$",
+    flags=re.IGNORECASE,
+)
+_FILTERED_WINDOWS_RE = re.compile(
+    r"^Found (?P<count>\d+) (?P<filter>.+) (?P<label>window|windows)\.$",
+    flags=re.IGNORECASE,
+)
+_NO_VISIBLE_FILTERED_WINDOWS_RE = re.compile(
+    r"^No visible (?P<filter>.+) windows found\.$",
+    flags=re.IGNORECASE,
+)
+_INTERNAL_COMPLETION_RE = re.compile(r"^Completed (?P<intent>[a-z_]+) with (?P<count>\d+) step\(s\)\.$")
+_RUSSIAN_VISIBLE_EXACT_MAP = {
+    "I am not sure what you meant; can you rephrase the command?": "Не уверен, что ты имел в виду. Переформулируй команду.",
+    "What should I search for?": "Что мне искать?",
+    "Which website URL should I open?": "Какой адрес сайта открыть?",
+    "What workspace should I prepare?": "Какое рабочее пространство подготовить?",
+    "Please reply with confirm or cancel.": "Скажи: подтвердить или отменить.",
+    "Please reply with answer or execute.": "Скажи: ответить или выполнить.",
+    "Which previous target are you referring to?": "Какую предыдущую цель ты имеешь в виду?",
+    "Please clarify the action and target.": "Уточни действие и цель.",
+    "Which app do you want?": "Какое приложение ты имеешь в виду?",
+    "Reply yes to continue or no to cancel.": "Скажи да, чтобы продолжить, или нет, чтобы отменить.",
+    "Reply with one app name.": "Назови одно приложение.",
+    "Reply with one window name.": "Назови одно окно.",
+    "Reply with an exact name or full path.": "Назови точное имя или полный путь.",
+    "Reply with one full website URL.": "Назови один полный адрес сайта.",
+    "Reply with a folder or search query.": "Назови папку или поисковый запрос.",
+    "Reply with one project folder.": "Назови одну папку проекта.",
+    "Reply with one specific target.": "Назови одну конкретную цель.",
+    "Try a more specific app or file name.": "Назови приложение или файл точнее.",
+    "Try a more specific target name.": "Назови цель точнее.",
+    "Try opening a folder first, then retry.": "Сначала открой папку, потом попробуй снова.",
+    "Try opening a folder first, then search inside it.": "Сначала открой папку, потом ищи внутри неё.",
+    "Try again in an active macOS desktop session.": "Попробуй ещё раз в активной сессии macOS.",
+    "Try using the app name instead of a window reference.": "Попробуй использовать имя приложения вместо ссылки на окно.",
+    "Try a more specific command.": "Сформулируй команду точнее.",
+    "Try adding the missing target or parameter.": "Добавь недостающую цель или параметр.",
+    "Try a different installed app name.": "Попробуй другое установленное приложение.",
+    "Try a specific installed app name, or omit the app to use the default.": (
+        "Попробуй указать конкретное установленное приложение или не указывать приложение, "
+        "чтобы использовать вариант по умолчанию."
+    ),
+    "Try a supported command like open app or search local.": "Попробуй поддерживаемую команду вроде open app или search local.",
+    "Command cancelled.": "Команда отменена.",
+    "Confirmation denied. Command cancelled.": "Подтверждение отклонено. Команда отменена.",
+    "Command completed.": "Команда выполнена.",
+    "Please confirm or cancel.": "Скажи: подтвердить или отменить.",
+    "Please answer the clarification question.": "Ответь на уточняющий вопрос.",
+}
 
 
 def can_show_cancel(state: RuntimeState | str) -> bool:
@@ -167,6 +284,15 @@ def map_visibility(
     )
     if next_step_hint:
         payload["next_step_hint"] = next_step_hint
+    if _prefers_russian_visibility(
+        command,
+        blocked_reason,
+        getattr(clarification, "message", None),
+        getattr(confirmation, "message", None),
+        completion_result,
+        getattr(error, "message", None) if error is not None else None,
+    ):
+        payload = _localized_russian_payload(payload)
     return _prune_optional_none_fields(payload)
 
 
@@ -296,6 +422,13 @@ def _command_summary(command: Command | None) -> str | None:
     if command is None:
         return None
     intent = _intent_value(getattr(command, "intent", ""))
+    if intent == "run_protocol":
+        parameters = dict(getattr(command, "parameters", {}) or {})
+        protocol_name = (
+            str(parameters.get("protocol_display_name", "") or "").strip()
+            or str(parameters.get("requested_protocol_name", "") or "").strip()
+        )
+        return f"run_protocol: {protocol_name}" if protocol_name else intent
     targets = list(getattr(command, "targets", []) or [])
     names = [name for name in (_target_name(target) for target in targets) if name]
     if names:
@@ -367,6 +500,187 @@ def _confirmation_payload(confirmation: ConfirmationRequest | None) -> dict[str,
             if _target_name(target)
         ],
     }
+
+
+def _prefers_russian_visibility(command: Command | None, *parts: object) -> bool:
+    raw_input = str(getattr(command, "raw_input", "") or "").strip()
+    if raw_input:
+        return prefers_russian_text(raw_input)
+    return prefers_russian_text(*(str(part or "") for part in parts))
+
+
+def _localized_russian_payload(payload: VisibilityPayload) -> VisibilityPayload:
+    localized = dict(payload)
+    for field in ("blocked_reason", "clarification_question", "failure_message", "completion_result", "next_step_hint"):
+        current = localized.get(field)
+        if current is None:
+            continue
+        localized[field] = _localized_russian_visible_text(str(current))
+    confirmation_request = localized.get("confirmation_request")
+    if isinstance(confirmation_request, dict):
+        localized_confirmation = dict(confirmation_request)
+        localized_confirmation["message"] = _localized_russian_visible_text(str(confirmation_request.get("message", "") or ""))
+        localized["confirmation_request"] = localized_confirmation
+    return localized
+
+
+def _localized_russian_visible_text(text: str) -> str:
+    normalized = " ".join(str(text or "").split()).strip()
+    if not normalized:
+        return normalized
+    exact = _RUSSIAN_VISIBLE_EXACT_MAP.get(normalized)
+    if exact:
+        return exact
+
+    mixed_interaction = _MIXED_INTERACTION_CLARIFICATION_RE.match(normalized)
+    if mixed_interaction is not None:
+        target = str(mixed_interaction.group("target") or "").strip()
+        if target:
+            return f"Сначала ответить или открыть {target}?"
+
+    target_with_options = _TARGET_NOT_FOUND_WITH_OPTIONS_RE.match(normalized)
+    if target_with_options is not None:
+        target = str(target_with_options.group("target") or "").strip()
+        options = str(target_with_options.group("options") or "").strip()
+        return f"Не могу найти {target}; ты имел в виду {_spoken_option_list(options)}?"
+
+    target_with_followup = _TARGET_NOT_FOUND_WITH_TARGET_RE.match(normalized)
+    if target_with_followup is not None:
+        target = str(target_with_followup.group("target") or "").strip()
+        return f"Не могу найти {target}; какую цель использовать?"
+
+    generic_options = _TARGET_NOT_FOUND_GENERIC_OPTIONS_RE.match(normalized)
+    if generic_options is not None:
+        options = str(generic_options.group("options") or "").strip()
+        return f"Не могу найти эту цель; ты имел в виду {_spoken_option_list(options)}?"
+
+    approve_step = _APPROVE_STEP_CONFIRMATION_RE.match(normalized)
+    if approve_step is not None:
+        action = str(approve_step.group("action") or "").strip()
+        target = str(approve_step.group("target") or "").strip()
+        if action and target:
+            return f"Подтвердить шаг {action} для {target}?"
+
+    approve_with_targets = _APPROVE_CONFIRMATION_WITH_TARGETS_RE.match(normalized)
+    if approve_with_targets is not None:
+        intent = str(approve_with_targets.group("intent") or "").strip()
+        targets = str(approve_with_targets.group("targets") or "").strip()
+        if intent and targets:
+            return f"Подтвердить {intent} для {targets}?"
+
+    approve_command = _APPROVE_CONFIRMATION_COMMAND_RE.match(normalized)
+    if approve_command is not None:
+        intent = str(approve_command.group("intent") or "").strip()
+        if intent:
+            return f"Подтвердить команду {intent}?"
+
+    list_windows_match = _LIST_WINDOWS_FAILURE_RE.match(normalized.rstrip("."))
+    if list_windows_match is not None:
+        detail = str(list_windows_match.group("detail") or "").strip()
+        if detail:
+            return f"Не удалось показать окна: {detail}"
+        return "Не удалось показать окна."
+
+    open_with_target_detail = _OPEN_AFTER_SEARCH_WITH_TARGET_DETAIL_RE.match(normalized)
+    if open_with_target_detail is not None:
+        target = str(open_with_target_detail.group("target") or "").strip()
+        detail = str(open_with_target_detail.group("detail") or "").strip()
+        if target and detail:
+            return f"Нашёл подходящий файл, но не смог открыть {target}. {detail}"
+
+    open_with_target = _OPEN_AFTER_SEARCH_WITH_TARGET_RE.match(normalized)
+    if open_with_target is not None:
+        target = str(open_with_target.group("target") or "").strip()
+        if target:
+            return f"Нашёл подходящий файл, но не смог открыть {target}."
+
+    open_with_detail = _OPEN_AFTER_SEARCH_WITH_DETAIL_RE.match(normalized)
+    if open_with_detail is not None:
+        detail = str(open_with_detail.group("detail") or "").strip()
+        if detail:
+            return f"Нашёл подходящий файл, но не смог его открыть. {detail}"
+        return "Нашёл подходящий файл, но не смог его открыть."
+
+    search_empty_match = _SEARCH_OPEN_EMPTY_RE.match(normalized)
+    if search_empty_match is not None:
+        detail = str(search_empty_match.group("detail") or "").strip()
+        if detail:
+            return f"Поиск не нашёл файл для открытия. {detail}"
+        return "Поиск не нашёл файл для открытия."
+
+    internal_completion = _INTERNAL_COMPLETION_RE.match(normalized)
+    if internal_completion is not None:
+        intent = str(internal_completion.group("intent") or "").strip()
+        count = int(internal_completion.group("count"))
+        return f"Завершил {intent}: {count} {_russian_count_form(count, 'шаг', 'шага', 'шагов')}."
+
+    search_found = _SEARCH_FOUND_RE.match(normalized)
+    if search_found is not None:
+        count = int(search_found.group("count"))
+        scope = _normalized_scope_suffix(search_found.group("scope"))
+        return f"Найдено {count} {_russian_count_form(count, 'совпадение', 'совпадения', 'совпадений')}{scope}."
+
+    search_found_and_open = _SEARCH_FOUND_AND_OPEN_RE.match(normalized)
+    if search_found_and_open is not None:
+        count = int(search_found_and_open.group("count"))
+        scope = _normalized_scope_suffix(search_found_and_open.group("scope"))
+        return (
+            f"Найдено {count} {_russian_count_form(count, 'совпадение', 'совпадения', 'совпадений')}"
+            f"{scope}, файл открыт."
+        )
+
+    search_completed = _SEARCH_COMPLETED_RE.match(normalized)
+    if search_completed is not None:
+        scope = _normalized_scope_suffix(search_completed.group("scope"))
+        return f"Поиск завершён{scope}."
+
+    if _SEARCH_COMPLETED_AND_OPEN_RE.match(normalized) is not None:
+        return "Поиск завершён, файл открыт."
+
+    visible_windows = _VISIBLE_WINDOWS_RE.match(normalized)
+    if visible_windows is not None:
+        count = int(visible_windows.group("count"))
+        return f"Сейчас видно {count} {_russian_count_form(count, 'окно', 'окна', 'окон')}."
+
+    filtered_windows = _FILTERED_WINDOWS_RE.match(normalized)
+    if filtered_windows is not None:
+        count = int(filtered_windows.group("count"))
+        filter_name = str(filtered_windows.group("filter") or "").strip()
+        if filter_name:
+            return f"Сейчас видно {count} {_russian_count_form(count, 'окно', 'окна', 'окон')} {filter_name}."
+
+    filtered_windows_none = _NO_VISIBLE_FILTERED_WINDOWS_RE.match(normalized)
+    if filtered_windows_none is not None:
+        filter_name = str(filtered_windows_none.group("filter") or "").strip()
+        if filter_name:
+            return f"Окон {filter_name} не найдено."
+
+    return normalized
+
+
+def _spoken_option_list(options: str) -> str:
+    parts = [part.strip() for part in str(options or "").split(",") if part.strip()]
+    return ", ".join(parts)
+
+
+def _russian_count_form(count: int, one: str, few: str, many: str) -> str:
+    normalized_count = abs(int(count))
+    mod10 = normalized_count % 10
+    mod100 = normalized_count % 100
+    if mod10 == 1 and mod100 != 11:
+        return one
+    if 2 <= mod10 <= 4 and not 12 <= mod100 <= 14:
+        return few
+    return many
+
+
+def _normalized_scope_suffix(scope: str | None) -> str:
+    scope_text = str(scope or "").strip()
+    if not scope_text:
+        return ""
+    if scope_text.lower().startswith("in "):
+        return f" в {scope_text[3:].strip()}"
+    return scope_text
 
 
 def _failure_message(
@@ -513,6 +827,8 @@ def _clarification_next_step_hint(
         return "Reply with a folder or search query."
     if intent == "prepare_workspace":
         return "Reply with one project folder."
+    if intent == "run_protocol":
+        return "Reply with one protocol name."
     return "Reply with one specific target."
 
 
@@ -522,6 +838,8 @@ def _specific_failure_next_step_hint(command: Command | None, current_step: Step
     action = _step_action_value(current_step) if current_step is not None else ""
 
     if error_code == "TARGET_NOT_FOUND":
+        if intent == "run_protocol":
+            return "Try a known protocol name."
         if intent == "search_local":
             return "Try opening a folder first, then search inside it."
         if intent == "open_file":
@@ -533,6 +851,8 @@ def _specific_failure_next_step_hint(command: Command | None, current_step: Step
         return "Try a more specific app or file name."
 
     if error_code == "MULTIPLE_MATCHES":
+        if intent == "run_protocol":
+            return "Reply with one protocol name."
         return "Try a more specific app or file name."
 
     if error_code == "FOLLOWUP_REFERENCE_UNCLEAR":

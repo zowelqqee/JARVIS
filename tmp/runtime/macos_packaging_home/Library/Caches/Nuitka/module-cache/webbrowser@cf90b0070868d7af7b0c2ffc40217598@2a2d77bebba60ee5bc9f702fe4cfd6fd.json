@@ -1,0 +1,116 @@
+{
+  "distribution_names": {},
+  "file_format_version": 7,
+  "module_name": "webbrowser",
+  "modules_used": [
+    {
+      "filename": "/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/os.py",
+      "finding": "absolute",
+      "level": 0,
+      "module_kind": "py",
+      "module_name": "os",
+      "reason": "import",
+      "source_ref_line": 5
+    },
+    {
+      "filename": "/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/shlex.py",
+      "finding": "absolute",
+      "level": 0,
+      "module_kind": "py",
+      "module_name": "shlex",
+      "reason": "import",
+      "source_ref_line": 6
+    },
+    {
+      "filename": "/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/shutil.py",
+      "finding": "absolute",
+      "level": 0,
+      "module_kind": "py",
+      "module_name": "shutil",
+      "reason": "import",
+      "source_ref_line": 7
+    },
+    {
+      "filename": null,
+      "finding": "absolute",
+      "level": 0,
+      "module_kind": "built-in",
+      "module_name": "sys",
+      "reason": "import",
+      "source_ref_line": 8
+    },
+    {
+      "filename": "/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/subprocess.py",
+      "finding": "absolute",
+      "level": 0,
+      "module_kind": "py",
+      "module_name": "subprocess",
+      "reason": "import",
+      "source_ref_line": 9
+    },
+    {
+      "filename": "/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/threading.py",
+      "finding": "absolute",
+      "level": 0,
+      "module_kind": "py",
+      "module_name": "threading",
+      "reason": "import",
+      "source_ref_line": 10
+    },
+    {
+      "filename": "/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/copy.py",
+      "finding": "absolute",
+      "level": 0,
+      "module_kind": "py",
+      "module_name": "copy",
+      "reason": "import",
+      "source_ref_line": 138
+    },
+    {
+      "filename": "/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/argparse.py",
+      "finding": "absolute",
+      "level": 0,
+      "module_kind": "py",
+      "module_name": "argparse",
+      "reason": "import",
+      "source_ref_line": 684
+    }
+  ],
+  "timing_infos": [
+    [
+      1,
+      0.18367841700091958,
+      6,
+      {
+        "1": 721,
+        "2": 649,
+        "3": 68,
+        "4": 73,
+        "5": 37,
+        "6": 10,
+        "7": 51,
+        "8": 23,
+        "9": 20,
+        "10": 7,
+        "11": 30,
+        "12": 6,
+        "13": 7,
+        "14": 10,
+        "15": 70,
+        "16": 1,
+        "17": 5,
+        "18": 12,
+        "20": 1,
+        "23": 10,
+        "25": 4,
+        "26": 7,
+        "27": 2,
+        "29": 1,
+        "64": 5,
+        "85": 5,
+        "88": 1,
+        "133": 1
+      }
+    ]
+  ]
+}

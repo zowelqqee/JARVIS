@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from executor.desktop_actions import DesktopAction
+from protocols.planner import expand_protocol_command
 
 if TYPE_CHECKING:
     from types.command import Command
@@ -38,6 +39,7 @@ _SUPPORTED_INTENTS = {
     "list_windows",
     "search_local",
     "prepare_workspace",
+    "run_protocol",
     "clarify",
     "confirm",
 }
@@ -53,6 +55,7 @@ _STEP_REQUIRED_INTENTS = {
     "list_windows",
     "search_local",
     "prepare_workspace",
+    "run_protocol",
 }
 _MARKDOWN_SUFFIXES = (".md", ".markdown", ".mdown")
 _SEARCH_IGNORE_TERMS = {"file", "files", "document", "documents", "for", "the", "a", "an"}
@@ -66,16 +69,24 @@ def build_execution_plan(command: Command) -> PlannedCommand:
     if intent not in _SUPPORTED_INTENTS:
         raise ValueError(f"Unsupported intent for planning: {intent!r}")
 
-    steps = _steps_for_intent(command, intent)
+    planned_command = command
+    status_message_override: str | None = None
+    if intent == "run_protocol":
+        expansion = expand_protocol_command(command)
+        planned_command = expansion.command
+        steps = list(expansion.steps)
+        status_message_override = expansion.status_message
+    else:
+        steps = _steps_for_intent(command, intent)
     if intent in _STEP_REQUIRED_INTENTS and not steps:
         raise ValueError(f"No executable steps generated for required intent: {intent!r}")
-    status_message = _plan_status_message(intent, steps)
-    requires_confirmation = bool(getattr(command, "requires_confirmation", False)) or any(
+    status_message = status_message_override or _plan_status_message(intent, steps)
+    requires_confirmation = bool(getattr(planned_command, "requires_confirmation", False)) or any(
         step.requires_confirmation for step in steps
     )
 
     planned_command = _clone_command_with_plan(
-        command=command,
+        command=planned_command,
         execution_steps=steps,
         status_message=status_message,
         requires_confirmation=requires_confirmation,
@@ -577,6 +588,10 @@ def _build_confirmation_boundaries(command: Command, steps: list[Step]) -> list[
 
 def _command_confirmation_message(command: Command, steps: list[Step]) -> str:
     intent = _intent_value(command.intent)
+    if intent == "run_protocol":
+        protocol_name = str(getattr(command, "parameters", {}).get("protocol_display_name", "") or "").strip()
+        if protocol_name:
+            return f"Approve protocol {protocol_name} before execution."
     target_names = _target_names(list(getattr(command, "targets", []) or []))
     if target_names:
         return f"Approve {intent} for {', '.join(target_names)} before execution."
@@ -646,4 +661,6 @@ def _plan_status_message(intent: str, steps: list[Step]) -> str:
         return "No desktop steps generated for clarification or confirmation intent."
     if not steps:
         return "No executable steps generated."
+    if intent == "run_protocol":
+        return f"Planned {len(steps)} step(s) for run_protocol."
     return f"Planned {len(steps)} step(s) for {intent}."

@@ -7,6 +7,9 @@ import sys
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from protocols.registry import resolve_protocol_reference
+from user_language import prefers_russian_text
+
 if TYPE_CHECKING:
     from types.clarification_request import ClarificationRequest
     from types.command import Command
@@ -28,21 +31,30 @@ def build_clarification(validation_issue: JarvisError, command: Command) -> Clar
     code = _error_code_value(getattr(validation_issue, "code", "CLARIFICATION_REQUIRED"))
     details = _error_details(validation_issue)
     options = _extract_options(details)
+    prefer_russian = _prefers_russian_command(command)
 
     if code == ErrorCode.LOW_CONFIDENCE.value:
-        message = "I am not sure what you meant; can you rephrase the command?"
+        message = (
+            "Не уверен, что ты имел в виду. Переформулируй команду."
+            if prefer_russian
+            else "I am not sure what you meant; can you rephrase the command?"
+        )
         options = None
     elif code == ErrorCode.MISSING_PARAMETER.value:
-        message = _missing_parameter_message(command)
+        message = _missing_parameter_message(command, prefer_russian=prefer_russian)
         options = None
     elif code == ErrorCode.TARGET_NOT_FOUND.value:
-        message = _target_not_found_message(command, options)
+        message = _target_not_found_message(command, options, prefer_russian=prefer_russian)
     elif code == ErrorCode.MULTIPLE_MATCHES.value:
-        message = _multiple_matches_message(options)
+        message = _multiple_matches_message(options, prefer_russian=prefer_russian)
     elif code == ErrorCode.FOLLOWUP_REFERENCE_UNCLEAR.value:
-        message = "Which previous target are you referring to?"
+        message = (
+            "Какую предыдущую цель ты имеешь в виду?"
+            if prefer_russian
+            else "Which previous target are you referring to?"
+        )
     else:
-        message = "Please clarify the action and target."
+        message = "Уточни действие и цель." if prefer_russian else "Please clarify the action and target."
         if not options:
             options = None
 
@@ -57,6 +69,7 @@ def apply_clarification(command: Command, user_reply: str) -> Command:
         return patched_command
 
     patched = False
+    patched |= _apply_protocol_reference(patched_command, reply)
     patched |= _apply_ambiguous_choice(patched_command, reply)
     patched |= _apply_missing_parameter(patched_command, reply)
     patched |= _apply_missing_target(patched_command, reply)
@@ -116,6 +129,22 @@ def _apply_ambiguous_choice(command: Command, reply: str) -> bool:
     return False
 
 
+def _apply_protocol_reference(command: Command, reply: str) -> bool:
+    if _intent_value(command.intent) != "run_protocol":
+        return False
+    matches = resolve_protocol_reference(reply)
+    if len(matches) != 1:
+        return False
+    match = matches[0]
+    command.parameters["protocol_id"] = str(getattr(match.definition, "id", "") or "").strip()
+    command.parameters["protocol_display_name"] = str(getattr(match.definition, "title", "") or "").strip()
+    command.parameters.pop("protocol_ambiguous", None)
+    command.parameters.pop("protocol_candidates", None)
+    command.parameters["requested_protocol_name"] = reply
+    command.targets = []
+    return True
+
+
 def _select_candidate(reply: str, candidates: list[str]) -> str | None:
     if not candidates:
         return None
@@ -153,6 +182,10 @@ def _apply_missing_parameter(command: Command, reply: str) -> bool:
 
     if intent == "prepare_workspace" and not str(parameters.get("workspace", "")).strip():
         parameters["workspace"] = reply
+        return True
+
+    if intent == "run_protocol" and not str(parameters.get("protocol_id", "")).strip():
+        parameters["requested_protocol_name"] = reply
         return True
 
     if intent == "confirm" and not str(parameters.get("response", "")).strip():
@@ -199,34 +232,50 @@ def _apply_missing_target(command: Command, reply: str) -> bool:
     return True
 
 
-def _missing_parameter_message(command: Command) -> str:
+def _missing_parameter_message(command: Command, *, prefer_russian: bool) -> str:
     intent = _intent_value(command.intent)
     if intent == "search_local":
-        return "What should I search for?"
+        return "Что мне искать?" if prefer_russian else "What should I search for?"
     if intent == "open_website":
-        return "Which website URL should I open?"
+        return "Какой адрес сайта открыть?" if prefer_russian else "Which website URL should I open?"
     if intent == "prepare_workspace":
-        return "What workspace should I prepare?"
+        return "Какое рабочее пространство подготовить?" if prefer_russian else "What workspace should I prepare?"
+    if intent == "run_protocol":
+        return "Какой протокол запустить?" if prefer_russian else "Which protocol should I run?"
     if intent == "confirm":
-        return "Please reply with confirm or cancel."
-    return "Which value should I use to continue?"
+        return "Скажи: подтвердить или отменить." if prefer_russian else "Please reply with confirm or cancel."
+    return "Какое значение использовать, чтобы продолжить?" if prefer_russian else "Which value should I use to continue?"
 
 
-def _target_not_found_message(command: Command, options: list[str] | None) -> str:
+def _target_not_found_message(command: Command, options: list[str] | None, *, prefer_russian: bool) -> str:
     if command.targets:
-        missing_target = str(command.targets[0].name).strip() or "that target"
+        missing_target = str(command.targets[0].name).strip() or ("эту цель" if prefer_russian else "that target")
         if options:
+            if prefer_russian:
+                return f"Не могу найти {missing_target}; ты имел в виду {', '.join(options)}?"
             return f"I could not find {missing_target}; did you mean {', '.join(options)}?"
+        if prefer_russian:
+            return f"Не могу найти {missing_target}; какую цель использовать?"
         return f"I could not find {missing_target}; which target should I use?"
     if options:
+        if prefer_russian:
+            return f"Не могу найти эту цель; ты имел в виду {', '.join(options)}?"
         return f"I could not find that target; did you mean {', '.join(options)}?"
-    return "I could not find the target; which one should I use?"
+    return "Не могу найти цель; какую использовать?" if prefer_russian else "I could not find the target; which one should I use?"
 
 
-def _multiple_matches_message(options: list[str] | None) -> str:
+def _multiple_matches_message(options: list[str] | None, *, prefer_russian: bool) -> str:
     if options:
-        return f"Which one do you mean: {', '.join(options)}?"
-    return "I found multiple matches; which one should I use?"
+        return (
+            f"Какой вариант ты имеешь в виду: {', '.join(options)}?"
+            if prefer_russian
+            else f"Which one do you mean: {', '.join(options)}?"
+        )
+    return "Нашёл несколько вариантов; какой использовать?" if prefer_russian else "I found multiple matches; which one should I use?"
+
+
+def _prefers_russian_command(command: Command) -> bool:
+    return prefers_russian_text(str(getattr(command, "raw_input", "") or ""))
 
 
 def _error_details(issue: JarvisError) -> dict[str, Any]:

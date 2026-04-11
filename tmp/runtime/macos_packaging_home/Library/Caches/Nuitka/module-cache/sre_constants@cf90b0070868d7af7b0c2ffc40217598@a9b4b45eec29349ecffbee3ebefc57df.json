@@ -1,0 +1,48 @@
+{
+  "distribution_names": {},
+  "file_format_version": 7,
+  "module_name": "sre_constants",
+  "modules_used": [
+    {
+      "filename": "/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/warnings.py",
+      "finding": "absolute",
+      "level": 0,
+      "module_kind": "py",
+      "module_name": "warnings",
+      "reason": "import",
+      "source_ref_line": 1
+    },
+    {
+      "filename": "/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/re",
+      "finding": "absolute",
+      "level": 0,
+      "module_kind": "py",
+      "module_name": "re",
+      "reason": "import",
+      "source_ref_line": 6
+    },
+    {
+      "filename": "/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/re/_constants.py",
+      "finding": "relative",
+      "level": 1,
+      "module_kind": "py",
+      "module_name": "re._constants",
+      "reason": "import fromlist",
+      "source_ref_line": 6
+    }
+  ],
+  "timing_infos": [
+    [
+      1,
+      0.002836250001564622,
+      5,
+      {
+        "1": 25,
+        "2": 10,
+        "3": 5,
+        "6": 8,
+        "7": 2
+      }
+    ]
+  ]
+}

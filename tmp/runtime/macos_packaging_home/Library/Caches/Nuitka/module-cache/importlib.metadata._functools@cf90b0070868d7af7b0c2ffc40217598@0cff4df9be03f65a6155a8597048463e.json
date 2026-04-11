@@ -1,0 +1,42 @@
+{
+  "distribution_names": {},
+  "file_format_version": 7,
+  "module_name": "importlib.metadata._functools",
+  "modules_used": [
+    {
+      "filename": "/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/types.py",
+      "finding": "absolute",
+      "level": 0,
+      "module_kind": "py",
+      "module_name": "types",
+      "reason": "import",
+      "source_ref_line": 1
+    },
+    {
+      "filename": "/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/functools.py",
+      "finding": "absolute",
+      "level": 0,
+      "module_kind": "py",
+      "module_name": "functools",
+      "reason": "import",
+      "source_ref_line": 2
+    }
+  ],
+  "timing_infos": [
+    [
+      1,
+      0.0026670410006772727,
+      5,
+      {
+        "1": 15,
+        "2": 7,
+        "3": 6,
+        "4": 4,
+        "5": 2,
+        "10": 3,
+        "11": 1,
+        "12": 1
+      }
+    ]
+  ]
+}

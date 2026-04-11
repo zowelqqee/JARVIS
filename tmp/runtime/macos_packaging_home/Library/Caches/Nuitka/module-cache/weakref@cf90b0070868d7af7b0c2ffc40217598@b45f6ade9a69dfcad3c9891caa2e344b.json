@@ -1,0 +1,119 @@
+{
+  "distribution_names": {},
+  "file_format_version": 7,
+  "module_name": "weakref",
+  "modules_used": [
+    {
+      "filename": null,
+      "finding": "absolute",
+      "level": 0,
+      "module_kind": "built-in",
+      "module_name": "_weakref",
+      "reason": "import",
+      "source_ref_line": 12
+    },
+    {
+      "filename": "/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/_weakrefset.py",
+      "finding": "absolute",
+      "level": 0,
+      "module_kind": "py",
+      "module_name": "_weakrefset",
+      "reason": "import",
+      "source_ref_line": 22
+    },
+    {
+      "filename": "/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/_collections_abc.py",
+      "finding": "absolute",
+      "level": 0,
+      "module_kind": "py",
+      "module_name": "_collections_abc",
+      "reason": "import",
+      "source_ref_line": 24
+    },
+    {
+      "filename": null,
+      "finding": "absolute",
+      "level": 0,
+      "module_kind": "built-in",
+      "module_name": "sys",
+      "reason": "import",
+      "source_ref_line": 25
+    },
+    {
+      "filename": null,
+      "finding": "absolute",
+      "level": 0,
+      "module_kind": "built-in",
+      "module_name": "itertools",
+      "reason": "import",
+      "source_ref_line": 26
+    },
+    {
+      "filename": "/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/copy.py",
+      "finding": "absolute",
+      "level": 0,
+      "module_kind": "py",
+      "module_name": "copy",
+      "reason": "import",
+      "source_ref_line": 183
+    },
+    {
+      "filename": "/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/copy.py",
+      "finding": "absolute",
+      "level": 0,
+      "module_kind": "py",
+      "module_name": "copy",
+      "reason": "import",
+      "source_ref_line": 442
+    },
+    {
+      "filename": null,
+      "finding": "absolute",
+      "level": 0,
+      "module_kind": "built-in",
+      "module_name": "atexit",
+      "reason": "import",
+      "source_ref_line": 572
+    },
+    {
+      "filename": null,
+      "finding": "absolute",
+      "level": 0,
+      "module_kind": "built-in",
+      "module_name": "gc",
+      "reason": "import",
+      "source_ref_line": 649
+    }
+  ],
+  "timing_infos": [
+    [
+      1,
+      0.1659180419956101,
+      6,
+      {
+        "1": 866,
+        "2": 932,
+        "3": 145,
+        "4": 133,
+        "5": 90,
+        "6": 115,
+        "7": 41,
+        "8": 47,
+        "9": 125,
+        "10": 14,
+        "11": 17,
+        "12": 6,
+        "13": 13,
+        "14": 3,
+        "15": 22,
+        "16": 15,
+        "17": 3,
+        "24": 4,
+        "25": 10,
+        "31": 6,
+        "33": 6,
+        "39": 1
+      }
+    ]
+  ]
+}

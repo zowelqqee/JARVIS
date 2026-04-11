@@ -1,0 +1,31 @@
+{
+  "distribution_names": {},
+  "file_format_version": 7,
+  "module_name": "encodings.utf_32_le",
+  "modules_used": [
+    {
+      "filename": "/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/codecs.py",
+      "finding": "absolute",
+      "level": 0,
+      "module_kind": "py",
+      "module_name": "codecs",
+      "reason": "import",
+      "source_ref_line": 4
+    }
+  ],
+  "timing_infos": [
+    [
+      1,
+      0.0092058340087533,
+      4,
+      {
+        "1": 72,
+        "2": 60,
+        "4": 2,
+        "6": 6,
+        "9": 12,
+        "16": 16
+      }
+    ]
+  ]
+}

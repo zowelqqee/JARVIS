@@ -1,0 +1,48 @@
+{
+  "distribution_names": {},
+  "file_format_version": 7,
+  "module_name": "zipfile._path.glob",
+  "modules_used": [
+    {
+      "filename": "/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/os.py",
+      "finding": "absolute",
+      "level": 0,
+      "module_kind": "py",
+      "module_name": "os",
+      "reason": "import",
+      "source_ref_line": 1
+    },
+    {
+      "filename": "/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/re",
+      "finding": "absolute",
+      "level": 0,
+      "module_kind": "py",
+      "module_name": "re",
+      "reason": "import",
+      "source_ref_line": 2
+    }
+  ],
+  "timing_infos": [
+    [
+      1,
+      0.007064125005854294,
+      5,
+      {
+        "1": 80,
+        "2": 27,
+        "3": 3,
+        "4": 7,
+        "5": 6,
+        "7": 2,
+        "8": 1,
+        "9": 5,
+        "10": 2,
+        "11": 5,
+        "13": 1,
+        "14": 1,
+        "19": 2,
+        "20": 1
+      }
+    ]
+  ]
+}

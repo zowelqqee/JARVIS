@@ -1,0 +1,33 @@
+{
+  "distribution_names": {},
+  "file_format_version": 7,
+  "module_name": "encodings.latin_1",
+  "modules_used": [
+    {
+      "filename": "/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/codecs.py",
+      "finding": "absolute",
+      "level": 0,
+      "module_kind": "py",
+      "module_name": "codecs",
+      "reason": "import",
+      "source_ref_line": 9
+    }
+  ],
+  "timing_infos": [
+    [
+      1,
+      0.014327665994642302,
+      4,
+      {
+        "1": 106,
+        "2": 88,
+        "5": 8,
+        "6": 12,
+        "13": 8,
+        "15": 4,
+        "16": 12,
+        "17": 8
+      }
+    ]
+  ]
+}

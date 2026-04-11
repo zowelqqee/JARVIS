@@ -1,0 +1,38 @@
+{
+  "distribution_names": {},
+  "file_format_version": 7,
+  "module_name": "_pyrepl.trace",
+  "modules_used": [
+    {
+      "filename": "/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/__future__.py",
+      "finding": "absolute",
+      "level": 0,
+      "module_kind": "py",
+      "module_name": "__future__",
+      "reason": "import",
+      "source_ref_line": 1
+    },
+    {
+      "filename": "/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/os.py",
+      "finding": "absolute",
+      "level": 0,
+      "module_kind": "py",
+      "module_name": "os",
+      "reason": "import",
+      "source_ref_line": 3
+    }
+  ],
+  "timing_infos": [
+    [
+      1,
+      0.0014403749955818057,
+      4,
+      {
+        "1": 8,
+        "2": 16,
+        "3": 4,
+        "10": 4
+      }
+    ]
+  ]
+}

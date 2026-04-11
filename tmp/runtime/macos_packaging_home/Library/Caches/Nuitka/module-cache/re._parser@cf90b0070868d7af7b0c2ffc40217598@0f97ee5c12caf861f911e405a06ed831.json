@@ -1,0 +1,134 @@
+{
+  "distribution_names": {},
+  "file_format_version": 7,
+  "module_name": "re._parser",
+  "modules_used": [
+    {
+      "filename": "/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/re",
+      "finding": "absolute",
+      "level": 0,
+      "module_kind": "py",
+      "module_name": "re",
+      "reason": "import path parent",
+      "source_ref_line": 15
+    },
+    {
+      "filename": "/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/re/_constants.py",
+      "finding": "absolute",
+      "level": 0,
+      "module_kind": "py",
+      "module_name": "re._constants",
+      "reason": "import",
+      "source_ref_line": 15
+    },
+    {
+      "filename": "/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/lib-dynload/unicodedata.cpython-313-darwin.so",
+      "finding": "absolute",
+      "level": 0,
+      "module_kind": "extension",
+      "module_name": "unicodedata",
+      "reason": "import",
+      "source_ref_line": 342
+    },
+    {
+      "filename": "/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/lib-dynload/unicodedata.cpython-313-darwin.so",
+      "finding": "absolute",
+      "level": 0,
+      "module_kind": "extension",
+      "module_name": "unicodedata",
+      "reason": "import",
+      "source_ref_line": 402
+    },
+    {
+      "filename": "/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/warnings.py",
+      "finding": "absolute",
+      "level": 0,
+      "module_kind": "py",
+      "module_name": "warnings",
+      "reason": "import",
+      "source_ref_line": 557
+    },
+    {
+      "filename": "/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/warnings.py",
+      "finding": "absolute",
+      "level": 0,
+      "module_kind": "py",
+      "module_name": "warnings",
+      "reason": "import",
+      "source_ref_line": 575
+    },
+    {
+      "filename": "/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/warnings.py",
+      "finding": "absolute",
+      "level": 0,
+      "module_kind": "py",
+      "module_name": "warnings",
+      "reason": "import",
+      "source_ref_line": 602
+    },
+    {
+      "filename": "/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/warnings.py",
+      "finding": "absolute",
+      "level": 0,
+      "module_kind": "py",
+      "module_name": "warnings",
+      "reason": "import",
+      "source_ref_line": 811
+    },
+    {
+      "filename": "/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/warnings.py",
+      "finding": "absolute",
+      "level": 0,
+      "module_kind": "py",
+      "module_name": "warnings",
+      "reason": "import",
+      "source_ref_line": 1042
+    }
+  ],
+  "timing_infos": [
+    [
+      1,
+      0.4999569170031464,
+      7,
+      {
+        "1": 601,
+        "2": 1153,
+        "3": 241,
+        "4": 81,
+        "5": 60,
+        "6": 20,
+        "7": 7,
+        "8": 23,
+        "9": 14,
+        "10": 20,
+        "11": 16,
+        "12": 12,
+        "13": 30,
+        "14": 11,
+        "15": 10,
+        "17": 3,
+        "18": 6,
+        "19": 22,
+        "20": 6,
+        "21": 7,
+        "32": 7,
+        "33": 5,
+        "34": 6,
+        "37": 3,
+        "61": 7,
+        "63": 5,
+        "66": 8,
+        "68": 1,
+        "114": 7,
+        "120": 6,
+        "126": 1,
+        "145": 6,
+        "154": 1,
+        "161": 7,
+        "714": 5,
+        "721": 1,
+        "731": 1
+      }
+    ]
+  ]
+}

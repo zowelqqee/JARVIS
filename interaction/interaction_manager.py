@@ -20,6 +20,7 @@ from qa.debug_trace import qa_debug_enabled, set_debug_payload
 from qa.answer_engine import answer_question, classify_question
 from runtime.runtime_manager import RuntimeManager
 from ui.visibility_mapper import map_interaction_visibility, map_visibility
+from user_language import prefers_russian_text
 
 if TYPE_CHECKING:
     from context.session_context import SessionContext
@@ -247,8 +248,9 @@ def _build_clarification_result(
     decision: InteractionDecision,
     debug_trace: dict[str, Any] | None,
 ) -> InteractionResult:
+    clarification_message = decision.clarification_message or _default_mixed_interaction_message(decision)
     clarification_request = ClarificationRequest(
-        message=decision.clarification_message or "Do you want an answer or command execution?",
+        message=clarification_message,
         code=ErrorCode.CLARIFICATION_REQUIRED.value,
         options=["answer", "execute"],
     )
@@ -324,12 +326,24 @@ def _resolve_pending_interaction_decision(
             normalized_input=normalized_reply,
             confidence=1.0,
             reason="mixed_interaction_pending",
-            clarification_message="Please reply with answer or execute.",
+            clarification_message=_pending_mixed_interaction_reply_message(question_input, command_input),
             question_input=question_input or None,
             command_input=command_input or None,
         ),
         False,
     )
+
+
+def _default_mixed_interaction_message(decision: InteractionDecision) -> str:
+    if prefers_russian_text(decision.question_input or "", decision.command_input or "", decision.normalized_input or ""):
+        return "Сначала ответить или выполнить команду?"
+    return "Do you want an answer or command execution?"
+
+
+def _pending_mixed_interaction_reply_message(question_input: str, command_input: str) -> str:
+    if prefers_russian_text(question_input, command_input):
+        return "Скажи: ответить или выполнить."
+    return "Please reply with answer or execute."
 
 
 def _remember_answer_context(

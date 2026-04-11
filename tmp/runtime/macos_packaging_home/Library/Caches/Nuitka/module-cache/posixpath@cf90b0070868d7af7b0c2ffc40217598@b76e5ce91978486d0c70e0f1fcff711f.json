@@ -1,0 +1,158 @@
+{
+  "distribution_names": {},
+  "file_format_version": 7,
+  "module_name": "posixpath",
+  "modules_used": [
+    {
+      "filename": null,
+      "finding": "absolute",
+      "level": 0,
+      "module_kind": "built-in",
+      "module_name": "errno",
+      "reason": "import",
+      "source_ref_line": 25
+    },
+    {
+      "filename": "/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/os.py",
+      "finding": "absolute",
+      "level": 0,
+      "module_kind": "py",
+      "module_name": "os",
+      "reason": "import",
+      "source_ref_line": 26
+    },
+    {
+      "filename": null,
+      "finding": "absolute",
+      "level": 0,
+      "module_kind": "built-in",
+      "module_name": "sys",
+      "reason": "import",
+      "source_ref_line": 27
+    },
+    {
+      "filename": "/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/stat.py",
+      "finding": "absolute",
+      "level": 0,
+      "module_kind": "py",
+      "module_name": "stat",
+      "reason": "import",
+      "source_ref_line": 28
+    },
+    {
+      "filename": "/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/genericpath.py",
+      "finding": "absolute",
+      "level": 0,
+      "module_kind": "py",
+      "module_name": "genericpath",
+      "reason": "import",
+      "source_ref_line": 29
+    },
+    {
+      "filename": "/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/genericpath.py",
+      "finding": "absolute",
+      "level": 0,
+      "module_kind": "py",
+      "module_name": "genericpath",
+      "reason": "import",
+      "source_ref_line": 30
+    },
+    {
+      "filename": null,
+      "finding": "absolute",
+      "level": 0,
+      "module_kind": "built-in",
+      "module_name": "posix",
+      "reason": "import",
+      "source_ref_line": 139
+    },
+    {
+      "filename": null,
+      "finding": "absolute",
+      "level": 0,
+      "module_kind": "built-in",
+      "module_name": "pwd",
+      "reason": "import",
+      "source_ref_line": 246
+    },
+    {
+      "filename": null,
+      "finding": "absolute",
+      "level": 0,
+      "module_kind": "built-in",
+      "module_name": "pwd",
+      "reason": "import",
+      "source_ref_line": 260
+    },
+    {
+      "filename": "/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/re",
+      "finding": "absolute",
+      "level": 0,
+      "module_kind": "py",
+      "module_name": "re",
+      "reason": "import",
+      "source_ref_line": 299
+    },
+    {
+      "filename": "/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/re",
+      "finding": "absolute",
+      "level": 0,
+      "module_kind": "py",
+      "module_name": "re",
+      "reason": "import",
+      "source_ref_line": 309
+    },
+    {
+      "filename": null,
+      "finding": "absolute",
+      "level": 0,
+      "module_kind": "built-in",
+      "module_name": "posix",
+      "reason": "import",
+      "source_ref_line": 344
+    }
+  ],
+  "timing_infos": [
+    [
+      1,
+      0.09181400001398288,
+      7,
+      {
+        "1": 376,
+        "2": 532,
+        "3": 120,
+        "4": 53,
+        "5": 24,
+        "6": 26,
+        "7": 13,
+        "8": 11,
+        "9": 24,
+        "10": 9,
+        "11": 1,
+        "12": 6,
+        "14": 8,
+        "15": 1,
+        "16": 11,
+        "17": 18,
+        "18": 2,
+        "19": 7,
+        "20": 7,
+        "21": 3,
+        "22": 6,
+        "23": 8,
+        "26": 1,
+        "28": 6,
+        "29": 5,
+        "30": 1,
+        "31": 1,
+        "35": 1,
+        "41": 6,
+        "53": 1,
+        "54": 6,
+        "58": 1,
+        "82": 5,
+        "85": 2
+      }
+    ]
+  ]
+}

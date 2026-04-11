@@ -1,0 +1,62 @@
+{
+  "distribution_names": {},
+  "file_format_version": 7,
+  "module_name": "html",
+  "modules_used": [
+    {
+      "filename": "/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/os.py",
+      "finding": "absolute",
+      "level": 0,
+      "module_kind": "py",
+      "module_name": "os",
+      "reason": "import",
+      "source_ref_line": 1
+    },
+    {
+      "filename": "/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/re",
+      "finding": "absolute",
+      "level": 0,
+      "module_kind": "py",
+      "module_name": "re",
+      "reason": "import",
+      "source_ref_line": 5
+    },
+    {
+      "filename": "/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/html",
+      "finding": "absolute",
+      "level": 0,
+      "module_kind": "py",
+      "module_name": "html",
+      "reason": "import path parent",
+      "source_ref_line": 6
+    },
+    {
+      "filename": "/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/html/entities.py",
+      "finding": "absolute",
+      "level": 0,
+      "module_kind": "py",
+      "module_name": "html.entities",
+      "reason": "import",
+      "source_ref_line": 6
+    }
+  ],
+  "timing_infos": [
+    [
+      1,
+      0.004874792008195072,
+      5,
+      {
+        "1": 25,
+        "2": 22,
+        "4": 5,
+        "6": 2,
+        "7": 5,
+        "11": 8,
+        "14": 2,
+        "35": 3,
+        "41": 1,
+        "43": 1
+      }
+    ]
+  ]
+}

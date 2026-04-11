@@ -24,6 +24,7 @@ class IntentType(str, Enum):
     LIST_WINDOWS = "list_windows"
     SEARCH_LOCAL = "search_local"
     PREPARE_WORKSPACE = "prepare_workspace"
+    RUN_PROTOCOL = "run_protocol"
     CLARIFY = "clarify"
     CONFIRM = "confirm"
 
@@ -40,4 +41,3 @@ class Command:
     requires_confirmation: bool = False
     execution_steps: list[Step] = field(default_factory=list)
     status_message: str = ""
-

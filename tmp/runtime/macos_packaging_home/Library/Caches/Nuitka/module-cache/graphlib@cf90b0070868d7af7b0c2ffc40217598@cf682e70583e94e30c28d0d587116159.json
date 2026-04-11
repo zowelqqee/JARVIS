@@ -1,0 +1,47 @@
+{
+  "distribution_names": {},
+  "file_format_version": 7,
+  "module_name": "graphlib",
+  "modules_used": [
+    {
+      "filename": "/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/types.py",
+      "finding": "absolute",
+      "level": 0,
+      "module_kind": "py",
+      "module_name": "types",
+      "reason": "import",
+      "source_ref_line": 1
+    }
+  ],
+  "timing_infos": [
+    [
+      1,
+      0.03408604100695811,
+      7,
+      {
+        "1": 333,
+        "2": 104,
+        "3": 54,
+        "4": 13,
+        "5": 27,
+        "6": 17,
+        "7": 6,
+        "8": 15,
+        "9": 8,
+        "10": 7,
+        "11": 3,
+        "12": 13,
+        "14": 6,
+        "15": 10,
+        "20": 1,
+        "30": 5,
+        "33": 1,
+        "36": 1,
+        "40": 4,
+        "41": 1,
+        "45": 1,
+        "47": 1
+      }
+    ]
+  ]
+}

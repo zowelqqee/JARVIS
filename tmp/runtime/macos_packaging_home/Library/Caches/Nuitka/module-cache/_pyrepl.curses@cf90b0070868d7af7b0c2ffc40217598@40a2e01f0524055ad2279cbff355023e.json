@@ -1,0 +1,57 @@
+{
+  "distribution_names": {},
+  "file_format_version": 7,
+  "module_name": "_pyrepl.curses",
+  "modules_used": [
+    {
+      "filename": "/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/lib-dynload/_curses.cpython-313-darwin.so",
+      "finding": "absolute",
+      "level": 0,
+      "module_kind": "extension",
+      "module_name": "_curses",
+      "reason": "import",
+      "source_ref_line": 23
+    },
+    {
+      "filename": "/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/curses",
+      "finding": "absolute",
+      "level": 0,
+      "module_kind": "py",
+      "module_name": "curses",
+      "reason": "import",
+      "source_ref_line": 26
+    },
+    {
+      "filename": "/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/_pyrepl",
+      "finding": "absolute",
+      "level": 1,
+      "module_kind": "py",
+      "module_name": "_pyrepl",
+      "reason": "import",
+      "source_ref_line": 28
+    },
+    {
+      "filename": "/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/_pyrepl/_minimal_curses.py",
+      "finding": "relative",
+      "level": 1,
+      "module_kind": "py",
+      "module_name": "_pyrepl._minimal_curses",
+      "reason": "import fromlist",
+      "source_ref_line": 28
+    }
+  ],
+  "timing_infos": [
+    [
+      1,
+      0.009391750005306676,
+      4,
+      {
+        "1": 16,
+        "2": 10,
+        "3": 3,
+        "4": 2,
+        "5": 1
+      }
+    ]
+  ]
+}

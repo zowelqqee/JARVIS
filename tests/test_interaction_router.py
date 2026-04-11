@@ -92,6 +92,10 @@ class InteractionRouterTests(unittest.TestCase):
         decision = route_interaction("Что ты умеешь and open Safari")
 
         self.assertEqual(decision.kind, InteractionKind.CLARIFICATION)
+        self.assertEqual(
+            decision.clarification_message,
+            "Сначала ответить или мне открыть Safari?",
+        )
         self.assertEqual(decision.question_input, "Что ты умеешь")
         self.assertEqual(decision.command_input, "open Safari")
 

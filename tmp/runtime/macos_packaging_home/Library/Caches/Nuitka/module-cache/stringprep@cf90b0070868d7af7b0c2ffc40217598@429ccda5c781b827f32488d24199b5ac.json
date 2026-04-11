@@ -1,0 +1,36 @@
+{
+  "distribution_names": {},
+  "file_format_version": 7,
+  "module_name": "stringprep",
+  "modules_used": [
+    {
+      "filename": "/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/lib-dynload/unicodedata.cpython-313-darwin.so",
+      "finding": "absolute",
+      "level": 0,
+      "module_kind": "extension",
+      "module_name": "unicodedata",
+      "reason": "import",
+      "source_ref_line": 8
+    }
+  ],
+  "timing_infos": [
+    [
+      1,
+      0.011579457990592346,
+      5,
+      {
+        "1": 58,
+        "2": 37,
+        "3": 15,
+        "4": 10,
+        "5": 20,
+        "6": 2,
+        "7": 6,
+        "8": 4,
+        "9": 10,
+        "10": 4,
+        "11": 5
+      }
+    ]
+  ]
+}

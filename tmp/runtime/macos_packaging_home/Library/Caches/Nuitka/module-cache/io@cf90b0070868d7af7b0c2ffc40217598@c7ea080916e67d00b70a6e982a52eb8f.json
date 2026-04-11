@@ -1,0 +1,60 @@
+{
+  "distribution_names": {},
+  "file_format_version": 7,
+  "module_name": "io",
+  "modules_used": [
+    {
+      "filename": null,
+      "finding": "absolute",
+      "level": 0,
+      "module_kind": "built-in",
+      "module_name": "_io",
+      "reason": "import",
+      "source_ref_line": 52
+    },
+    {
+      "filename": "/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/abc.py",
+      "finding": "absolute",
+      "level": 0,
+      "module_kind": "py",
+      "module_name": "abc",
+      "reason": "import",
+      "source_ref_line": 53
+    },
+    {
+      "filename": null,
+      "finding": "absolute",
+      "level": 0,
+      "module_kind": "built-in",
+      "module_name": "_io",
+      "reason": "import",
+      "source_ref_line": 55
+    },
+    {
+      "filename": null,
+      "finding": "absolute",
+      "level": 0,
+      "module_kind": "built-in",
+      "module_name": "_io",
+      "reason": "import",
+      "source_ref_line": 95
+    }
+  ],
+  "timing_infos": [
+    [
+      1,
+      0.09606320899911225,
+      5,
+      {
+        "1": 110,
+        "2": 102,
+        "3": 1,
+        "6": 10,
+        "9": 20,
+        "13": 5,
+        "16": 15,
+        "18": 5
+      }
+    ]
+  ]
+}

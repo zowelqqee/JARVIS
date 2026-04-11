@@ -1,0 +1,14 @@
+{
+  "distribution_names": {},
+  "file_format_version": 7,
+  "module_name": "encodings.aliases",
+  "modules_used": [],
+  "timing_infos": [
+    [
+      1,
+      0.00019412499386817217,
+      3,
+      {}
+    ]
+  ]
+}

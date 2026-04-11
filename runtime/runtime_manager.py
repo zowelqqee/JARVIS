@@ -12,6 +12,7 @@ from confirmation.confirmation_gate import request_confirmation
 from executor.desktop_executor import execute_step
 from input.adapter import InputNormalizationError, normalize_input
 from parser.command_parser import parse_command
+from protocols.state_store import ProtocolStateStore
 from planner.execution_planner import build_execution_plan
 from runtime.state_machine import assert_valid_transition, normalize_state_value
 from ui.visibility_mapper import VisibilityPayload, map_visibility
@@ -397,9 +398,8 @@ class RuntimeManager:
         if session_context is not None:
             session_context.set_recent_confirmation_state(None)
         self._sync_session_context(session_context)
-        return self._build_result(
-            completion_summary=f"Completed {_intent_value(self.active_command.intent)} with {len(self.completed_steps)} step(s)."
-        )
+        ProtocolStateStore().remember_command(self.active_command)
+        return self._build_result(completion_summary=self._completion_summary_for_command(self.active_command))
 
     def _block_for_confirmation(
         self,
@@ -646,6 +646,20 @@ class RuntimeManager:
             if boundary_type == ConfirmationBoundaryType.COMMAND.value:
                 return request_confirmation(boundary)
         return request_confirmation(command)
+
+    def _completion_summary_for_command(self, command: Command | None) -> str:
+        if command is None:
+            return "Command completed."
+        parameters = dict(getattr(command, "parameters", {}) or {})
+        protocol_completion = str(parameters.get("protocol_completion_text", "") or "").strip()
+        if protocol_completion:
+            return protocol_completion
+        intent = _intent_value(getattr(command, "intent", ""))
+        if intent == "run_protocol":
+            protocol_name = str(parameters.get("protocol_display_name", "") or "").strip()
+            if protocol_name:
+                return f"Completed protocol {protocol_name} with {len(self.completed_steps)} step(s)."
+        return f"Completed {intent} with {len(self.completed_steps)} step(s)."
 
     def _normalize_optional_input(self, raw_input: str) -> str | None:
         try:

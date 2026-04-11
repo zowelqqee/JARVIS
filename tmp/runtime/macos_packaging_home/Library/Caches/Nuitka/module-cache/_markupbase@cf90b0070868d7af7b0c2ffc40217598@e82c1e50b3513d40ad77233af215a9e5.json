@@ -1,0 +1,56 @@
+{
+  "distribution_names": {},
+  "file_format_version": 7,
+  "module_name": "_markupbase",
+  "modules_used": [
+    {
+      "filename": "/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/re",
+      "finding": "absolute",
+      "level": 0,
+      "module_kind": "py",
+      "module_name": "re",
+      "reason": "import",
+      "source_ref_line": 8
+    }
+  ],
+  "timing_infos": [
+    [
+      1,
+      0.05279387500195298,
+      5,
+      {
+        "1": 123,
+        "2": 107,
+        "3": 87,
+        "4": 21,
+        "5": 16,
+        "6": 10,
+        "7": 20,
+        "8": 16,
+        "9": 10,
+        "11": 5,
+        "13": 5,
+        "17": 5,
+        "19": 1,
+        "20": 3,
+        "21": 1,
+        "22": 1,
+        "24": 8,
+        "27": 1,
+        "28": 1,
+        "33": 3,
+        "34": 2,
+        "39": 3,
+        "40": 2,
+        "72": 4,
+        "74": 1,
+        "84": 3,
+        "93": 1,
+        "99": 1,
+        "100": 3,
+        "118": 1,
+        "122": 1
+      }
+    ]
+  ]
+}
