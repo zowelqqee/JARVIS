@@ -1,7 +1,5 @@
 # 🤖 MARK XXX
 
-**Watch The Detailed Video To Set-up This Model**: https://www.youtube.com/watch?v=-YjbWjv1tJg
-
 ### Next-Generation Personal AI Assistant — By FatihMakes
 
 A real-time voice AI that can hear, see, understand, and control your Windows computer.
@@ -40,8 +38,6 @@ System ready in minutes.
 
 If you got some problems or questions to ask or just want to support;
 
-YouTube Account: [text](https://www.youtube.com/@FatihMakes)
-Instagram Account: [text](https://www.instagram.com/fatihmakes/)
 
 ## 📋 Requirements
 
