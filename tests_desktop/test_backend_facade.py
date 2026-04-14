@@ -28,7 +28,7 @@ class _FakeInteractionManager:
         self.calls: list[tuple[str, object]] = []
         self.runtime_manager = _FakeRuntimeManager()
 
-    def handle_input(self, raw_input: str, session_context: object | None = None) -> object:
+    def handle_input(self, raw_input: str, session_context: object | None = None, *, is_voice_input: bool = False) -> object:
         self.calls.append((raw_input, session_context))
         return self._results.pop(0)
 

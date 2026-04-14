@@ -102,7 +102,7 @@ class _FakeFacade:
             return self.current_snapshot
         return self.initial_snapshot
 
-    def submit_text(self, raw_input: str) -> TurnViewModel:
+    def submit_text(self, raw_input: str, *, is_voice_input: bool = False) -> TurnViewModel:
         self.submitted_texts.append(raw_input)
         if self.error_on_submit is not None:
             raise self.error_on_submit
@@ -127,13 +127,14 @@ class _FakeFacade:
 
 class ConversationControllerTests(unittest.TestCase):
     def test_bind_renders_welcome_message_for_empty_backend_history(self) -> None:
-        controller, conversation_view, _composer, status_panel, status_sink, _facade = _build_controller()
+        controller, conversation_view, composer, status_panel, status_sink, _facade = _build_controller()
 
         controller.bind()
 
         self.assertEqual(len(conversation_view.entries), 1)
         self.assertEqual(conversation_view.entries[0].role, "assistant")
         self.assertEqual(status_panel.statuses[-1].runtime_state, "idle")
+        self.assertEqual(composer.voice_resets[-1], 'Say "start work" or "resume work", or type it below.')
         self.assertEqual(status_sink.messages[-1], "JARVIS shell connected")
 
     def test_submit_text_renders_backend_snapshot_and_updates_status(self) -> None:
@@ -236,7 +237,7 @@ class ConversationControllerTests(unittest.TestCase):
             status=StatusViewModel(interaction_mode="question", runtime_state="idle"),
         )
         reset_snapshot = SessionSnapshotViewModel()
-        controller, conversation_view, _composer, status_panel, status_sink, facade = _build_controller(
+        controller, conversation_view, composer, status_panel, status_sink, facade = _build_controller(
             initial_snapshot=initial_snapshot,
             reset_snapshot=reset_snapshot,
         )
@@ -248,6 +249,7 @@ class ConversationControllerTests(unittest.TestCase):
         self.assertEqual(len(conversation_view.entries), 1)
         self.assertEqual(conversation_view.entries[0].text, "JARVIS shell is ready. Ask a question or enter a command.")
         self.assertEqual(status_panel.statuses[-1].runtime_state, "idle")
+        self.assertEqual(composer.voice_resets[-1], 'Say "start work" or "resume work", or type it below.')
         self.assertEqual(status_sink.messages[-1], "New session ready")
 
     def test_retry_prompt_replays_last_reply_for_same_active_prompt(self) -> None:
@@ -295,7 +297,10 @@ class ConversationControllerTests(unittest.TestCase):
         self.assertEqual(composer.busy_states, [True, False])
         self.assertEqual(composer.voice_states[0][0], "listening")
         self.assertEqual(composer.voice_states[1][0], "routing")
-        self.assertEqual(composer.voice_resets[-1], 'Last heard: "Open Safari"')
+        self.assertEqual(
+            composer.voice_resets[-1],
+            'Last heard: "Open Safari". Say "start work" or "resume work", or type it below.',
+        )
 
     def test_voice_request_surfaces_capture_error_without_submitting_text(self) -> None:
         controller, _conversation_view, composer, _status_panel, status_sink, facade = _build_controller(

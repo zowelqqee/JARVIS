@@ -39,8 +39,8 @@ def build_shell_layout(parent: QWidget | None = None) -> tuple[QWidget, ShellWid
     composer.setObjectName("composerCard")
     status_panel.setObjectName("statusCard")
 
-    left_column.addWidget(conversation_view, stretch=1)
     left_column.addWidget(composer, stretch=0)
+    left_column.addWidget(conversation_view, stretch=1)
 
     root_layout.addLayout(left_column, stretch=5)
     root_layout.addWidget(status_panel, stretch=2)

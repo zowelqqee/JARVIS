@@ -53,9 +53,14 @@ def dispatch_interaction_input(
     session_context: SessionContext | None,
     speak_enabled: bool,
     speech_locale_hint: str | None = None,
+    is_voice_input: bool = False,
 ) -> InteractionDispatchResult:
     """Resolve one interaction input into visible lines plus optional speech."""
-    interaction_result = interaction_manager.handle_input(raw_input, session_context=session_context)
+    interaction_result = interaction_manager.handle_input(
+        raw_input,
+        session_context=session_context,
+        is_voice_input=is_voice_input,
+    )
     visibility = _interaction_visibility(interaction_result)
     speech_utterance = None
     if speak_enabled:

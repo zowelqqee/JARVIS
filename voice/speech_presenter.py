@@ -227,6 +227,7 @@ _RUSSIAN_HINT_EXACT_MAP = {
     "Try opening a folder first, then search inside it.": "Сначала открой папку, потом ищи внутри неё.",
     "Try again in an active macOS desktop session.": "Попробуй ещё раз в активной сессии macOS.",
     "Try using the app name instead of a window reference.": "Попробуй использовать имя приложения вместо ссылки на окно.",
+    "Start work on a workspace first.": "Сначала подготовь рабочее пространство.",
 }
 
 _ENGLISH_HINT_EXACT_MAP = {
@@ -244,6 +245,7 @@ _ENGLISH_HINT_EXACT_MAP = {
     "Try opening a folder first, then search inside it.": "Try opening a folder first, then search inside it.",
     "Try again in an active macOS desktop session.": "Try again in an active macOS desktop session.",
     "Try using the app name instead of a window reference.": "Try using the app name instead of a window reference.",
+    "Start work on a workspace first.": "Start work on a workspace first.",
     "Try a more specific command.": "Try a more specific command.",
 }
 

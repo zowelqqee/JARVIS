@@ -37,6 +37,32 @@ class InteractionRouterTests(unittest.TestCase):
 
         self.assertEqual(decision.kind, InteractionKind.COMMAND)
 
+    def test_resume_work_routes_to_command(self) -> None:
+        decision = route_interaction("resume work")
+
+        self.assertEqual(decision.kind, InteractionKind.COMMAND)
+
+    def test_polite_resume_forms_route_to_command(self) -> None:
+        """can/could/would you resume + please resume must all be COMMAND at high confidence."""
+        for phrase in (
+            "can you resume work",
+            "could you resume work",
+            "would you resume work",
+            "please resume work",
+            "can you resume my work",
+            "could you resume the project",
+            "please resume my work",
+        ):
+            with self.subTest(phrase=phrase):
+                decision = route_interaction(phrase)
+                self.assertEqual(decision.kind, InteractionKind.COMMAND, msg=phrase)
+                self.assertGreaterEqual(decision.confidence, 0.9, msg=phrase)
+
+    def test_how_does_resume_work_stays_question(self) -> None:
+        """'how does resume work work?' must not route as a command."""
+        decision = route_interaction("how does resume work work?")
+        self.assertEqual(decision.kind, InteractionKind.QUESTION)
+
     def test_how_to_question_routes_to_question(self) -> None:
         decision = route_interaction("How do you open Safari?")
 

@@ -26,6 +26,56 @@ from jarvis_error import ErrorCode  # type: ignore  # noqa: E402
 from target import Target, TargetType  # type: ignore  # noqa: E402
 
 
+def clarification_was_applied(before: Command, after: Command) -> bool:
+    """Return True if apply_clarification changed any meaningful command field."""
+    if _intent_value(before.intent) != _intent_value(after.intent):
+        return True
+    before_params = dict(getattr(before, "parameters", {}) or {})
+    after_params = dict(getattr(after, "parameters", {}) or {})
+    if before_params != after_params:
+        return True
+    if _targets_fingerprint(getattr(before, "targets", []) or []) != _targets_fingerprint(
+        getattr(after, "targets", []) or []
+    ):
+        return True
+    return False
+
+
+def try_apply_correction(command: Command, reply: str) -> Command | None:
+    """Handle 'the other one' correction for exactly-2-candidate ambiguous targets.
+
+    Returns a patched command clone if the correction can be applied, None otherwise.
+    Only fires when the reply is an explicit correction phrase AND the active
+    clarification has exactly two known candidates to choose between.
+    """
+    normalized = " ".join(reply.strip().lower().split())
+    if normalized not in _CORRECTION_PHRASES:
+        return None
+    for target in list(getattr(command, "targets", []) or []):
+        metadata = dict(getattr(target, "metadata", {}) or {})
+        if not metadata.get("ambiguous"):
+            continue
+        candidates = [str(c).strip() for c in metadata.get("candidates", []) if str(c).strip()]
+        if len(candidates) != 2:
+            return None
+        current_name = str(getattr(target, "name", "") or "").strip().lower()
+        other = next((c for c in candidates if c.lower() != current_name), candidates[1])
+        cloned = _clone_command(command)
+        for cloned_target in cloned.targets:
+            cloned_meta = dict(getattr(cloned_target, "metadata", {}) or {})
+            if not cloned_meta.get("ambiguous"):
+                continue
+            cloned_target.name = other
+            if _target_type_value(cloned_target.type) == TargetType.UNKNOWN.value:
+                cloned_target.type = _expected_target_type(_intent_value(cloned.intent))
+            cloned_meta.pop("ambiguous", None)
+            cloned_meta.pop("candidates", None)
+            cloned_target.metadata = cloned_meta or None
+            break
+        return cloned
+    return None
+
+
 def build_clarification(validation_issue: JarvisError, command: Command) -> ClarificationRequest:
     """Create one short clarification request for a blocked command."""
     code = _error_code_value(getattr(validation_issue, "code", "CLARIFICATION_REQUIRED"))
@@ -182,6 +232,8 @@ def _apply_missing_parameter(command: Command, reply: str) -> bool:
 
     if intent == "prepare_workspace" and not str(parameters.get("workspace", "")).strip():
         parameters["workspace"] = reply
+        if not _has_folder_target(command):
+            command.targets.append(_prepare_workspace_target_from_reply(reply))
         return True
 
     if intent == "run_protocol" and not str(parameters.get("protocol_id", "")).strip():
@@ -195,6 +247,20 @@ def _apply_missing_parameter(command: Command, reply: str) -> bool:
             return True
 
     return False
+
+
+def _has_folder_target(command: Command) -> bool:
+    return any(_target_type_value(getattr(target, "type", "")) == TargetType.FOLDER.value for target in command.targets)
+
+
+def _prepare_workspace_target_from_reply(reply: str) -> Target:
+    normalized_path = reply if _is_path_like(reply) else None
+    target_name = Path(reply).name if normalized_path else reply
+    return Target(
+        type=TargetType.FOLDER,
+        name=target_name,
+        path=normalized_path,
+    )
 
 
 def _apply_missing_target(command: Command, reply: str) -> bool:
@@ -369,3 +435,35 @@ def _confirmation_response(value: str) -> str | None:
 
 def _is_path_like(value: str) -> bool:
     return value.startswith(("/", "~/", "./", "../")) or ("/" in value and " " not in value)
+
+
+_CORRECTION_PHRASES: frozenset[str] = frozenset({
+    "the other one",
+    "other one",
+    "the other",
+    "other",
+    "not that",
+    "not this",
+    "wrong one",
+    "wrong",
+    "different one",
+    "the second one",
+    "второй",
+    "другой",
+    "другое",
+    "другую",
+    "не тот",
+    "не то",
+    "другой вариант",
+})
+
+
+def _targets_fingerprint(targets: list) -> list[tuple[str, str, str]]:
+    return [
+        (
+            str(getattr(t, "name", "") or ""),
+            _target_type_value(getattr(t, "type", "")),
+            str(getattr(t, "path", "") or ""),
+        )
+        for t in targets
+    ]

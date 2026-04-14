@@ -190,6 +190,10 @@ _RUSSIAN_VISIBLE_EXACT_MAP = {
     "Try again in an active macOS desktop session.": "Попробуй ещё раз в активной сессии macOS.",
     "Try using the app name instead of a window reference.": "Попробуй использовать имя приложения вместо ссылки на окно.",
     "Try a more specific command.": "Сформулируй команду точнее.",
+    "No remembered workspace is available yet. Start work on a workspace first.": (
+        "Пока нет сохраненного рабочего пространства. Сначала подготовь рабочее пространство."
+    ),
+    "Start work on a workspace first.": "Сначала подготовь рабочее пространство.",
     "Try adding the missing target or parameter.": "Добавь недостающую цель или параметр.",
     "Try a different installed app name.": "Попробуй другое установленное приложение.",
     "Try a specific installed app name, or omit the app to use the default.": (
@@ -255,6 +259,7 @@ def map_visibility(
         "confirmation_request": _confirmation_payload(confirmation),
         "failure_message": _failure_message(
             state_text=state_text,
+            command=command,
             error=error,
             completed_steps=completed_step_list,
             current_step=current_step,
@@ -413,6 +418,10 @@ def _intent_value(intent: Any) -> str:
     return str(getattr(intent, "value", intent))
 
 
+def _target_type_value(target_type: Any) -> str:
+    return str(getattr(target_type, "value", target_type))
+
+
 def _target_name(target: Any) -> str:
     name = str(getattr(target, "name", "")).strip()
     return name
@@ -421,6 +430,13 @@ def _target_name(target: Any) -> str:
 def _command_summary(command: Command | None) -> str | None:
     if command is None:
         return None
+    if _is_resume_work_protocol(command):
+        return "resume_work: last workspace"
+    if _is_start_work_command(command):
+        workspace_label = _workspace_target_label(command)
+        if workspace_label:
+            return f"start_work: {workspace_label} in Visual Studio Code"
+        return "start_work: Visual Studio Code"
     intent = _intent_value(getattr(command, "intent", ""))
     if intent == "run_protocol":
         parameters = dict(getattr(command, "parameters", {}) or {})
@@ -434,6 +450,53 @@ def _command_summary(command: Command | None) -> str | None:
     if names:
         return f"{intent}: {', '.join(names)}"
     return intent or None
+
+
+def _is_start_work_command(command: Command | None) -> bool:
+    if command is None:
+        return False
+    if _intent_value(getattr(command, "intent", "")) != "prepare_workspace":
+        return False
+    raw_input = str(getattr(command, "raw_input", "") or "").strip().lower()
+    return raw_input.startswith("start work")
+
+
+def _is_resume_work_protocol(command: Command | None) -> bool:
+    if command is None:
+        return False
+    if _intent_value(getattr(command, "intent", "")) != "run_protocol":
+        return False
+    parameters = dict(getattr(command, "parameters", {}) or {})
+    return str(parameters.get("protocol_id", "") or "").strip() == "resume_work"
+
+
+def _workspace_target_label(command: Command | None) -> str | None:
+    if command is None:
+        return None
+    for target in list(getattr(command, "targets", []) or []):
+        if _target_type_value(getattr(target, "type", "")) != "folder":
+            continue
+        label = _workspace_label_from_values(
+            name=str(getattr(target, "name", "") or "").strip(),
+            raw_path=str(getattr(target, "path", "") or "").strip(),
+        )
+        if label:
+            return label
+
+    parameters = dict(getattr(command, "parameters", {}) or {})
+    return _workspace_label_from_values(
+        name=str(parameters.get("workspace_label", "") or "").strip(),
+        raw_path=str(parameters.get("workspace_path", "") or parameters.get("workspace", "") or "").strip(),
+    )
+
+
+def _workspace_label_from_values(*, name: str, raw_path: str) -> str | None:
+    if name:
+        return name
+    if not raw_path:
+        return None
+    normalized_path = Path(raw_path).expanduser()
+    return normalized_path.name or raw_path
 
 
 def _step_summary(step: Step | None, step_result: Any | None = None) -> str | None:
@@ -685,6 +748,7 @@ def _normalized_scope_suffix(scope: str | None) -> str:
 
 def _failure_message(
     state_text: str,
+    command: Command | None,
     error: JarvisError | None,
     completed_steps: list[Step],
     current_step: Step | None,
@@ -693,6 +757,20 @@ def _failure_message(
     if state_text != "failed" or error is None:
         return None
     reason = str(getattr(error, "message", "")).strip()
+    error_code = str(getattr(getattr(error, "code", ""), "value", getattr(error, "code", ""))).strip()
+
+    if _is_resume_work_protocol(command) and error_code == "INSUFFICIENT_CONTEXT":
+        stale_path = str((getattr(error, "details", None) or {}).get("stale_workspace_path", "") or "").strip()
+        if stale_path:
+            workspace_label = Path(stale_path).name or stale_path
+            return (
+                f'The remembered workspace "{workspace_label}" no longer exists at the stored path. '
+                f'Run "start work on <workspace>" to set a new one.'
+            )
+        return "No remembered workspace is available yet. Start work on a workspace first."
+
+    if _is_resume_work_protocol(command) and error_code == "TARGET_NOT_FOUND":
+        return 'The remembered workspace folder was not found. Run "start work on <workspace>" to set a new one.'
 
     if _is_search_then_open_failure(completed_steps, current_step, search_payload):
         total_matches = search_payload.get("total_matches") if search_payload else None
@@ -764,6 +842,11 @@ def _completion_text(
         return completion_result
     if command is None:
         return "Command completed."
+    if _is_start_work_command(command):
+        workspace_label = _workspace_target_label(command)
+        if workspace_label:
+            return f"Workspace ready: {workspace_label} in Visual Studio Code."
+        return "Workspace ready in Visual Studio Code."
     intent = _intent_value(getattr(command, "intent", ""))
     return f"Completed {intent} with {len(completed_steps)} step(s)."
 
@@ -839,6 +922,8 @@ def _specific_failure_next_step_hint(command: Command | None, current_step: Step
 
     if error_code == "TARGET_NOT_FOUND":
         if intent == "run_protocol":
+            if _is_resume_work_protocol(command):
+                return 'Run "start work on <workspace>" to set a new workspace.'
             return "Try a known protocol name."
         if intent == "search_local":
             return "Try opening a folder first, then search inside it."
@@ -868,6 +953,11 @@ def _specific_failure_next_step_hint(command: Command | None, current_step: Step
         if intent == "confirm":
             return "Reply yes to continue or no to cancel."
         return "Try adding the missing target or parameter."
+
+    if error_code == "INSUFFICIENT_CONTEXT":
+        if _is_resume_work_protocol(command):
+            return "Start work on a workspace first."
+        return "Try a more specific command."
 
     if error_code == "UNSUPPORTED_ACTION":
         if action == "focus_window" or intent == "focus_window":

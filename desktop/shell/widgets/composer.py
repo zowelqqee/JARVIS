@@ -89,11 +89,11 @@ class ComposerWidget(QWidget):
         layout.setContentsMargins(18, 18, 18, 18)
         layout.setSpacing(12)
 
-        title = QLabel("Speak or Type", self)
+        title = QLabel("Start or Resume Work", self)
         title.setObjectName("composerTitle")
 
         subtitle = QLabel(
-            "Voice is the default action here. Text stays available in the same composer and follows the same supervised shell path.",
+            'Begin with voice by saying "start work" or "resume work." Text stays available here and follows the same supervised shell path.',
             self,
         )
         subtitle.setObjectName("composerSubtitle")
@@ -109,7 +109,7 @@ class ComposerWidget(QWidget):
         voice_layout.setContentsMargins(16, 16, 16, 16)
         voice_layout.setSpacing(10)
 
-        voice_header = QLabel("Voice Input", voice_panel)
+        voice_header = QLabel("Start by Voice", voice_panel)
         voice_header.setObjectName("composerSectionLabel")
 
         self._voice_state_pill = QLabel(voice_panel)
@@ -119,7 +119,7 @@ class ComposerWidget(QWidget):
         self._voice_detail_label.setObjectName("composerVoiceDetail")
         self._voice_detail_label.setWordWrap(True)
 
-        self._voice_support_label = QLabel("One spoken request at a time. No background listening.", voice_panel)
+        self._voice_support_label = QLabel("One spoken request at a time. Nothing listens in the background.", voice_panel)
         self._voice_support_label.setObjectName("composerSupportText")
         self._voice_support_label.setWordWrap(True)
 
@@ -135,7 +135,7 @@ class ComposerWidget(QWidget):
         voice_layout.addStretch(1)
         voice_layout.addWidget(self._voice_button)
 
-        divider = QLabel("OR", self)
+        divider = QLabel("or type", self)
         divider.setObjectName("composerDivider")
         divider.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
@@ -145,16 +145,16 @@ class ComposerWidget(QWidget):
         text_layout.setContentsMargins(16, 16, 16, 16)
         text_layout.setSpacing(10)
 
-        text_header = QLabel("Text Input", text_panel)
+        text_header = QLabel("Type Instead", text_panel)
         text_header.setObjectName("composerSectionLabel")
 
-        text_hint = QLabel("Type a command or question. Ctrl+Enter submits.", text_panel)
+        text_hint = QLabel('Type "start work", "resume work", or another command or question. Ctrl+Enter submits.', text_panel)
         text_hint.setObjectName("composerTextHint")
         text_hint.setWordWrap(True)
 
         self._input_field = _ComposerTextEdit(text_panel)
         self._input_field.setObjectName("composerInput")
-        self._input_field.setPlaceholderText("Type a command or question...")
+        self._input_field.setPlaceholderText('Try: start work or resume work')
         self._input_field.setMinimumHeight(104)
         self._input_field.textChanged.connect(self._sync_controls)
         self._input_field.submit_requested.connect(self._submit_current_text)
@@ -220,14 +220,14 @@ class _ComposerTextEdit(QPlainTextEdit):
 
 def _default_voice_detail(state: str, *, available: bool) -> str:
     if not available or state == "unavailable":
-        return "Voice input is available only on macOS."
+        return 'Voice input is available only on macOS. Type "start work" or "resume work" below.'
     if state == "listening":
         return "Listening for one spoken request."
     if state == "routing":
         return "Submitting the captured request through the supervised shell."
     if state == "error":
-        return "Voice input could not complete. Try again or type the request below."
-    return "Click Listen to capture one spoken request on macOS."
+        return 'Voice input could not complete. Try again or type "start work" or "resume work" below.'
+    return 'Click Listen, then say "start work" or "resume work."'
 
 
 def _voice_state_label(state: str) -> str:

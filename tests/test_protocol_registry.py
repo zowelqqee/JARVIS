@@ -22,6 +22,13 @@ class ProtocolRegistryTests(unittest.TestCase):
         self.assertEqual(matches[0].definition.id, "i_am_home")
         self.assertEqual(matches[0].definition.title, "I Am Home")
 
+    def test_builtin_trigger_matches_resume_work(self) -> None:
+        matches = match_protocol_trigger("resume work")
+
+        self.assertEqual(len(matches), 1)
+        self.assertEqual(matches[0].definition.id, "resume_work")
+        self.assertEqual(matches[0].definition.title, "Resume Work")
+
     def test_user_defined_json_protocol_is_loaded_from_directory(self) -> None:
         with tempfile.TemporaryDirectory() as tempdir:
             protocol_path = Path(tempdir) / "demo_focus.json"

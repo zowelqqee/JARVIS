@@ -129,6 +129,8 @@ class ProtocolStateStore:
             "branch_suffix_en": _branch_suffix_en(last_git_branch),
             "last_project_sentence_ru": last_project_sentence_ru,
             "last_project_sentence_en": last_project_sentence_en,
+            "resume_context_ru": _resume_context_ru(last_git_branch=last_git_branch, last_work_summary=last_work_summary),
+            "resume_context_en": _resume_context_en(last_git_branch=last_git_branch, last_work_summary=last_work_summary),
             "home_greeting_ru": "Приветствую, сэр.",
             "home_greeting_en": "Welcome home.",
         }
@@ -235,6 +237,57 @@ def _branch_suffix_ru(branch: str) -> str:
 def _branch_suffix_en(branch: str) -> str:
     normalized = str(branch or "").strip()
     return f", branch {normalized}" if normalized else ""
+
+
+def _resume_context_ru(*, last_git_branch: str, last_work_summary: str) -> str:
+    parts: list[str] = []
+    normalized_branch = str(last_git_branch or "").strip()
+    if normalized_branch:
+        parts.append(f"Ветка: {normalized_branch}.")
+    last_work_note = _humanized_last_work_note_ru(last_work_summary)
+    if last_work_note:
+        parts.append(last_work_note)
+    return f" {' '.join(parts)}" if parts else ""
+
+
+def _resume_context_en(*, last_git_branch: str, last_work_summary: str) -> str:
+    parts: list[str] = []
+    normalized_branch = str(last_git_branch or "").strip()
+    if normalized_branch:
+        parts.append(f"Branch: {normalized_branch}.")
+    last_work_note = _humanized_last_work_note_en(last_work_summary)
+    if last_work_note:
+        parts.append(last_work_note)
+    return f" {' '.join(parts)}" if parts else ""
+
+
+def _humanized_last_work_note_ru(last_work_summary: str) -> str | None:
+    intent, targets = _parsed_command_summary(last_work_summary)
+    if intent == "open_file" and targets:
+        return f"Последний файл: {targets[0]}."
+    if intent == "run_protocol" and targets:
+        return f"Последний протокол: {targets[0]}."
+    return None
+
+
+def _humanized_last_work_note_en(last_work_summary: str) -> str | None:
+    intent, targets = _parsed_command_summary(last_work_summary)
+    if intent == "open_file" and targets:
+        return f"Last file: {targets[0]}."
+    if intent == "run_protocol" and targets:
+        return f"Last protocol: {targets[0]}."
+    return None
+
+
+def _parsed_command_summary(summary: str) -> tuple[str, list[str]]:
+    normalized = str(summary or "").strip()
+    if not normalized:
+        return "", []
+    intent, separator, target_blob = normalized.partition(":")
+    if not separator:
+        return intent.strip(), []
+    targets = [part.strip() for part in target_blob.split(",") if part.strip()]
+    return intent.strip(), targets
 
 
 def _stable_variant(options: tuple[str, ...], *, seed: str) -> str:

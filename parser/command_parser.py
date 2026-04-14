@@ -72,6 +72,7 @@ _WORKSPACE_OPEN_PATTERN = re.compile(
     r"^(?:open|launch|start)\s+(?:my\s+|the\s+)?(.+?)\s+workspace$",
     flags=re.IGNORECASE,
 )
+_START_WORK_PATTERN = re.compile(r"^start\s+work(?:\s+(?:on|in)\s+(.+))?$", flags=re.IGNORECASE)
 _WORKSPACE_TARGETS_PATTERN = re.compile(
     r"^(?:open|launch|start)\s+(.+?)\s+for\s+(.+)$",
     flags=re.IGNORECASE,
@@ -489,6 +490,10 @@ def _parse_workspace_command(
     lowered_text: str,
     session_context: SessionContext | None,
 ) -> tuple[str, list[Target], dict[str, Any]] | None:
+    hero_flow_command = _parse_start_work_command(original_text, lowered_text, session_context)
+    if hero_flow_command is not None:
+        return hero_flow_command
+
     if lowered_text.startswith("prepare workspace"):
         workspace = _extract_after_keyword(original_text, "prepare workspace for")
         return _build_workspace_command(workspace, None, session_context)
@@ -509,6 +514,34 @@ def _parse_workspace_command(
             return _build_workspace_command(workspace, target_phrase, session_context)
 
     return None
+
+
+def _parse_start_work_command(
+    original_text: str,
+    lowered_text: str,
+    session_context: SessionContext | None,
+) -> tuple[str, list[Target], dict[str, Any]] | None:
+    if not lowered_text.startswith("start work"):
+        return None
+
+    match = _START_WORK_PATTERN.match(original_text)
+    if match is None:
+        return None
+
+    workspace = str(match.group(1) or "").strip() or None
+    return _build_start_work_command(workspace, session_context)
+
+
+def _build_start_work_command(
+    workspace: str | None,
+    session_context: SessionContext | None,
+) -> tuple[str, list[Target], dict[str, Any]]:
+    targets: list[Target] = [Target(type=TargetType.APPLICATION, name=_APP_ALIASES["code"])]
+    if workspace:
+        targets.append(_build_workspace_folder_descriptor(workspace, session_context))
+    normalized_targets = _normalize_workspace_targets(targets)
+    parameters = _workspace_parameters_from_targets(normalized_targets)
+    return "prepare_workspace", normalized_targets, parameters
 
 
 def _parse_use_command(

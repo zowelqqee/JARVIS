@@ -52,4 +52,22 @@ BUILTIN_PROTOCOLS: tuple[ProtocolDefinition, ...] = (
         completion_message_ru="{home_greeting_ru} {last_project_sentence_ru}",
         tags=("builtin", "home"),
     ),
+    ProtocolDefinition(
+        id="resume_work",
+        title="Resume Work",
+        description="Reopen the most recent remembered workspace in Visual Studio Code.",
+        triggers=(
+            ProtocolTrigger(type="exact", phrase="resume work", locale="en-US"),
+        ),
+        steps=(
+            ProtocolActionDefinition(
+                action_type="open_last_workspace",
+                inputs={"app_name": "Visual Studio Code"},
+            ),
+        ),
+        confirmation_policy=ProtocolConfirmationPolicy(mode="never"),
+        completion_message="Resumed work in {last_workspace_label} in Visual Studio Code.{resume_context_en}",
+        completion_message_ru="Продолжил работу в {last_workspace_label} через Visual Studio Code.{resume_context_ru}",
+        tags=("builtin", "workspace"),
+    ),
 )

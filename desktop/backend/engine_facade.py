@@ -44,7 +44,7 @@ class EngineFacade:
         """Return whether desktop speech output is enabled."""
         return self._speech_service.enabled
 
-    def submit_text(self, raw_input: str) -> TurnViewModel:
+    def submit_text(self, raw_input: str, *, is_voice_input: bool = False) -> TurnViewModel:
         """Submit one text turn through the existing JARVIS core."""
         text = str(raw_input or "").strip()
         shell_turn = self._handle_shell_command(text)
@@ -58,6 +58,7 @@ class EngineFacade:
             session_context=self.session_context,
             speak_enabled=self._speech_service.enabled,
             speech_locale_hint=_preferred_speech_locale_hint(text) if self._speech_service.enabled else None,
+            is_voice_input=is_voice_input,
         )
         turn = present_interaction_result(text, dispatch_result.interaction_result)
         if dispatch_result.speech_utterance is not None:
@@ -85,6 +86,9 @@ class EngineFacade:
         clear_runtime = getattr(runtime_manager, "clear_runtime", None)
         if callable(clear_runtime):
             clear_runtime()
+        reset_dialogue = getattr(self._interaction_manager, "reset_dialogue_state", None)
+        if callable(reset_dialogue):
+            reset_dialogue()
         self.session_context.clear_expired_or_resettable_context(preserve_recent_context=False)
         self._session_service.reset()
         return self.snapshot()

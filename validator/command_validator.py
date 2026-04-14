@@ -359,15 +359,23 @@ def _validate_run_protocol(command: Command, parameters: dict[str, Any]) -> Vali
         )
 
     stored_state = ProtocolStateStore().load()
-    has_last_workspace = bool(str(stored_state.get("last_workspace_path", "") or "").strip())
+    last_workspace_path = str(stored_state.get("last_workspace_path", "") or "").strip()
+    has_last_workspace = bool(last_workspace_path)
     for step in getattr(definition, "steps", ()):
         action_type = str(getattr(step, "action_type", "")).strip()
         on_failure = str(getattr(step, "on_failure", "") or "stop").strip() or "stop"
-        if action_type == "open_last_workspace" and not has_last_workspace and on_failure != "continue_if_safe":
-            return _invalid(
-                ErrorCode.INSUFFICIENT_CONTEXT,
-                "This protocol needs a remembered workspace, but no recent workspace has been stored yet.",
-            )
+        if action_type == "open_last_workspace" and on_failure != "continue_if_safe":
+            if not has_last_workspace:
+                return _invalid(
+                    ErrorCode.INSUFFICIENT_CONTEXT,
+                    "This protocol needs a remembered workspace, but no recent workspace has been stored yet.",
+                )
+            if not Path(last_workspace_path).expanduser().exists():
+                return _invalid(
+                    ErrorCode.INSUFFICIENT_CONTEXT,
+                    "The remembered workspace no longer exists on disk.",
+                    details={"stale_workspace_path": last_workspace_path},
+                )
     return _valid(command)
 
 

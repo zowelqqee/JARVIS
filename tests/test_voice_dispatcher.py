@@ -119,7 +119,9 @@ class VoiceDispatcherTests(unittest.TestCase):
             speak_enabled=True,
         )
 
-        interaction_manager.handle_input.assert_called_once_with("open telegram", session_context=None)
+        interaction_manager.handle_input.assert_called_once_with(
+            "open telegram", session_context=None, is_voice_input=False
+        )
         self.assertEqual(
             dispatch_result.interaction.speech_utterance,
             SpeechUtterance(text="Открыл Telegram.", locale="ru-RU"),

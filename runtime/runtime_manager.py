@@ -7,7 +7,12 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from clarification.clarification_handler import apply_clarification, build_clarification
+from clarification.clarification_handler import (
+    apply_clarification,
+    build_clarification,
+    clarification_was_applied,
+    try_apply_correction,
+)
 from confirmation.confirmation_gate import request_confirmation
 from executor.desktop_executor import execute_step
 from input.adapter import InputNormalizationError, normalize_input
@@ -66,6 +71,7 @@ _FRESH_COMMAND_PREFIXES = (
     "open ",
     "launch ",
     "start ",
+    "resume ",
     "reopen ",
     "close ",
     "find ",
@@ -111,6 +117,8 @@ class RuntimeManager:
     completed_steps: list[Step] = field(default_factory=list)
     completed_step_results: dict[str, Any] = field(default_factory=dict)
     current_step: Step | None = None
+    clarification_retry_count: int = 0
+    last_clarification_message: str | None = None
 
     def set_active_command(self, command: Command | None) -> None:
         """Set or clear the active command bound to runtime state."""
@@ -123,6 +131,8 @@ class RuntimeManager:
         self.clarification_request = None
         self.confirmation_request = None
         self.last_error = None
+        self.clarification_retry_count = 0
+        self.last_clarification_message = None
 
     def transition_to(self, next_state: str) -> str:
         """Transition to the next runtime state if the transition is legal."""
@@ -142,6 +152,8 @@ class RuntimeManager:
         self.completed_steps = []
         self.completed_step_results = {}
         self.current_step = None
+        self.clarification_retry_count = 0
+        self.last_clarification_message = None
 
     def handle_input(self, raw_input: str, session_context: SessionContext | None = None) -> RuntimeResult:
         """Run one supervised in-memory MVP command pass or resume an existing blocked flow."""
@@ -217,7 +229,54 @@ class RuntimeManager:
         if session_context is not None:
             session_context.set_recent_clarification_answer(reply)
 
+        # Narrow correction: "the other one" / "не то" with exactly 2 candidates.
+        corrected = try_apply_correction(self.active_command, reply)
+        if corrected is not None:
+            self.clarification_retry_count = 0
+            self.last_clarification_message = None
+            self.active_command = corrected
+            self.clarification_request = None
+            self.blocked_reason = None
+            self.last_error = None
+            self.transition_to("validating")
+            return self._validate_and_continue(corrected, session_context, reset_progress=False)
+
+        command_before = self.active_command
         patched_command = apply_clarification(self.active_command, reply)
+
+        if not clarification_was_applied(command_before, patched_command):
+            # Nothing was patched — enter retry logic.
+            self.clarification_retry_count += 1
+            if self.clarification_retry_count >= 2:
+                self.clarification_retry_count = 0
+                self.last_clarification_message = None
+                return self._cancel_with_error(
+                    self._cancellation_error(
+                        "I couldn't understand the reply. The command has been cancelled."
+                    ),
+                    session_context,
+                )
+            # First failure: re-ask with a short prefix.
+            original_message = self.last_clarification_message or self._clarification_prompt()
+            re_ask_message = f"I didn't catch that \u2014 {original_message}"
+            existing_options = getattr(self.clarification_request, "options", None)
+            existing_code = (
+                self.clarification_request.code
+                if self.clarification_request is not None
+                else ErrorCode.CLARIFICATION_REQUIRED.value
+            )
+            self.clarification_request = ClarificationRequest(
+                message=re_ask_message,
+                code=existing_code,
+                options=existing_options,
+            )
+            self.blocked_reason = re_ask_message
+            self._sync_session_context(session_context)
+            return self._build_result()
+
+        # Successfully applied: reset dialogue repair state and continue.
+        self.clarification_retry_count = 0
+        self.last_clarification_message = None
         self.active_command = patched_command
         self.clarification_request = None
         self.blocked_reason = None
@@ -286,6 +345,8 @@ class RuntimeManager:
 
             if self._should_block_for_clarification(error):
                 self.clarification_request = build_clarification(error, command)
+                if self.last_clarification_message is None:
+                    self.last_clarification_message = self.clarification_request.message
                 self.transition_to("awaiting_clarification")
                 self._sync_session_context(session_context)
                 return self._build_result()
@@ -384,6 +445,7 @@ class RuntimeManager:
                 step.status = StepStatus.FAILED
                 return self._fail_with_error(self._execution_error(action_result, step), session_context)
 
+            self._backfill_resolved_target_from_step_result(step, action_result)
             step.status = StepStatus.DONE
             self._record_completed_step(step, action_result)
             self._sync_session_context(session_context)
@@ -573,6 +635,60 @@ class RuntimeManager:
         self.completed_steps.append(step)
         self.completed_step_results[step.id] = action_result
 
+    def _backfill_resolved_target_from_step_result(self, step: Step, action_result: Any) -> None:
+        target = getattr(step, "target", None)
+        if target is None:
+            return
+
+        details = getattr(action_result, "details", None)
+        if not isinstance(details, dict):
+            return
+
+        resolved_path = str(details.get("path", "") or "").strip()
+        if not resolved_path:
+            return
+
+        if not str(getattr(target, "path", "") or "").strip():
+            target.path = resolved_path
+
+        if not str(getattr(target, "name", "") or "").strip():
+            target.name = Path(resolved_path).name or resolved_path
+
+        active_command = self.active_command
+        if active_command is None:
+            return
+
+        target_type = _target_type_value(getattr(target, "type", ""))
+        target_name = str(getattr(target, "name", "") or "").strip()
+        matching_targets = [
+            candidate
+            for candidate in list(getattr(active_command, "targets", []) or [])
+            if _target_type_value(getattr(candidate, "type", "")) == target_type
+        ]
+        command_target = next(
+            (
+                candidate
+                for candidate in matching_targets
+                if str(getattr(candidate, "name", "") or "").strip() == target_name
+            ),
+            matching_targets[0] if len(matching_targets) == 1 else None,
+        )
+        if command_target is not None:
+            if not str(getattr(command_target, "path", "") or "").strip():
+                command_target.path = resolved_path
+            if not str(getattr(command_target, "name", "") or "").strip():
+                command_target.name = target_name or Path(resolved_path).name or resolved_path
+
+        if _intent_value(getattr(active_command, "intent", "")) != "prepare_workspace" or target_type != "folder":
+            return
+
+        parameters = getattr(active_command, "parameters", None)
+        if not isinstance(parameters, dict):
+            return
+        parameters.setdefault("workspace_path", resolved_path)
+        if target_name:
+            parameters.setdefault("workspace_label", target_name)
+
     def _resume_step_index(self) -> int:
         if self.current_step_index is not None:
             return self.current_step_index
@@ -654,6 +770,11 @@ class RuntimeManager:
         protocol_completion = str(parameters.get("protocol_completion_text", "") or "").strip()
         if protocol_completion:
             return protocol_completion
+        if _is_start_work_command(command):
+            workspace_label = _workspace_target_label(command)
+            if workspace_label:
+                return f"Workspace ready: {workspace_label} in Visual Studio Code."
+            return "Workspace ready in Visual Studio Code."
         intent = _intent_value(getattr(command, "intent", ""))
         if intent == "run_protocol":
             protocol_name = str(parameters.get("protocol_display_name", "") or "").strip()
@@ -825,6 +946,42 @@ def _coerce_error_code(value: Any, fallback: ErrorCode) -> ErrorCode:
 
 def _intent_value(intent: Any) -> str:
     return str(getattr(intent, "value", intent))
+
+
+def _target_type_value(target_type: Any) -> str:
+    return str(getattr(target_type, "value", target_type))
+
+
+def _is_start_work_command(command: Command | None) -> bool:
+    if command is None:
+        return False
+    if _intent_value(getattr(command, "intent", "")) != "prepare_workspace":
+        return False
+    raw_input = str(getattr(command, "raw_input", "") or "").strip().lower()
+    return raw_input.startswith("start work")
+
+
+def _workspace_target_label(command: Command | None) -> str | None:
+    if command is None:
+        return None
+    for target in list(getattr(command, "targets", []) or []):
+        if _target_type_value(getattr(target, "type", "")) != "folder":
+            continue
+        name = str(getattr(target, "name", "") or "").strip()
+        if name:
+            return name
+        raw_path = str(getattr(target, "path", "") or "").strip()
+        if raw_path:
+            return Path(raw_path).expanduser().name or raw_path
+
+    parameters = dict(getattr(command, "parameters", {}) or {})
+    workspace_label = str(parameters.get("workspace_label", "") or "").strip()
+    if workspace_label:
+        return workspace_label
+    workspace_path = str(parameters.get("workspace_path", "") or parameters.get("workspace", "") or "").strip()
+    if workspace_path:
+        return Path(workspace_path).expanduser().name or workspace_path
+    return None
 
 
 def _action_value(action: Any) -> str:

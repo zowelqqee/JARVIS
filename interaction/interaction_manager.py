@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from input.adapter import InputNormalizationError
+from input.input_interpreter import InputInterpreter, _interpreter_disabled
 from interaction.interaction_router import (
     InteractionDecision,
     looks_like_fresh_interaction_input,
@@ -36,6 +37,19 @@ from interaction_result import InteractionResult  # type: ignore  # noqa: E402
 from jarvis_error import ErrorCategory, ErrorCode, JarvisError  # type: ignore  # noqa: E402
 
 
+_NEAR_MISS_CONFIDENCE_LOW = 0.55
+_NEAR_MISS_CONFIDENCE_HIGH = 0.70
+
+_NEAR_MISS_YES_WORDS: frozenset[str] = frozenset({
+    "yes", "y", "yeah", "yep", "correct", "that's it", "that is it", "right",
+    "да", "ага", "верно",
+})
+_NEAR_MISS_NO_WORDS: frozenset[str] = frozenset({
+    "no", "n", "nope", "nah", "wrong", "not that", "не то",
+    "нет", "нет, не то",
+})
+
+
 @dataclass(slots=True)
 class InteractionManager:
     """Route each input into command mode or question-answer mode."""
@@ -43,9 +57,25 @@ class InteractionManager:
     runtime_manager: RuntimeManager = field(default_factory=RuntimeManager)
     answer_backend_config: AnswerBackendConfig = field(default_factory=load_answer_backend_config)
     answer_backend_kind: AnswerBackendKind | None = None
+    pending_near_miss_phrase: str | None = None
 
-    def handle_input(self, raw_input: str, session_context: SessionContext | None = None) -> InteractionResult:
+    def reset_dialogue_state(self) -> None:
+        """Reset in-process dialogue state. Called on session reset."""
+        self.pending_near_miss_phrase = None
+
+    def handle_input(
+        self,
+        raw_input: str,
+        session_context: SessionContext | None = None,
+        *,
+        is_voice_input: bool = False,
+    ) -> InteractionResult:
         """Handle one user input through the dual-mode routing layer."""
+        # Handle pending near-miss reply (voice recognition confirmation) before
+        # normal routing so yes/no answers reach the right handler.
+        if self.pending_near_miss_phrase is not None:
+            return self._handle_near_miss_reply(raw_input, session_context)
+
         debug_trace: dict[str, Any] | None = {} if qa_debug_enabled() else None
         decision, cleared_pending = _resolve_pending_interaction_decision(
             raw_input,
@@ -66,11 +96,67 @@ class InteractionManager:
             )
 
         if decision is None:
+            routed_input = raw_input
+            # Fix 1: clarification and confirmation replies must bypass the interpreter.
+            # The interpreter is stateless — it cannot distinguish a workspace name
+            # ("notes project") from a standalone command, and may rewrite it incorrectly.
+            _runtime_state_val = str(
+                getattr(self.runtime_manager.current_state, "value", self.runtime_manager.current_state) or ""
+            ).strip()
+            _skip_for_blocked_runtime = _runtime_state_val in {"awaiting_clarification", "awaiting_confirmation"}
+
+            _interpreted_obj = None
+            if _skip_for_blocked_runtime:
+                if debug_trace is not None:
+                    set_debug_payload(debug_trace, "interpreter_result", {
+                        "raw_input_seen": raw_input,
+                        "normalized_text": raw_input,
+                        "normalized_text_used": False,
+                        "skipped": True,
+                        "skip_reason": "runtime_blocked",
+                        "latency_ms": 0.0,
+                    })
+            elif debug_trace is not None:
+                _interpreted_obj, interpreter_trace = InputInterpreter().interpret(raw_input)
+                set_debug_payload(debug_trace, "interpreter_result", interpreter_trace)
+                # Safety boundary 1: question-command conflict already handled inside interpreter.
+                # Accept normalized_text only when interpreter fired and confidence is high enough.
+                if (
+                    not _interpreted_obj.skipped
+                    and _interpreted_obj.confidence >= 0.70
+                    and _interpreted_obj.normalized_text
+                ):
+                    routed_input = _interpreted_obj.normalized_text
+            elif not _interpreter_disabled():
+                _interpreted_obj, _ = InputInterpreter().interpret(raw_input)
+                if (
+                    not _interpreted_obj.skipped
+                    and _interpreted_obj.confidence >= 0.70
+                    and _interpreted_obj.normalized_text
+                ):
+                    routed_input = _interpreted_obj.normalized_text
+
+            # Voice near-miss: interpreter returned moderate confidence on a known
+            # command intent. Prompt the user to confirm rather than routing silently.
+            if (
+                is_voice_input
+                and _interpreted_obj is not None
+                and not _interpreted_obj.skipped
+                and _NEAR_MISS_CONFIDENCE_LOW <= _interpreted_obj.confidence < _NEAR_MISS_CONFIDENCE_HIGH
+                and _interpreted_obj.normalized_text
+                and _interpreted_obj.normalized_text.strip().lower() != raw_input.strip().lower()
+                and str(getattr(_interpreted_obj, "routing_hint", "") or "").strip() == "command"
+            ):
+                self.pending_near_miss_phrase = _interpreted_obj.normalized_text
+                return _build_near_miss_result(raw_input, _interpreted_obj.normalized_text, debug_trace)
+
             decision = route_interaction(
-                raw_input,
+                routed_input,
                 session_context=session_context,
                 runtime_state=self.runtime_manager.current_state,
             )
+        else:
+            routed_input = raw_input
 
         set_debug_payload(
             debug_trace,
@@ -80,6 +166,7 @@ class InteractionManager:
                 "confidence": round(float(getattr(decision, "confidence", 0.0) or 0.0), 3),
                 "reason": decision.reason,
                 "runtime_state": str(getattr(self.runtime_manager.current_state, "value", self.runtime_manager.current_state or "")).strip() or None,
+                "normalized_input": decision.normalized_input or routed_input,
             },
         )
 
@@ -130,6 +217,28 @@ class InteractionManager:
             "clarification_question": getattr(self.runtime_manager.clarification_request, "message", None),
             "confirmation_message": getattr(self.runtime_manager.confirmation_request, "message", None),
         }
+
+    def _handle_near_miss_reply(
+        self,
+        raw_input: str,
+        session_context: SessionContext | None,
+    ) -> InteractionResult:
+        """Handle a yes/no reply to a pending voice near-miss confirmation prompt."""
+        phrase = self.pending_near_miss_phrase
+        normalized = " ".join(str(raw_input or "").lower().strip().split())
+        if normalized in _NEAR_MISS_YES_WORDS:
+            self.pending_near_miss_phrase = None
+            return self._command_result(
+                phrase,
+                reason="near_miss_confirmed",
+                debug_trace=None,
+                session_context=session_context,
+            )
+        if normalized in _NEAR_MISS_NO_WORDS:
+            self.pending_near_miss_phrase = None
+            return _build_near_miss_dismissed_result(raw_input)
+        # Unrecognised reply — re-surface the prompt.
+        return _build_near_miss_result(raw_input, phrase, None)
 
     def _input_error(self, exc: InputNormalizationError) -> JarvisError:
         code_text = str(getattr(exc, "code", ErrorCode.UNREADABLE_INPUT.value))
@@ -395,3 +504,45 @@ def _metadata_with_debug(base: dict[str, Any] | None, debug_trace: dict[str, Any
     if debug_trace:
         metadata["debug"] = dict(debug_trace)
     return metadata or None
+
+
+def _build_near_miss_result(
+    raw_input: str,
+    canonical_phrase: str,
+    debug_trace: dict[str, Any] | None,
+) -> InteractionResult:
+    """Return a clarification prompt asking the user to confirm a near-miss rewrite."""
+    near_miss_request = ClarificationRequest(
+        message=f'Did you mean: "{canonical_phrase}"?',
+        code=ErrorCode.CLARIFICATION_REQUIRED.value,
+        options=["Yes", "No"],
+    )
+    return InteractionResult(
+        interaction_mode=InteractionKind.CLARIFICATION,
+        normalized_input=raw_input,
+        clarification_request=near_miss_request,
+        visibility=map_interaction_visibility(
+            interaction_mode=InteractionKind.CLARIFICATION,
+            clarification_request=near_miss_request,
+        ),
+        metadata=_metadata_with_debug({"reason": "voice_near_miss"}, debug_trace),
+    )
+
+
+def _build_near_miss_dismissed_result(raw_input: str) -> InteractionResult:
+    """Return an informational clarification when the user rejects a near-miss prompt."""
+    dismissed_request = ClarificationRequest(
+        message="Okay \u2014 say it again whenever you're ready.",
+        code=ErrorCode.CLARIFICATION_REQUIRED.value,
+        options=None,
+    )
+    return InteractionResult(
+        interaction_mode=InteractionKind.CLARIFICATION,
+        normalized_input=raw_input,
+        clarification_request=dismissed_request,
+        visibility=map_interaction_visibility(
+            interaction_mode=InteractionKind.CLARIFICATION,
+            clarification_request=dismissed_request,
+        ),
+        metadata={"reason": "near_miss_dismissed"},
+    )

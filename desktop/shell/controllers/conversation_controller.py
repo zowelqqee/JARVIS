@@ -10,6 +10,7 @@ from desktop.backend.view_models import PendingPromptViewModel, SessionSnapshotV
 from input.voice_input import VoiceInputError
 
 _WELCOME_TEXT = "JARVIS shell is ready. Ask a question or enter a command."
+_HERO_FLOW_READY_DETAIL = 'Say "start work" or "resume work", or type it below.'
 
 
 class _StatusSink(Protocol):
@@ -64,7 +65,7 @@ class ConversationController:
         if hasattr(retry_requested, "connect"):
             retry_requested.connect(self.retry_last_prompt)
         self._render_snapshot(self._engine_facade.snapshot())
-        self._reset_composer_voice_state()
+        self._reset_composer_voice_state(detail=_HERO_FLOW_READY_DETAIL)
         self._show_message("JARVIS shell connected")
 
     def submit_text(self, text: str) -> None:
@@ -91,7 +92,7 @@ class ConversationController:
         self._last_prompt_signature = None
         self._last_prompt_reply_text = None
         self._render_snapshot(snapshot)
-        self._reset_composer_voice_state()
+        self._reset_composer_voice_state(detail=_HERO_FLOW_READY_DETAIL)
         self._show_message("New session ready")
 
     def retry_last_prompt(self) -> None:
@@ -131,16 +132,22 @@ class ConversationController:
             detail=f'Heard: "{_shorten_voice_transcript(transcript)}"',
         )
         self._show_message("Submitting voice request...")
-        self._submit_via_shell(transcript, already_busy=True)
-        self._reset_composer_voice_state(detail=f'Last heard: "{_shorten_voice_transcript(transcript)}"')
+        self._submit_via_shell(transcript, already_busy=True, is_voice_input=True)
+        self._reset_composer_voice_state(detail=_voice_follow_up_detail(transcript))
 
-    def _submit_via_shell(self, normalized_text: str, *, already_busy: bool = False) -> None:
+    def _submit_via_shell(
+        self,
+        normalized_text: str,
+        *,
+        already_busy: bool = False,
+        is_voice_input: bool = False,
+    ) -> None:
         if not already_busy:
             self._composer.set_busy(True)
         self._show_message("Running request...")
 
         try:
-            self._engine_facade.submit_text(normalized_text)
+            self._engine_facade.submit_text(normalized_text, is_voice_input=is_voice_input)
         except Exception as exc:
             self._composer.set_busy(False)
             self._conversation_view.add_entry(role="user", text=normalized_text, entry_kind="input")
@@ -307,6 +314,10 @@ def _shorten_voice_transcript(transcript: str, *, max_chars: int = 72) -> str:
     if len(normalized) <= max_chars:
         return normalized
     return f"{normalized[: max_chars - 3].rstrip()}..."
+
+
+def _voice_follow_up_detail(transcript: str) -> str:
+    return f'Last heard: "{_shorten_voice_transcript(transcript)}". {_HERO_FLOW_READY_DETAIL}'
 
 
 def _flush_ui_updates() -> None:

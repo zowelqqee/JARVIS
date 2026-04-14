@@ -17,6 +17,7 @@ class MainWindowUiTests(unittest.TestCase):
     def test_main_window_exposes_shell_widgets(self) -> None:
         from desktop.app.application import build_application
         from desktop.shell.main_window import MainWindow
+        from PySide6.QtWidgets import QLabel
 
         app = build_application([])
         self.addCleanup(app.quit)
@@ -35,6 +36,23 @@ class MainWindowUiTests(unittest.TestCase):
         self.assertEqual(window.status_panel._cancel_button.text(), "Cancel Flow")
         self.assertEqual(window.status_panel._retry_button.text(), "Retry Prompt")
         self.assertEqual(window.status_panel._reset_button.text(), "New Session")
+        root_layout = window.centralWidget().layout()
+        left_column = root_layout.itemAt(0).layout()
+        self.assertIs(left_column.itemAt(0).widget(), window.composer)
+        self.assertIs(left_column.itemAt(1).widget(), window.conversation_view)
+        title = window.composer.findChild(QLabel, "composerTitle")
+        subtitle = window.composer.findChild(QLabel, "composerSubtitle")
+        voice_detail = window.composer.findChild(QLabel, "composerVoiceDetail")
+        self.assertIsNotNone(title)
+        self.assertIsNotNone(subtitle)
+        self.assertIsNotNone(voice_detail)
+        self.assertEqual(title.text(), "Start or Resume Work")
+        self.assertIn("start work", subtitle.text().lower())
+        self.assertIn("resume work", subtitle.text().lower())
+        self.assertIn("start work", voice_detail.text().lower())
+        self.assertIn("resume work", voice_detail.text().lower())
+        self.assertIn("start work", window.composer.input_field.placeholderText().lower())
+        self.assertIn("resume work", window.composer.input_field.placeholderText().lower())
 
     def test_submission_appends_backend_entries(self) -> None:
         from desktop.app.application import build_application

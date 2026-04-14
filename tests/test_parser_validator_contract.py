@@ -5,6 +5,7 @@ from __future__ import annotations
 import unittest
 from pathlib import Path
 
+from clarification.clarification_handler import apply_clarification
 from context.session_context import SessionContext
 from parser.command_parser import parse_command
 from validator.command_validator import validate_command
@@ -60,6 +61,43 @@ class ParserValidatorContractTests(unittest.TestCase):
         target_pairs = {(getattr(target.type, "value", ""), target.name, target.path) for target in command.targets}
         self.assertIn(("application", "Visual Studio Code", None), target_pairs)
         self.assertIn(("folder", repo_name, str(Path.cwd())), target_pairs)
+
+    def test_start_work_on_repo_maps_to_prepare_workspace_in_code_only(self) -> None:
+        repo_name = Path.cwd().name
+        command = parse_command(f"start work on {repo_name}", self.session_context)
+        validation = validate_command(command)
+
+        self.assertEqual(getattr(command.intent, "value", ""), "prepare_workspace")
+        self.assertTrue(validation.valid)
+        target_pairs = [(getattr(target.type, "value", ""), target.name, target.path) for target in command.targets]
+        self.assertEqual(
+            target_pairs,
+            [
+                ("application", "Visual Studio Code", None),
+                ("folder", repo_name, str(Path.cwd())),
+            ],
+        )
+
+    def test_bare_start_work_requests_workspace_clarification_then_accepts_reply(self) -> None:
+        command = parse_command("start work", self.session_context)
+        validation = validate_command(command)
+
+        self.assertEqual(getattr(command.intent, "value", ""), "prepare_workspace")
+        self.assertFalse(validation.valid)
+        self.assertEqual(getattr(validation.error.code, "value", ""), "MISSING_PARAMETER")
+
+        clarified_command = apply_clarification(command, "demo workspace")
+        clarified_validation = validate_command(clarified_command)
+
+        self.assertTrue(clarified_validation.valid)
+        self.assertEqual(clarified_command.parameters.get("workspace"), "demo workspace")
+        self.assertEqual(
+            [(getattr(target.type, "value", ""), target.name, target.path) for target in clarified_command.targets],
+            [
+                ("application", "Visual Studio Code", None),
+                ("folder", "demo workspace", None),
+            ],
+        )
 
     def test_run_alias_maps_to_open_app(self) -> None:
         command = parse_command("run telegram", self.session_context)

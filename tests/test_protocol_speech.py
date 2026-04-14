@@ -23,3 +23,19 @@ class ProtocolSpeechTests(unittest.TestCase):
         )
 
         self.assertEqual(interaction_speech_message(result), "Ran protocol Clean Slate.")
+
+    def test_resume_work_uses_human_completion_text(self) -> None:
+        result = SimpleNamespace(
+            interaction_mode="command",
+            visibility={
+                "interaction_mode": "command",
+                "runtime_state": "completed",
+                "command_summary": "resume_work: last workspace",
+                "completion_result": "Resumed work in demo in Visual Studio Code. Branch: main. Last file: roadmap.md.",
+            },
+        )
+
+        self.assertEqual(
+            interaction_speech_message(result),
+            "Resumed work in demo in Visual Studio Code. Branch: main. Last file: roadmap.md.",
+        )

@@ -46,6 +46,8 @@ class ProtocolStateStoreTests(unittest.TestCase):
         self.assertEqual(payload["last_workspace_label"], "demo")
         self.assertEqual(payload["last_git_branch"], "main")
         self.assertEqual(context["branch_suffix"], ", ветка main")
+        self.assertEqual(context["resume_context_en"], " Branch: main.")
+        self.assertEqual(context["resume_context_ru"], " Ветка: main.")
         self.assertEqual(
             context["last_project_sentence_ru"],
             "Последним у вас был проект demo, ветка main.",
@@ -62,6 +64,8 @@ class ProtocolStateStoreTests(unittest.TestCase):
 
         self.assertEqual(context["last_workspace_label"], "последний проект")
         self.assertEqual(context["last_project_sentence_ru"], "Последний проект я пока не успел запомнить.")
+        self.assertEqual(context["resume_context_en"], "")
+        self.assertEqual(context["resume_context_ru"], "")
 
     def test_open_file_persists_parent_folder_as_workspace_context(self) -> None:
         with tempfile.TemporaryDirectory() as tempdir:
@@ -84,9 +88,12 @@ class ProtocolStateStoreTests(unittest.TestCase):
                     store = ProtocolStateStore()
                     store.remember_command(command)
                     payload = store.load()
+                    context = store.template_context()
 
         self.assertEqual(payload["last_workspace_path"], "/tmp/demo")
         self.assertEqual(payload["last_workspace_label"], "demo")
+        self.assertEqual(context["resume_context_en"], " Branch: main. Last file: notes.md.")
+        self.assertEqual(context["resume_context_ru"], " Ветка: main. Последний файл: notes.md.")
 
     def test_remember_command_persists_last_protocol(self) -> None:
         with tempfile.TemporaryDirectory() as tempdir:
