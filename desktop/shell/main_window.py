@@ -1,56 +1,67 @@
-"""Main desktop shell window for JARVIS."""
+"""
+MainWindow — frameless panel window.
 
+Width contract:
+  min  360px
+  pref 400px
+  max  440px  (hard cap)
+
+Height:
+  default 520px
+  min     420px
+
+Always-on-top flag is NOT set by default — user positions the panel
+alongside their workspace.
+"""
 from __future__ import annotations
 
-from desktop.backend import EngineFacade
-from desktop.shell.controllers import ConversationController
-from desktop.shell.layout import ShellWidgets, build_shell_layout
-from PySide6.QtWidgets import QMainWindow
+from PySide6.QtCore import Qt
+from PySide6.QtWidgets import QMainWindow, QWidget
+
+from desktop.backend.panel_bridge    import PanelBridge
+from desktop.shell.panel_widget      import PanelWidget
+from desktop.shell.panel_controller  import PanelController
+from desktop.shell.theme             import BG
 
 
 class MainWindow(QMainWindow):
-    """Top-level application window for the desktop UI shell."""
 
-    def __init__(self, *, engine_facade: EngineFacade | None = None) -> None:
+    def __init__(self, bridge: PanelBridge) -> None:
         super().__init__()
-        self.setObjectName("mainWindow")
-        self.setWindowTitle("JARVIS")
-        self.resize(1100, 760)
-        self.setMinimumSize(900, 600)
-        self._widgets: ShellWidgets | None = None
-        self._controller: ConversationController | None = None
-        self._build_shell()
-        self._wire_backend(engine_facade=engine_facade)
 
-    @property
-    def conversation_view(self):
-        return self._widgets.conversation_view
-
-    @property
-    def composer(self):
-        return self._widgets.composer
-
-    @property
-    def status_panel(self):
-        return self._widgets.status_panel
-
-    @property
-    def controller(self):
-        return self._controller
-
-    def _build_shell(self) -> None:
-        container, widgets = build_shell_layout(self)
-        self._widgets = widgets
-        self.setCentralWidget(container)
-        self.statusBar().setObjectName("appStatusBar")
-        self.statusBar().showMessage("Starting JARVIS...")
-
-    def _wire_backend(self, *, engine_facade: EngineFacade | None) -> None:
-        self._controller = ConversationController(
-            engine_facade=engine_facade,
-            conversation_view=self.conversation_view,
-            composer=self.composer,
-            status_panel=self.status_panel,
-            status_sink=self.statusBar(),
+        # ── Window geometry & flags ─────────────────────────────────── #
+        self.setWindowFlags(
+            Qt.WindowType.FramelessWindowHint
         )
-        self._controller.bind()
+        self.setMinimumWidth(360)
+        self.setMaximumWidth(440)
+        self.setMinimumHeight(420)
+        self.resize(400, 520)
+        self.setWindowTitle("JARVIS")
+
+        # Prevent horizontal scroll / overflow at all costs
+        self.setSizePolicy(
+            self.sizePolicy().horizontalPolicy(),
+            self.sizePolicy().verticalPolicy(),
+        )
+
+        # ── Dark background ─────────────────────────────────────────── #
+        self.setStyleSheet(f"QMainWindow {{ background-color: {BG}; }}")
+
+        # ── Panel ───────────────────────────────────────────────────── #
+        self._panel = PanelWidget(self)
+        self.setCentralWidget(self._panel)
+
+        # ── Controller wires bridge ↔ panel ─────────────────────────── #
+        self._controller = PanelController(bridge, self._panel)
+
+        # No Qt status bar
+        self.statusBar().setVisible(False)
+
+    # ------------------------------------------------------------------ #
+    # Expose panel for tests                                               #
+    # ------------------------------------------------------------------ #
+
+    @property
+    def panel(self) -> PanelWidget:
+        return self._panel

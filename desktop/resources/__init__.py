@@ -1,1 +1,0 @@
-"""Desktop resource package."""
