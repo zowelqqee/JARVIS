@@ -20,7 +20,8 @@ Your job: break any user goal into a sequence of steps using ONLY the tools list
 ABSOLUTE RULES:
 - NEVER use generated_code or write Python scripts. It does not exist.
 - NEVER reference previous step results in parameters. Every step is independent.
-- Use web_search for ANY information retrieval, research, or current data.
+- Use web_search ONLY for research, current data, or factual questions — NOT for local computer tasks.
+- Do NOT use web_search for: opening apps, arranging windows, adjusting settings, or any local action.
 - Use file_controller to save content to disk.
 - Use cmd_control to open files or run system commands.
 - Max 5 steps. Use the minimum steps needed.
@@ -109,6 +110,12 @@ dev_agent
   description: string (required)
   language: string (optional)
 
+WORKSPACE SETUP RULES (CRITICAL):
+- "set up workspace", "prepare workspace", "arrange windows", "рабочее место" → open apps + snap windows
+- Sequence: open first app → snap_left → open second app → snap_right
+- snap_left / snap_right always acts on the LAST opened (active) window
+- NEVER call web_search for workspace setup tasks
+
 EXAMPLES:
 
 Goal: "makine mühendisliği hakkında araştırma yap ve not defterine kaydet"
@@ -135,6 +142,25 @@ Goal: "Saati aç ve 30 dakika sonraya hatırlatıcı kur"
 Steps:
   1. reminder | date: [today], time: [now+30min], message: "Hatırlatıcı"
 
+Goal: "Set up my workspace" / "prepare my workspace" / "настроить рабочее место"
+Steps:
+  1. open_app | app_name: "Visual Studio Code"
+  2. computer_settings | action: snap_left
+  3. open_app | app_name: "Chrome"
+  4. computer_settings | action: snap_right
+
+Goal: "snap VSCode left and Chrome right"
+Steps:
+  1. open_app | app_name: "Visual Studio Code"
+  2. computer_settings | action: snap_left
+  3. open_app | app_name: "Chrome"
+  4. computer_settings | action: snap_right
+
+Goal: "Open Spotify and minimize it"
+Steps:
+  1. open_app | app_name: "Spotify"
+  2. computer_settings | action: minimize
+
 OUTPUT — return ONLY valid JSON, no markdown, no explanation, no code blocks:
 {
   "goal": "...",
@@ -157,22 +183,25 @@ def _get_api_key() -> str:
 
 
 def create_plan(goal: str, context: str = "") -> dict:
-    import google.generativeai as genai
+    from google import genai
+    from google.genai import types
 
-    genai.configure(api_key=_get_api_key())
-    model = genai.GenerativeModel(
-        model_name="gemini-2.5-flash-lite",
-        system_instruction=PLANNER_PROMPT
-    )
+    client = genai.Client(api_key=_get_api_key())
 
     user_input = f"Goal: {goal}"
     if context:
         user_input += f"\n\nContext: {context}"
 
     try:
-        response = model.generate_content(user_input)
-        text     = response.text.strip()
-        text     = re.sub(r"```(?:json)?", "", text).strip().rstrip("`").strip()
+        response = client.models.generate_content(
+            model="gemini-2.5-flash-lite",
+            contents=user_input,
+            config=types.GenerateContentConfig(
+                system_instruction=PLANNER_PROMPT,
+            )
+        )
+        text = response.text.strip()
+        text = re.sub(r"```(?:json)?", "", text).strip().rstrip("`").strip()
 
         plan = json.loads(text)
 
@@ -217,13 +246,10 @@ def _fallback_plan(goal: str) -> dict:
 
 
 def replan(goal: str, completed_steps: list, failed_step: dict, error: str) -> dict:
-    import google.generativeai as genai
+    from google import genai
+    from google.genai import types
 
-    genai.configure(api_key=_get_api_key())
-    model = genai.GenerativeModel(
-        model_name="gemini-2.5-flash",
-        system_instruction=PLANNER_PROMPT
-    )
+    client = genai.Client(api_key=_get_api_key())
 
     completed_summary = "\n".join(
         f"  - Step {s['step']} ({s['tool']}): DONE" for s in completed_steps
@@ -240,10 +266,16 @@ Error: {error}
 Create a REVISED plan for the remaining work only. Do not repeat completed steps."""
 
     try:
-        response = model.generate_content(prompt)
-        text     = response.text.strip()
-        text     = re.sub(r"```(?:json)?", "", text).strip().rstrip("`").strip()
-        plan     = json.loads(text)
+        response = client.models.generate_content(
+            model="gemini-2.5-flash",
+            contents=prompt,
+            config=types.GenerateContentConfig(
+                system_instruction=PLANNER_PROMPT,
+            )
+        )
+        text = response.text.strip()
+        text = re.sub(r"```(?:json)?", "", text).strip().rstrip("`").strip()
+        plan = json.loads(text)
 
         # generated_code kontrolü
         for step in plan.get("steps", []):

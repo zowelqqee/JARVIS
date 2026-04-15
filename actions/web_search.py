@@ -25,18 +25,36 @@ def _gemini_search(query: str) -> str:
     from google import genai
 
     client = genai.Client(api_key=_get_api_key())
+
+    # Try Google Search grounding first (not available in all regions)
+    try:
+        response = client.models.generate_content(
+            model="gemini-2.5-flash-lite",
+            contents=query,
+            config={"tools": [{"google_search": {}}]}
+        )
+        text = ""
+        for part in response.candidates[0].content.parts:
+            if hasattr(part, "text") and part.text:
+                text += part.text
+        if text.strip():
+            return text.strip()
+    except Exception as e:
+        err = str(e).lower()
+        if any(k in err for k in ("location", "region", "not supported", "400", "permission")):
+            print(f"[WebSearch] Google Search grounding unavailable in this region — falling back to plain Gemini")
+        else:
+            print(f"[WebSearch] Grounding failed ({e}) — falling back to plain Gemini")
+
+    # Fallback: plain Gemini without grounding (works everywhere)
     response = client.models.generate_content(
         model="gemini-2.5-flash-lite",
-        contents=query,
-        config={"tools": [{"google_search": {}}]}
+        contents=f"Answer this question concisely using your knowledge: {query}"
     )
-    text = ""
-    for part in response.candidates[0].content.parts:
-        if hasattr(part, "text") and part.text:
-            text += part.text
-    if not text.strip():
-        raise ValueError("Empty response")
-    return text.strip()
+    text = response.text.strip()
+    if not text:
+        raise ValueError("Empty response from Gemini")
+    return text
 
 
 

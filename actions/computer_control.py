@@ -336,23 +336,21 @@ def _analyze_screen_for_element(description: str) -> tuple[int, int] | None:
     of a described element on screen. Returns (x, y) or None.
     """
     try:
-        import google.generativeai as genai
+        from google import genai
+        from google.genai import types
         import io
 
-        cfg_path = API_CONFIG_PATH
-        with open(cfg_path, "r") as f:
+        with open(API_CONFIG_PATH, "r") as f:
             api_key = json.load(f)["gemini_api_key"]
 
-        genai.configure(api_key=api_key)
-        model = genai.GenerativeModel("gemini-2.5-flash-lite")
-
+        client = genai.Client(api_key=api_key)
 
         _ensure_pyautogui()
-        w, h  = pyautogui.size()
-        img   = pyautogui.screenshot()
-        buf   = io.BytesIO()
+        w, h = pyautogui.size()
+        img  = pyautogui.screenshot()
+        buf  = io.BytesIO()
         img.save(buf, format="PNG")
-        buf.seek(0)
+        image_bytes = buf.getvalue()
 
         prompt = (
             f"This is a screenshot of a computer screen ({w}x{h} pixels). "
@@ -361,10 +359,13 @@ def _analyze_screen_for_element(description: str) -> tuple[int, int] | None:
             f"If not found, return: NOT_FOUND"
         )
 
-        response = model.generate_content([
-            {"mime_type": "image/png", "data": buf.getvalue()},
-            prompt
-        ])
+        response = client.models.generate_content(
+            model="gemini-2.5-flash-lite",
+            contents=[
+                types.Part.from_bytes(data=image_bytes, mime_type="image/png"),
+                prompt,
+            ]
+        )
 
         text = response.text.strip()
         if "NOT_FOUND" in text:
@@ -376,7 +377,7 @@ def _analyze_screen_for_element(description: str) -> tuple[int, int] | None:
             return int(match.group(1)), int(match.group(2))
 
     except Exception as e:
-        print(f"[ComputerControl] ⚠️ Screen analysis failed: {e}")
+        print(f"[ComputerControl] Screen analysis failed: {e}")
 
     return None
 

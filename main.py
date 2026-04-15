@@ -28,6 +28,7 @@ from actions.desktop          import desktop_control
 from actions.browser_control  import browser_control
 from actions.file_controller  import file_controller
 from actions.code_helper      import code_helper
+from actions.protocol_manager import protocol as protocol_action
 from actions.dev_agent        import dev_agent
 from actions.web_search       import web_search as web_search_action
 from actions.computer_control import computer_control
@@ -258,16 +259,18 @@ TOOL_DECLARATIONS = [
         "Controls the computer: volume, brightness, window management, keyboard shortcuts, "
         "typing text on screen, closing apps, fullscreen, dark mode, WiFi, restart, shutdown, "
         "scrolling, tab management, zoom, screenshots, lock screen, refresh/reload page. "
-        "ALSO use for repeated actions: 'refresh 10 times', 'reload page 5 times' → action: reload_n, value: 10. "
-        "Use for ANY single computer control command — even if repeated N times. "
+        "ALSO use for: snapping windows — snap_left/snap_right (active window), "
+        "snap_app_left/snap_app_right with value=AppName (targets a specific app by name). "
+        "ALSO use for repeated actions: 'refresh 10 times' → action: reload_n, value: 10. "
+        "Use for ANY single computer control command. "
         "NEVER route simple computer commands to agent_task."
     ),
     "parameters": {
         "type": "OBJECT",
         "properties": {
-            "action":      {"type": "STRING", "description": "The action to perform (if known). For repeated reload: 'reload_n'"},
+            "action":      {"type": "STRING", "description": "The action: snap_left | snap_right | snap_app_left | snap_app_right | minimize | maximize | volume_set | reload_n | type_text | press_key | ... or any other"},
             "description": {"type": "STRING", "description": "Natural language description of what to do"},
-            "value":       {"type": "STRING", "description": "Optional value: volume level, text to type, number of times, etc."}
+            "value":       {"type": "STRING", "description": "Optional value: app name for snap_app_*, volume level, text to type, count, etc."}
         },
         "required": []
     }
@@ -356,19 +359,20 @@ TOOL_DECLARATIONS = [
     {
     "name": "code_helper",
     "description": (
-        "Writes, edits, explains, runs, or self-builds code files. "
-        "Use for ANY coding request: writing a script, fixing a file, "
-        "editing existing code, running a file, or building and testing automatically."
+        "Writes, edits, explains, runs, builds, optimizes, or screen-debugs code files. "
+        "Use for ANY coding request: writing a script, fixing a file, editing existing code, "
+        "running a file, building and testing automatically, optimizing code, "
+        "or analyzing an error visible on the screen."
     ),
     "parameters": {
         "type": "OBJECT",
         "properties": {
-            "action":      {"type": "STRING", "description": "write | edit | explain | run | build | auto (default: auto)"},
-            "description": {"type": "STRING", "description": "What the code should do, or what change to make"},
+            "action":      {"type": "STRING", "description": "write | edit | explain | run | build | optimize | screen_debug | auto (default: auto)"},
+            "description": {"type": "STRING", "description": "What the code should do, what change to make, or what problem to analyze"},
             "language":    {"type": "STRING", "description": "Programming language (default: python)"},
             "output_path": {"type": "STRING", "description": "Where to save the file (full path or filename)"},
-            "file_path":   {"type": "STRING", "description": "Path to existing file for edit / explain / run / build"},
-            "code":        {"type": "STRING", "description": "Raw code string for explain"},
+            "file_path":   {"type": "STRING", "description": "Path to existing file for edit / explain / run / build / optimize / screen_debug"},
+            "code":        {"type": "STRING", "description": "Raw code string for explain or optimize"},
             "args":        {"type": "STRING", "description": "CLI arguments for run/build"},
             "timeout":     {"type": "INTEGER", "description": "Execution timeout in seconds (default: 30)"},
         },
@@ -469,6 +473,25 @@ TOOL_DECLARATIONS = [
             "save":         {"type": "BOOLEAN", "description": "Save results to Notepad"},
         },
         "required": ["origin", "destination", "date"]
+    }
+},
+{
+    "name": "protocol",
+    "description": (
+        "Activates a named JARVIS protocol — a saved sequence of actions. "
+        "Use when the user says a protocol trigger phrase like 'за работу', 'work mode', "
+        "'я дома', 'home mode', or any custom protocol name. "
+        "Also use for: listing protocols (action: list), "
+        "adding a new protocol (action: add), removing one (action: remove)."
+    ),
+    "parameters": {
+        "type": "OBJECT",
+        "properties": {
+            "name":   {"type": "STRING", "description": "Protocol name or trigger phrase (e.g. 'work', 'home', 'за работу')"},
+            "action": {"type": "STRING", "description": "run (default) | list | add | remove"},
+            "data":   {"type": "STRING", "description": "JSON string with protocol definition for 'add' action"},
+        },
+        "required": ["name"]
     }
 }
 ]
@@ -675,6 +698,16 @@ class JarvisLive:
             elif name == "flight_finder":
                 r = await loop.run_in_executor(
                     None, lambda: flight_finder(parameters=args, player=self.ui)
+                )
+                result = r or "Done."
+
+            elif name == "protocol":
+                r = await loop.run_in_executor(
+                    None, lambda: protocol_action(
+                        parameters=args,
+                        player=self.ui,
+                        speak=self.speak
+                    )
                 )
                 result = r or "Done."
 

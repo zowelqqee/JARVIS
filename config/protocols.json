@@ -1,0 +1,73 @@
+{
+  "work": {
+    "name": "За работу",
+    "trigger_phrases": [
+      "за работу", "рабочий режим", "work mode", "начинаем работу",
+      "let's work", "time to work", "включи рабочий режим"
+    ],
+    "description": "Closes all open windows, launches VSCode and CMD side by side",
+    "steps": [
+      {
+        "tool": "close_all_windows",
+        "description": "Close all open application windows",
+        "parameters": {},
+        "optional": false
+      },
+      {
+        "tool": "wait",
+        "description": "Wait for windows to close",
+        "parameters": {"seconds": 1.5},
+        "optional": true
+      },
+      {
+        "tool": "open_app",
+        "description": "Open Visual Studio Code",
+        "parameters": {"app_name": "Visual Studio Code"},
+        "optional": false
+      },
+      {
+        "tool": "computer_settings",
+        "description": "Snap VSCode to the left",
+        "parameters": {"action": "snap_left"},
+        "optional": true
+      },
+      {
+        "tool": "open_app",
+        "description": "Open Command Prompt",
+        "parameters": {"app_name": "cmd"},
+        "optional": false
+      },
+      {
+        "tool": "computer_settings",
+        "description": "Snap CMD to the right",
+        "parameters": {"action": "snap_right"},
+        "optional": true
+      }
+    ]
+  },
+
+  "home": {
+    "name": "Я дома",
+    "trigger_phrases": [
+      "я дома", "home mode", "i'm home", "я вернулся",
+      "добрался домой", "включи домашний режим"
+    ],
+    "description": "Welcome greeting and plays Back in Black or Highway to Hell on YouTube",
+    "steps": [
+      {
+        "tool": "speak",
+        "description": "Welcome home greeting",
+        "parameters": {
+          "text": "Welcome home, sir. Good to have you back. Let me put on some music."
+        },
+        "optional": true
+      },
+      {
+        "tool": "youtube_video",
+        "description": "Play Back in Black by AC/DC",
+        "parameters": {"action": "play", "query": "AC DC Back in Black official"},
+        "optional": false
+      }
+    ]
+  }
+}

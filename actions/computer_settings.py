@@ -148,6 +148,71 @@ def snap_left():
 def snap_right():
     if _OS == "Windows": pyautogui.hotkey("win", "right")
 
+def _focus_window_by_name(app_name: str) -> bool:
+    """
+    Focus a visible window whose title contains app_name.
+    Uses ctypes (no extra packages needed). Windows only.
+    """
+    if _OS != "Windows":
+        return False
+    try:
+        import ctypes
+        user32 = ctypes.windll.user32
+        WNDENUMPROC = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_void_p, ctypes.c_void_p)
+        found = [None]
+
+        def _cb(hwnd, _):
+            if not user32.IsWindowVisible(hwnd):
+                return True
+            length = user32.GetWindowTextLengthW(hwnd)
+            if length < 1:
+                return True
+            buf = ctypes.create_unicode_buffer(length + 1)
+            user32.GetWindowTextW(hwnd, buf, length + 1)
+            if app_name.lower() in buf.value.lower():
+                found[0] = hwnd
+                return False   # stop enumeration
+            return True
+
+        user32.EnumWindows(WNDENUMPROC(_cb), 0)
+
+        if found[0]:
+            hwnd = found[0]
+            user32.ShowWindow(hwnd, 9)        # SW_RESTORE (un-minimize)
+            user32.SetForegroundWindow(hwnd)
+            time.sleep(0.4)
+            print(f"[Settings] Focused window: {app_name}")
+            return True
+    except Exception as e:
+        print(f"[Settings] _focus_window_by_name failed: {e}")
+    return False
+
+def snap_app(app_name: str, direction: str = "left"):
+    """
+    Focus a window by app name then snap it left or right.
+    Falls back to PowerShell AppActivate if ctypes fails.
+    """
+    if _OS != "Windows":
+        return
+
+    # Try ctypes first
+    if not _focus_window_by_name(app_name):
+        # Fallback: PowerShell AppActivate
+        try:
+            script = f'(New-Object -ComObject WScript.Shell).AppActivate("{app_name}")'
+            subprocess.run(
+                ["powershell", "-NoProfile", "-Command", script],
+                capture_output=True, timeout=5
+            )
+            time.sleep(0.5)
+        except Exception as e:
+            print(f"[Settings] AppActivate fallback failed: {e}")
+
+    if direction == "right":
+        snap_right()
+    else:
+        snap_left()
+
 def switch_window():
     if _OS == "Darwin":
         pyautogui.hotkey("command", "tab")
@@ -422,6 +487,8 @@ ACTION_MAP = {
     "snap_right":              snap_right,
     "window_left":             snap_left,
     "window_right":            snap_right,
+    "snap_app_left":           lambda: None,   # handled specially below
+    "snap_app_right":          lambda: None,   # handled specially below
     "switch_window":           switch_window,
     "alt_tab":                 switch_window,
     "next_window":             switch_window,
@@ -512,11 +579,10 @@ def _detect_action(description: str) -> dict:
     Herhangi bir dilde çalışır.
     Döner: {"action": str, "value": optional}
     """
-    import google.generativeai as genai
-    genai.configure(api_key=_get_api_key())
-    model = genai.GenerativeModel("gemini-2.5-flash-lite")
+    from google import genai as _genai
+    _client = _genai.Client(api_key=_get_api_key())
 
-    available = ", ".join(sorted(ACTION_MAP.keys())) + ", volume_set, type_text, write_on_screen, reload_n, press_key"
+    available = ", ".join(sorted(ACTION_MAP.keys())) + ", volume_set, type_text, write_on_screen, reload_n, press_key, snap_app_left, snap_app_right"
 
     prompt = f"""The user wants to control their computer. Detect their intent.
 
@@ -578,20 +644,27 @@ Examples:
 - "press f5" → {{"action": "press_key", "value": "f5"}}
 - "enter'a bas" → {{"action": "enter", "value": null}}
 - "escape'e bas" → {{"action": "escape", "value": null}}
+- "snap Chrome to the left" → {{"action": "snap_app_left", "value": "Chrome"}}
+- "snap VSCode to right" → {{"action": "snap_app_right", "value": "Visual Studio Code"}}
+- "put Chrome on the left side" → {{"action": "snap_app_left", "value": "Chrome"}}
 
 IMPORTANT:
 - Always return one of the available actions listed above.
 - If the user's intent is clear but uses different wording, map it to the closest action.
+- For "snap [AppName] left/right", use snap_app_left or snap_app_right with value = app name.
 - Never invent new action names not in the available list.
 - Return ONLY the JSON object, no explanation, no markdown."""
 
     try:
-        response = model.generate_content(prompt)
+        response = _client.models.generate_content(
+            model="gemini-2.5-flash-lite",
+            contents=prompt
+        )
         text = response.text.strip()
         text = __import__("re").sub(r"```(?:json)?", "", text).strip().rstrip("`").strip()
         return json.loads(text)
     except Exception as e:
-        print(f"[Settings] ⚠️ Intent detection failed: {e}")
+        print(f"[Settings] Intent detection failed: {e}")
         return {"action": description.lower().replace(" ", "_"), "value": None}
 
 def computer_settings(
@@ -659,6 +732,17 @@ def computer_settings(
             return f"Reloaded page {n} time{'s' if n > 1 else ''}."
         except Exception as e:
             return f"Could not reload: {e}"
+
+    if action in ("snap_app_left", "snap_app_right"):
+        app = str(value or params.get("app", "")).strip()
+        if not app:
+            return "Please specify the app name to snap, sir."
+        direction = "right" if action == "snap_app_right" else "left"
+        try:
+            snap_app(app, direction)
+            return f"Snapped {app} to {direction}."
+        except Exception as e:
+            return f"Could not snap {app}: {e}"
 
     if action in ("scroll_up", "scroll_down"):
         try:

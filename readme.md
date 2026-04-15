@@ -48,6 +48,5 @@ If you got some problems or questions to ask or just want to support;
 
 ## ⚠️ License
 
-Personal and non-commercial use only.
 Engineered by a 17-year-old building a real JARVIS-style assistant.
 ⭐ Star the repository to support the project.
