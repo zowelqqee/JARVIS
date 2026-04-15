@@ -9,14 +9,14 @@
     "steps": [
       {
         "tool": "close_all_windows",
-        "description": "Close all open application windows",
+        "description": "Close all open application windows, without VS Code and Python windows",
         "parameters": {},
         "optional": false
       },
       {
         "tool": "wait",
         "description": "Wait for windows to close",
-        "parameters": {"seconds": 1.5},
+        "parameters": {"seconds": 0.5},
         "optional": true
       },
       {
@@ -58,7 +58,7 @@
         "tool": "speak",
         "description": "Welcome home greeting",
         "parameters": {
-          "text": "Welcome home, sir. Good to have you back. Let me put on some music."
+          "text": "Sir, good to have you back."
         },
         "optional": true
       },
@@ -69,5 +69,20 @@
         "optional": false
       }
     ]
+  },
+  "clean_leaf": {
+    "name": "Белый лист",
+    "trigger_phrases": [
+      "чистый лист", "протокол чистый лист", "clear leaf", "закрой все" ],
+    "description": "Выключает все",
+    "steps": [
+      {
+        "tool": "close_all_windows",
+        "description": "Close all open application windows",
+        "parameters": {},
+        "optional": false
+      }
+    ]
   }
 }
+

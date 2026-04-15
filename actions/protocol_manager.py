@@ -57,34 +57,68 @@ def _save(data: dict) -> None:
 
 def _close_all_windows() -> str:
     """
-    Gracefully closes all visible application windows on Windows.
-    Excludes system processes and the JARVIS/Python process itself.
+    Gracefully closes all visible application windows.
+    Excludes system processes, JARVIS/Python, VS Code, and Terminal.
     """
-    if platform.system() != "Windows":
-        return "close_all_windows: not on Windows — skipped."
+    system = platform.system()
 
-    script = r"""
-$sys = @('explorer','python','pythonw','py','python3','powershell','pwsh',
-         'conhost','dwm','winlogon','csrss','wininit','services','lsass',
-         'smss','svchost','system','idle','registry','taskhostw','sihost',
-         'runtimebroker','startmenuexperiencehost','searchui','shellexperiencehost')
+    if system == "Windows":
+        script = r"""
+$keep = @('explorer','python','pythonw','py','python3','powershell','pwsh',
+          'code','code - insiders','windowsterminal','cmd',
+          'conhost','dwm','winlogon','csrss','wininit','services','lsass',
+          'smss','svchost','system','idle','registry','taskhostw','sihost',
+          'runtimebroker','startmenuexperiencehost','searchui','shellexperiencehost')
 Get-Process | Where-Object {
     $_.MainWindowHandle -ne 0 -and
-    $sys -notcontains $_.Name.ToLower()
+    $keep -notcontains $_.Name.ToLower()
 } | ForEach-Object {
     try { $_.CloseMainWindow() | Out-Null } catch {}
 }
 """
-    try:
-        subprocess.run(
-            ["powershell", "-NoProfile", "-Command", script.strip()],
-            capture_output=True,
-            timeout=10
+        try:
+            subprocess.run(
+                ["powershell", "-NoProfile", "-Command", script.strip()],
+                capture_output=True,
+                timeout=10
+            )
+            print("[Protocol] Windows closed (except work apps).")
+            return "All non-work windows closed."
+        except Exception as e:
+            return f"close_all_windows failed: {e}"
+
+    elif system == "Darwin":
+        # Keep VS Code, Terminal variants, Finder, Python/JARVIS, and Claude Code
+        keep_apps = {
+            "code", "visual studio code", "terminal", "iterm2", "iterm",
+            "finder", "python", "python3", "jarvis", "claude", "dock",
+            "system preferences", "system settings", "windowserver",
+        }
+        get_apps = (
+            'tell application "System Events" to get name of every application process '
+            'whose background only is false'
         )
-        print("[Protocol] All windows closed.")
-        return "All windows closed."
-    except Exception as e:
-        return f"close_all_windows failed: {e}"
+        try:
+            res = subprocess.run(
+                ["osascript", "-e", get_apps],
+                capture_output=True, text=True, timeout=10
+            )
+            apps = [a.strip() for a in res.stdout.strip().split(",") if a.strip()]
+            for app in apps:
+                if app.lower() in keep_apps:
+                    continue
+                quit_script = f'tell application "{app}" to quit'
+                subprocess.run(
+                    ["osascript", "-e", quit_script],
+                    capture_output=True, timeout=5
+                )
+            print("[Protocol] macOS windows closed (except work apps).")
+            return "All non-work windows closed."
+        except Exception as e:
+            return f"close_all_windows (macOS) failed: {e}"
+
+    else:
+        return "close_all_windows: unsupported OS — skipped."
 
 
 def _builtin_wait(seconds: float) -> str:
@@ -198,7 +232,11 @@ def run_protocol(
             + "\n".join(failures)
         )
 
-    return f"Protocol '{display_name}' activated successfully, sir."
+    # If the protocol spoke directly, tell Gemini not to repeat or announce it.
+    has_speak = any(s.get("tool") == "speak" for s in steps)
+    if has_speak:
+        return "Done. Voice response was spoken directly — stay silent, do not announce anything."
+    return "Done."
 
 
 # ─── Management API ────────────────────────────────────────────────────────────
