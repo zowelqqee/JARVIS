@@ -9,7 +9,7 @@
     "steps": [
       {
         "tool": "close_all_windows",
-        "description": "Close all open application windows, without VS Code and Python windows",
+        "description": "Close all open application windows (except VS Code and Python windows)",
         "parameters": {},
         "optional": false
       },

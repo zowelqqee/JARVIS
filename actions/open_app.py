@@ -81,18 +81,73 @@ def _is_running(app_name: str) -> bool:
 
 
 def _launch_windows(app_name: str) -> bool:
+    # 1. Direct subprocess launch (works for .exe and PATH binaries like "code", "chrome")
+    try:
+        subprocess.Popen(
+            [app_name],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            creationflags=subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP,
+        )
+        time.sleep(1.5)
+        return True
+    except (FileNotFoundError, OSError):
+        pass
+    except Exception as e:
+        print(f"[open_app] ⚠️ Direct launch failed: {e}")
+
+    # 2. shutil.which — find binary in PATH, then launch
+    binary = shutil.which(app_name) or shutil.which(app_name.lower())
+    if binary:
+        try:
+            subprocess.Popen(
+                [binary],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                creationflags=subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP,
+            )
+            time.sleep(1.5)
+            return True
+        except Exception as e:
+            print(f"[open_app] ⚠️ which-path launch failed: {e}")
+
+    # 3. os.startfile — Windows native, works for ms-settings:, .exe, registered file types
+    try:
+        import os
+        os.startfile(app_name)
+        time.sleep(1.5)
+        return True
+    except (FileNotFoundError, OSError):
+        pass
+    except Exception as e:
+        print(f"[open_app] ⚠️ os.startfile failed: {e}")
+
+    # 4. Windows "start" command via shell — works for UWP/Store apps (WhatsApp, Telegram, etc.)
+    try:
+        subprocess.Popen(
+            f'start "" "{app_name}"',
+            shell=True,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        time.sleep(2.0)
+        return True
+    except Exception as e:
+        print(f"[open_app] ⚠️ shell start failed: {e}")
+
+    # 5. Last resort: pyautogui Start Menu search
     try:
         import pyautogui
         pyautogui.PAUSE = 0.1
         pyautogui.press("win")
-        time.sleep(0.6)
-        pyautogui.write(app_name, interval=0.05)
         time.sleep(0.8)
+        pyautogui.write(app_name, interval=0.06)
+        time.sleep(1.0)
         pyautogui.press("enter")
         time.sleep(3.0)
         return True
     except Exception as e:
-        print(f"[open_app] ⚠️ Windows launch failed: {e}")
+        print(f"[open_app] ⚠️ pyautogui fallback failed: {e}")
         return False
 
 def _launch_macos(app_name: str) -> bool:
