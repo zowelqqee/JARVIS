@@ -65,18 +65,107 @@ def _normalize(raw: str) -> str:
 
 def _is_running(app_name: str) -> bool:
     if not _PSUTIL:
-        return True
+        return False
     app_lower = app_name.lower().replace(" ", "").replace(".exe", "")
     try:
         for proc in psutil.process_iter(["name"]):
             try:
-                proc_name = proc.info["name"].lower().replace(" ", "").replace(".exe", "")
+                proc_name = (proc.info["name"] or "").lower().replace(" ", "").replace(".exe", "")
                 if app_lower in proc_name or proc_name in app_lower:
                     return True
             except (psutil.NoSuchProcess, psutil.AccessDenied):
                 continue
     except Exception:
         pass
+    return False
+
+def _focus_existing_window(app_name: str) -> bool:
+    system = platform.system()
+
+    if system == "Windows":
+        try:
+            import ctypes
+            user32 = ctypes.windll.user32
+
+            SW_RESTORE = 9
+            found = [None]
+
+            candidates = {
+                app_name.lower().strip(),
+                app_name.lower().replace(".exe", "").strip(),
+                app_name.lower().replace(" ", "").strip(),
+            }
+
+            def enum_handler(hwnd, _):
+                if not user32.IsWindowVisible(hwnd):
+                    return True
+
+                length = user32.GetWindowTextLengthW(hwnd)
+                if length == 0:
+                    return True
+
+                buffer = ctypes.create_unicode_buffer(length + 1)
+                user32.GetWindowTextW(hwnd, buffer, length + 1)
+                title = buffer.value.lower().strip()
+
+                if not title:
+                    return True
+
+                for candidate in candidates:
+                    compact_title = title.replace(" ", "")
+                    if candidate in title or candidate in compact_title:
+                        found[0] = hwnd
+                        return False
+
+                return True
+
+            EnumWindowsProc = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_void_p, ctypes.c_void_p)
+            user32.EnumWindows(EnumWindowsProc(enum_handler), 0)
+
+            if found[0]:
+                hwnd = found[0]
+                user32.ShowWindow(hwnd, SW_RESTORE)
+                user32.SetForegroundWindow(hwnd)
+                time.sleep(0.4)
+                return True
+
+        except Exception as e:
+            print(f"[open_app] ⚠️ focus existing window failed: {e}")
+
+        return False
+
+    if system == "Darwin":
+        try:
+            script = f'''
+            tell application "{app_name}"
+                activate
+            end tell
+            '''
+            result = subprocess.run(
+                ["osascript", "-e", script],
+                capture_output=True,
+                timeout=5
+            )
+            return result.returncode == 0
+        except Exception as e:
+            print(f"[open_app] ⚠️ macOS focus failed: {e}")
+            return False
+
+    if system == "Linux":
+        try:
+            wmctrl = shutil.which("wmctrl")
+            if wmctrl:
+                result = subprocess.run(
+                    [wmctrl, "-a", app_name],
+                    capture_output=True,
+                    timeout=5
+                )
+                return result.returncode == 0
+        except Exception as e:
+            print(f"[open_app] ⚠️ Linux focus failed: {e}")
+
+        return False
+
     return False
 
 
@@ -237,12 +326,20 @@ def open_app(
         return f"Unsupported OS: {system}"
 
     normalized = _normalize(app_name)
-    print(f"[open_app] 🚀 Launching: {app_name} → {normalized} ({system})")
+    print(f"[open_app] 🚀 Requested: {app_name} → {normalized} ({system})")
 
     if player:
         player.write_log(f"[open_app] {app_name}")
 
     try:
+        # 1. If already running, focus existing window first
+        if _is_running(normalized) or _is_running(app_name):
+            if _focus_existing_window(normalized) or _focus_existing_window(app_name):
+                return f"Focused existing {app_name} window, sir."
+
+            return f"{app_name} is already running, sir, but I couldn't bring its window to the front."
+
+        # 2. Otherwise launch normally
         success = launcher(normalized)
 
         if success:

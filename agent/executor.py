@@ -21,13 +21,39 @@ def get_base_dir() -> Path:
 BASE_DIR        = get_base_dir()
 API_CONFIG_PATH = BASE_DIR / "config" / "api_keys.json"
 
+def extract_text_from_gemini_response(response) -> str:
+    if response is None:
+        return ""
+
+    try:
+        text = getattr(response, "text", None)
+        if isinstance(text, str) and text.strip():
+            return text.strip()
+    except Exception:
+        pass
+
+    candidates = getattr(response, "candidates", None) or []
+    parts_out = []
+
+    for candidate in candidates:
+        content = getattr(candidate, "content", None)
+        if not content:
+            continue
+
+        parts = getattr(content, "parts", None) or []
+        for part in parts:
+            part_text = getattr(part, "text", None)
+            if isinstance(part_text, str) and part_text.strip():
+                parts_out.append(part_text.strip())
+
+    return "\n".join(parts_out).strip()
 
 def _get_api_key() -> str:
     with open(API_CONFIG_PATH, "r", encoding="utf-8") as f:
         return json.load(f)["gemini_api_key"]
 
 def _run_generated_code(description: str, speak: Callable | None = None) -> str:
-    import google.generativeai as genai
+    from google import genai
 
     if speak:
         speak("Writing custom code for this task, sir.")
@@ -40,34 +66,40 @@ def _run_generated_code(description: str, speak: Callable | None = None) -> str:
     if not desktop.exists():
         try:
             import winreg
-            key     = winreg.OpenKey(winreg.HKEY_CURRENT_USER,
-                r"Software\Microsoft\Windows\CurrentVersion\Explorer\Shell Folders")
+            key = winreg.OpenKey(
+                winreg.HKEY_CURRENT_USER,
+                r"Software\Microsoft\Windows\CurrentVersion\Explorer\Shell Folders"
+            )
             desktop = Path(winreg.QueryValueEx(key, "Desktop")[0])
         except Exception:
             pass
 
-    genai.configure(api_key=_get_api_key())
-    model = genai.GenerativeModel(
-        model_name="gemini-2.5-flash",
-        system_instruction=(
-            "You are an expert Python developer. "
-            "Write clean, complete, working Python code. "
-            "Use standard library + common packages. "
-            "Install missing packages with subprocess + pip if needed. "
-            "Return ONLY the Python code. No explanation, no markdown, no backticks.\n\n"
-            f"SYSTEM PATHS:\n"
-            f"  Desktop   = r'{desktop}'\n"
-            f"  Downloads = r'{downloads}'\n"
-            f"  Documents = r'{documents}'\n"
-            f"  Home      = r'{home}'\n"
-        )
+    client = genai.Client(api_key=_get_api_key())
+
+    prompt = (
+        "You are an expert Python developer. "
+        "Write clean, complete, working Python code. "
+        "Use standard library + common packages. "
+        "Install missing packages with subprocess + pip if needed. "
+        "Return ONLY the Python code. No explanation, no markdown, no backticks.\n\n"
+        f"SYSTEM PATHS:\n"
+        f"  Desktop   = r'{desktop}'\n"
+        f"  Downloads = r'{downloads}'\n"
+        f"  Documents = r'{documents}'\n"
+        f"  Home      = r'{home}'\n\n"
+        f"Write Python code to accomplish this task:\n\n{description}"
     )
 
     try:
-        response = model.generate_content(
-            f"Write Python code to accomplish this task:\n\n{description}"
+        response = client.models.generate_content(
+            model="gemini-2.5-flash",
+            contents=prompt,
         )
-        code = response.text.strip()
+
+        code = extract_text_from_gemini_response(response)
+        if not code:
+            raise RuntimeError(build_empty_response_diagnostic(response))
+
         code = re.sub(r"```(?:python)?", "", code).strip().rstrip("`").strip()
 
         with tempfile.NamedTemporaryFile(
@@ -80,8 +112,10 @@ def _run_generated_code(description: str, speak: Callable | None = None) -> str:
 
         result = subprocess.run(
             [sys.executable, tmp_path],
-            capture_output=True, text=True,
-            timeout=120, cwd=str(Path.home())
+            capture_output=True,
+            text=True,
+            timeout=120,
+            cwd=str(Path.home())
         )
 
         try:
@@ -90,15 +124,16 @@ def _run_generated_code(description: str, speak: Callable | None = None) -> str:
             pass
 
         output = result.stdout.strip()
-        error  = result.stderr.strip()
+        error = result.stderr.strip()
 
         if result.returncode == 0 and output:
             return output
-        elif result.returncode == 0:
+        if result.returncode == 0:
             return "Task completed successfully."
-        elif error:
+        if error:
             raise RuntimeError(f"Code error: {error[:400]}")
-        return "Completed."
+
+        raise RuntimeError("Generated code failed with no stderr output.")
 
     except subprocess.TimeoutExpired:
         raise RuntimeError("Generated code timed out after 120 seconds.")
@@ -106,6 +141,34 @@ def _run_generated_code(description: str, speak: Callable | None = None) -> str:
         raise
     except Exception as e:
         raise RuntimeError(f"Generated code failed: {e}")
+    
+
+def build_empty_response_diagnostic(response) -> str:
+    if response is None:
+        return "Model returned no response."
+
+    candidates = getattr(response, "candidates", None) or []
+    if not candidates:
+        return "Model returned no candidates."
+
+    candidate = candidates[0]
+    finish_reason = getattr(candidate, "finish_reason", None)
+
+    content = getattr(candidate, "content", None)
+    parts = getattr(content, "parts", None) or []
+
+    part_kinds = []
+    for part in parts:
+        if getattr(part, "text", None):
+            part_kinds.append("text")
+        elif getattr(part, "function_call", None) is not None:
+            part_kinds.append("function_call")
+        elif getattr(part, "inline_data", None) is not None:
+            part_kinds.append("inline_data")
+        else:
+            part_kinds.append(type(part).__name__)
+
+    return f"Model returned no usable text. finish_reason={finish_reason}, parts={part_kinds}"
 
 def _inject_context(params: dict, tool: str, step_results: dict, goal: str = "") -> dict:
     if not step_results:
@@ -128,7 +191,7 @@ def _inject_context(params: dict, tool: str, step_results: dict, goal: str = "")
 
     return params
 def _detect_language(text: str) -> str:
-    import google.generativeai as genai
+    from google import genai
     genai.configure(api_key=_get_api_key())
     model = genai.GenerativeModel("gemini-2.5-flash-lite")
     try:
@@ -146,7 +209,7 @@ def _translate_to_goal_language(content: str, goal: str) -> str:
     if not goal:
         return content
     try:
-        import google.generativeai as genai
+        from google import genai
         genai.configure(api_key=_get_api_key())
         model = genai.GenerativeModel("gemini-2.5-flash")
 
@@ -243,10 +306,13 @@ def _call_tool(tool: str, parameters: dict, speak: Callable | None) -> str:
     elif tool == "flight_finder":
         from actions.flight_finder import flight_finder
         return flight_finder(parameters=parameters, player=None, speak=speak) or "Done."
-
+    elif tool == "agent_task":
+        description = parameters.get("description", "")
+        if not description:
+            description = str(parameters)
+        return _run_generated_code(description, speak=speak)
     else:
-        print(f"[Executor] ⚠️ Unknown tool '{tool}' — falling back to generated_code")
-        return _run_generated_code(f"Accomplish this task: {parameters}", speak=speak)
+        raise ValueError(f"Unknown tool: {tool}")
 
 class AgentExecutor:
 
@@ -379,7 +445,7 @@ class AgentExecutor:
     def _summarize(self, goal: str, completed_steps: list, speak: Callable | None) -> str:
         fallback = f"All done, sir. Completed {len(completed_steps)} steps for: {goal[:60]}."
         try:
-            import google.generativeai as genai
+            from google import genai
             genai.configure(api_key=_get_api_key())
             model     = genai.GenerativeModel(model_name="gemini-2.5-flash-lite")
             steps_str = "\n".join(f"- {s.get('description', '')}" for s in completed_steps)

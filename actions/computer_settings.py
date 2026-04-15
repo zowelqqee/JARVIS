@@ -68,29 +68,45 @@ def volume_mute():
     else:
         subprocess.run(["pactl", "set-sink-mute", "@DEFAULT_SINK@", "toggle"])
 
-def volume_set(value: int):
-    value = max(0, min(100, value))
+def volume_set(value: int) -> bool:
+    value = max(0, min(100, int(value)))
+
     if _OS == "Windows":
         try:
-            from ctypes import cast, POINTER
-            from comtypes import CLSCTX_ALL
-            from pycaw.pycaw import AudioUtilities, IAudioEndpointVolume
-            import math
-            devices   = AudioUtilities.GetSpeakers()
-            interface = devices.Activate(IAudioEndpointVolume._iid_, CLSCTX_ALL, None)
-            vol       = cast(interface, POINTER(IAudioEndpointVolume))
-            vol_db    = -65.25 if value == 0 else max(-65.25, 20 * math.log10(value / 100))
-            vol.SetMasterVolumeLevel(vol_db, None)
+            from pycaw.pycaw import AudioUtilities
+
+            device = AudioUtilities.GetSpeakers()
+            volume = device.EndpointVolume
+            volume.SetMasterVolumeLevelScalar(value / 100.0, None)
+
             print(f"[Settings] 🔊 Volume → {value}%")
-            return
+            return True
+
         except Exception as e:
             print(f"[Settings] ⚠️ pycaw failed: {e}")
+            return False
+
     elif _OS == "Darwin":
-        subprocess.run(["osascript", "-e", f"set volume output volume {value}"])
-        return
+        try:
+            subprocess.run(
+                ["osascript", "-e", f"set volume output volume {value}"],
+                check=True
+            )
+            return True
+        except Exception as e:
+            print(f"[Settings] ⚠️ macOS volume_set failed: {e}")
+            return False
+
     else:
-        subprocess.run(["pactl", "set-sink-volume", "@DEFAULT_SINK@", f"{value}%"])
-        return
+        try:
+            subprocess.run(
+                ["pactl", "set-sink-volume", "@DEFAULT_SINK@", f"{value}%"],
+                check=True
+            )
+            return True
+        except Exception as e:
+            print(f"[Settings] ⚠️ Linux volume_set failed: {e}")
+            return False
 
 def brightness_up():
     if _OS == "Windows":
