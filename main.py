@@ -4,12 +4,14 @@ import json
 import re
 import sys
 import traceback
+import os
 from pathlib import Path
 
+from dotenv import load_dotenv
 import pyaudio
 from google import genai
 from google.genai import types
-import time 
+import time
 from ui import JarvisUI
 from memory.memory_manager import load_memory, update_memory, format_memory_for_prompt
 
@@ -38,8 +40,10 @@ def get_base_dir():
         return Path(sys.executable).parent
     return Path(__file__).resolve().parent
 
-BASE_DIR        = get_base_dir()
-API_CONFIG_PATH = BASE_DIR / "config" / "api_keys.json"
+BASE_DIR = get_base_dir()
+load_dotenv(BASE_DIR / ".env")
+
+PROMPT_PATH = BASE_DIR / "core" / "prompt.txt"
 PROMPT_PATH     = BASE_DIR / "core" / "prompt.txt"
 LIVE_MODEL          = "models/gemini-2.5-flash-native-audio-preview-12-2025"
 FORMAT              = pyaudio.paInt16
@@ -51,11 +55,10 @@ CHUNK_SIZE          = 1024
 pya = pyaudio.PyAudio()
 
 def _get_api_key() -> str:
-    with open(API_CONFIG_PATH, "r", encoding="utf-8") as f:
-        return json.load(f)["gemini_api_key"]
-    
-    with open(API_CONFIG_PATH, "r", encoding="utf-8") as f:
-        return json.load(f)["gemini_api_key"]
+    api_key = os.getenv("GEMINI_API_KEY")
+    if not api_key:
+        raise RuntimeError("GEMINI_API_KEY not found in .env")
+    return api_key
 
 def _load_system_prompt() -> str:
     try:

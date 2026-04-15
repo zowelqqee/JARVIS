@@ -92,7 +92,7 @@
     ]
   },
   "clean_leaf": {
-    "name": "Белый лист",
+    "name": "Чистый лист",
     "trigger_phrases": [
       "чистый лист",
       "протокол чистый лист",
@@ -103,19 +103,9 @@
     "steps": [
       {
         "tool": "close_all_windows",
-        "description": "Close all open application windows",
+        "description": "Close all  application windows",
         "parameters": {},
         "optional": false
-      }
-    ]
-  },
-  "чистый лист": {
-    "id": "727",
-    "name": "чистый лист",
-    "steps": [
-      {
-        "tool": "agent_task",
-        "goal": "закрыть все окна"
       }
     ]
   }
