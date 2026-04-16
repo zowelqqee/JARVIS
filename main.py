@@ -236,21 +236,29 @@ TOOL_DECLARATIONS = [
         "name": "screen_process",
         "description": (
             "Captures and analyzes the screen or webcam image. "
-            "MUST be called when user asks what is on screen, what you see, "
-            "analyze my screen, look at camera, etc. "
+            "Call when user asks: what is on screen, what do you see, "
+            "read the text, detect objects, look at camera, analyze screen, etc. "
             "You have NO visual ability without this tool. "
-            "After calling this tool, stay SILENT — the vision module speaks directly."
+            "The tool returns the analysis as text — speak it naturally."
         ),
         "parameters": {
             "type": "OBJECT",
             "properties": {
                 "angle": {
                     "type": "STRING",
-                    "description": "'screen' to capture display, 'camera' for webcam. Default: 'screen'"
+                    "description": "'screen' to capture display, 'camera' for webcam. Default: 'camera'"
                 },
                 "text": {
                     "type": "STRING",
-                    "description": "The question or instruction about the captured image"
+                    "description": "The user's question or instruction about the image"
+                },
+                "action": {
+                    "type": "STRING",
+                    "description": (
+                        "'analyze' — general image Q&A (default); "
+                        "'ocr' — extract all text from image; "
+                        "'objects' — list all objects/people visible"
+                    )
                 }
             },
             "required": ["text"]
@@ -618,16 +626,13 @@ class JarvisLive:
                 result = r or "Done."
 
             elif name == "screen_process":
-                threading.Thread(
-                    target=screen_process,
-                    kwargs={"parameters": args, "response": None,
-                            "player": self.ui, "session_memory": None},
-                    daemon=True
-                ).start()
-                result = (
-                    "Vision module activated. "
-                    "Stay completely silent — vision module will speak directly."
+                r = await loop.run_in_executor(
+                    None, lambda: screen_process(
+                        parameters=args, response=None,
+                        player=self.ui, session_memory=None,
+                    )
                 )
+                result = r if isinstance(r, str) and r else "Vision analysis complete, sir."
 
             elif name == "computer_settings":
                 r = await loop.run_in_executor(

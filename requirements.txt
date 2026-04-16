@@ -17,4 +17,9 @@ pycaw
 win10toast
 duckduckgo-search
 youtube-transcript-api
-pillow
+
+# Optional — local OCR (requires Tesseract binary: https://github.com/UB-Mannheim/tesseract/wiki)
+# pytesseract
+
+# Optional — local object detection via YOLOv8 nano (~6 MB model, ~100ms on CPU)
+# ultralytics
