@@ -211,27 +211,57 @@ def _launch_windows(app_name: str) -> bool:
     except Exception as e:
         print(f"[open_app] ⚠️ os.startfile failed: {e}")
 
-    # 4. Windows "start" command via shell — works for UWP/Store apps (WhatsApp, Telegram, etc.)
+    # 4. PowerShell — find and launch Windows Store (AppX) app by name
     try:
-        subprocess.Popen(
+        ps_script = (
+            f"$pkg = Get-AppxPackage | "
+            f"Where-Object {{ $_.Name -like '*{app_name}*' -or $_.PackageFamilyName -like '*{app_name}*' }} | "
+            f"Select-Object -First 1; "
+            f"if ($pkg) {{ "
+            f"  $appId = (Get-AppxPackageManifest $pkg).Package.Applications.Application | "
+            f"    Select-Object -First 1 -ExpandProperty Id; "
+            f"  Start-Process (\"shell:AppsFolder\\\" + $pkg.PackageFamilyName + \"!\" + $appId) "
+            f"}}"
+        )
+        result = subprocess.run(
+            ["powershell", "-NoProfile", "-Command", ps_script],
+            capture_output=True, timeout=12
+        )
+        if result.returncode == 0 and not result.stderr.strip():
+            time.sleep(2.0)
+            return True
+        print(f"[open_app] ⚠️ AppX launch stderr: {result.stderr.decode(errors='ignore')[:100]}")
+    except Exception as e:
+        print(f"[open_app] ⚠️ AppX launch failed: {e}")
+
+    # 5. Windows "start" command via shell — works for some UWP/registered apps
+    try:
+        result = subprocess.run(
             f'start "" "{app_name}"',
             shell=True,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
+            capture_output=True,
+            timeout=6,
         )
-        time.sleep(2.0)
-        return True
+        if result.returncode == 0:
+            time.sleep(2.0)
+            return True
     except Exception as e:
         print(f"[open_app] ⚠️ shell start failed: {e}")
 
-    # 5. Last resort: pyautogui Start Menu search
+    # 6. Last resort: pyautogui Start Menu search (handles any installed app)
     try:
         import pyautogui
         pyautogui.PAUSE = 0.1
         pyautogui.press("win")
-        time.sleep(0.8)
-        pyautogui.write(app_name, interval=0.06)
         time.sleep(1.0)
+        # Use clipboard paste for reliability (handles all characters)
+        try:
+            import pyperclip
+            pyperclip.copy(app_name)
+            pyautogui.hotkey("ctrl", "v")
+        except Exception:
+            pyautogui.write(app_name.lower(), interval=0.07)
+        time.sleep(1.2)
         pyautogui.press("enter")
         time.sleep(3.0)
         return True

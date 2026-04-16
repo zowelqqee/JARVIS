@@ -63,27 +63,53 @@ def _close_all_windows() -> str:
     system = platform.system()
 
     if system == "Windows":
-        script = r"""
-$keep = @('explorer','python','pythonw','py','python3','powershell','pwsh',
-          'code','code - insiders','windowsterminal','cmd',
-          'conhost','dwm','winlogon','csrss','wininit','services','lsass',
-          'smss','svchost','system','idle','registry','taskhostw','sihost',
-          'runtimebroker','startmenuexperiencehost','searchui','shellexperiencehost')
-Get-Process | Where-Object {
+        import sys as _sys
+        import ctypes as _ct
+        current_exe = Path(_sys.executable).stem.lower()
+
+        # Minimize VS Code instead of closing it
+        try:
+            u32 = _ct.windll.user32
+            SW_MINIMIZE = 6
+            def _min_cb(hwnd, _):
+                if not u32.IsWindowVisible(hwnd):
+                    return True
+                length = u32.GetWindowTextLengthW(hwnd)
+                if length == 0:
+                    return True
+                buf = _ct.create_unicode_buffer(length + 1)
+                u32.GetWindowTextW(hwnd, buf, length + 1)
+                if "visual studio code" in buf.value.lower():
+                    u32.ShowWindow(hwnd, SW_MINIMIZE)
+                return True
+            _WFUNC = _ct.WINFUNCTYPE(_ct.c_bool, _ct.c_void_p, _ct.c_void_p)
+            u32.EnumWindows(_WFUNC(_min_cb), 0)
+        except Exception as e:
+            print(f"[Protocol] VS Code minimize failed: {e}")
+
+        script = rf"""
+$keep = @('explorer','python','pythonw','py','python3','{current_exe}',
+          'powershell','pwsh','code','code - insiders',
+          'windowsterminal','cmd','conhost','dwm','winlogon','csrss',
+          'wininit','services','lsass','smss','svchost','system','idle',
+          'registry','taskhostw','sihost','runtimebroker',
+          'startmenuexperiencehost','searchui','shellexperiencehost',
+          'searchhost','ctfmon','fontdrvhost','spoolsv')
+Get-Process | Where-Object {{
     $_.MainWindowHandle -ne 0 -and
     $keep -notcontains $_.Name.ToLower()
-} | ForEach-Object {
-    try { $_.CloseMainWindow() | Out-Null } catch {}
-}
+}} | ForEach-Object {{
+    try {{ $_.CloseMainWindow() | Out-Null }} catch {{}}
+}}
 """
         try:
             subprocess.run(
                 ["powershell", "-NoProfile", "-Command", script.strip()],
                 capture_output=True,
-                timeout=10
+                timeout=15
             )
             print("[Protocol] Windows closed (except work apps).")
-            return "All non-work windows closed."
+            return "All windows closed (VS Code minimized, system processes kept)."
         except Exception as e:
             return f"close_all_windows failed: {e}"
 

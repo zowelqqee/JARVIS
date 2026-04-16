@@ -127,14 +127,137 @@ def brightness_down():
         subprocess.run(["brightnessctl", "set", "10%-"])
 
 
-def close_app():
-    if _OS == "Darwin":
+def _close_window_by_name(app_name: str) -> int:
+    """
+    Closes all visible windows whose title contains app_name.
+    Sends WM_CLOSE to every match. Returns number of windows closed.
+    Windows only.
+    """
+    if _OS != "Windows":
+        return 0
+    try:
+        import ctypes
+        user32   = ctypes.windll.user32
+        WM_CLOSE = 0x0010
+        closed   = [0]
+        name_lower = app_name.lower().strip()
+
+        def _cb(hwnd, _):
+            if not user32.IsWindowVisible(hwnd):
+                return True
+            length = user32.GetWindowTextLengthW(hwnd)
+            if length == 0:
+                return True
+            buf = ctypes.create_unicode_buffer(length + 1)
+            user32.GetWindowTextW(hwnd, buf, length + 1)
+            if name_lower in buf.value.lower():
+                user32.PostMessageW(hwnd, WM_CLOSE, 0, 0)
+                closed[0] += 1
+            return True  # continue enumeration — close ALL matches
+
+        WNDENUMPROC = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_void_p, ctypes.c_void_p)
+        user32.EnumWindows(WNDENUMPROC(_cb), 0)
+        print(f"[Settings] Closed {closed[0]} window(s) matching '{app_name}'")
+        return closed[0]
+    except Exception as e:
+        print(f"[Settings] _close_window_by_name failed: {e}")
+        return 0
+
+
+def _close_all_windows() -> str:
+    """
+    Closes all visible app windows except system processes, VS Code, and JARVIS/Python.
+    Also minimizes VS Code instead of closing it.
+    """
+    if _OS == "Windows":
+        import sys as _sys
+        current_exe = Path(_sys.executable).stem.lower()
+        # Minimize VS Code first (don't close it)
+        try:
+            import ctypes as _ct
+            u32 = _ct.windll.user32
+            SW_MINIMIZE = 6
+
+            def _min_cb(hwnd, _):
+                if not u32.IsWindowVisible(hwnd):
+                    return True
+                length = u32.GetWindowTextLengthW(hwnd)
+                if length == 0:
+                    return True
+                buf = _ct.create_unicode_buffer(length + 1)
+                u32.GetWindowTextW(hwnd, buf, length + 1)
+                title = buf.value.lower()
+                if "visual studio code" in title or "- vscode" in title:
+                    u32.ShowWindow(hwnd, SW_MINIMIZE)
+                return True
+            _WFUNC = _ct.WINFUNCTYPE(_ct.c_bool, _ct.c_void_p, _ct.c_void_p)
+            u32.EnumWindows(_WFUNC(_min_cb), 0)
+        except Exception as e:
+            print(f"[Settings] VS Code minimize failed: {e}")
+
+        script = rf"""
+$keep = @('explorer','python','pythonw','py','python3','{current_exe}',
+          'powershell','pwsh','code','code - insiders',
+          'windowsterminal','cmd','conhost','dwm','winlogon','csrss',
+          'wininit','services','lsass','smss','svchost','system','idle',
+          'registry','taskhostw','sihost','runtimebroker',
+          'startmenuexperiencehost','searchui','shellexperiencehost',
+          'searchhost','ctfmon','fontdrvhost','spoolsv')
+Get-Process | Where-Object {{
+    $_.MainWindowHandle -ne 0 -and
+    $keep -notcontains $_.Name.ToLower()
+}} | ForEach-Object {{
+    try {{ $_.CloseMainWindow() | Out-Null }} catch {{}}
+}}
+"""
+        try:
+            subprocess.run(
+                ["powershell", "-NoProfile", "-Command", script.strip()],
+                capture_output=True,
+                timeout=15
+            )
+            return "All windows closed (VS Code minimized, system processes kept)."
+        except Exception as e:
+            return f"close_all_windows failed: {e}"
+
+    elif _OS == "Darwin":
+        keep_apps = {
+            "code", "visual studio code", "terminal", "iterm2", "iterm",
+            "finder", "python", "python3", "jarvis", "dock",
+            "system preferences", "system settings", "windowserver",
+        }
+        get_apps = (
+            'tell application "System Events" to get name of every application process '
+            'whose background only is false'
+        )
+        try:
+            res  = subprocess.run(["osascript", "-e", get_apps],
+                                  capture_output=True, text=True, timeout=10)
+            apps = [a.strip() for a in res.stdout.strip().split(",") if a.strip()]
+            for app in apps:
+                if app.lower() in keep_apps:
+                    continue
+                subprocess.run(["osascript", "-e", f'tell application "{app}" to quit'],
+                               capture_output=True, timeout=5)
+            return "All non-work windows closed."
+        except Exception as e:
+            return f"close_all_windows (macOS) failed: {e}"
+
+    return "close_all_windows: unsupported OS."
+
+
+def close_app(app_name: str = None):
+    if app_name and _OS == "Windows":
+        _close_window_by_name(app_name)
+    elif _OS == "Darwin":
         pyautogui.hotkey("command", "q")
     else:
         pyautogui.hotkey("alt", "f4")
 
-def close_window():
-    if _OS == "Darwin":
+def close_window(app_name: str = None):
+    if app_name and _OS == "Windows":
+        _close_window_by_name(app_name)
+    elif _OS == "Darwin":
         pyautogui.hotkey("command", "w")
     else:
         pyautogui.hotkey("ctrl", "w")
@@ -491,6 +614,9 @@ ACTION_MAP = {
     "quit_app":                close_app,
     "exit_app":                close_app,
     "kill_app":                close_app,
+    "close_all_windows":       _close_all_windows,
+    "close_all":               _close_all_windows,
+    "close_everything":        _close_all_windows,
     "full_screen":             full_screen,
     "fullscreen":              full_screen,
     "toggle_fullscreen":       full_screen,
@@ -615,6 +741,16 @@ Examples:
 - "sesi 80 yap" → {{"action": "volume_set", "value": 80}}
 - "close the app" → {{"action": "close_app", "value": null}}
 - "uygulamayı kapat" → {{"action": "close_app", "value": null}}
+- "close Chrome" → {{"action": "close_app", "value": "Chrome"}}
+- "close Spotify" → {{"action": "close_app", "value": "Spotify"}}
+- "закрой хром" → {{"action": "close_app", "value": "Chrome"}}
+- "закрой телеграм" → {{"action": "close_app", "value": "Telegram"}}
+- "close all windows" → {{"action": "close_all_windows", "value": null}}
+- "close everything" → {{"action": "close_all_windows", "value": null}}
+- "закрой все окна" → {{"action": "close_all_windows", "value": null}}
+- "закрой всё" → {{"action": "close_all_windows", "value": null}}
+- "все окна закрой" → {{"action": "close_all_windows", "value": null}}
+- "tüm pencereleri kapat" → {{"action": "close_all_windows", "value": null}}
 - "type hello world" → {{"action": "type_text", "value": "hello world"}}
 - "write good morning on screen" → {{"action": "write_on_screen", "value": "good morning"}}
 - "reload page 3 times" → {{"action": "reload_n", "value": 3}}
@@ -759,6 +895,21 @@ def computer_settings(
             return f"Snapped {app} to {direction}."
         except Exception as e:
             return f"Could not snap {app}: {e}"
+
+    # ── Close actions — must pass app_name from value ─────────────────────────
+    if action in ("close_app", "quit_app", "exit_app", "kill_app"):
+        app_name = str(value).strip() if value else None
+        close_app(app_name)
+        return f"Closed {app_name}." if app_name else "Window closed."
+
+    if action == "close_window":
+        app_name = str(value).strip() if value else None
+        close_window(app_name)
+        return f"Closed {app_name}." if app_name else "Window closed."
+
+    if action in ("close_all_windows", "close_all", "close_everything"):
+        return _close_all_windows()
+    # ──────────────────────────────────────────────────────────────────────────
 
     if action in ("scroll_up", "scroll_down"):
         try:
