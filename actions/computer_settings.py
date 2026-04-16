@@ -273,13 +273,17 @@ def minimize_window():
         pyautogui.hotkey("command", "m")
     else:
         pyautogui.hotkey("win", "down")
+        time.sleep(0.1)
+        pyautogui.hotkey("win", "down")
 
 def maximize_window():
     if _OS == "Darwin":
         subprocess.run(["osascript", "-e",
             'tell application "System Events" to keystroke "f" using {control down, command down}'])
     else:
-        pyautogui.hotkey("win", "up")
+        pyautogui.hotkey("win", "down")
+        time.sleep(0.1)
+        pyautogui.hotkey("win", "down")
 
 def snap_left():
     if _OS == "Windows": pyautogui.hotkey("win", "left")

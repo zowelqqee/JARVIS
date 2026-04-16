@@ -99,11 +99,11 @@
       "clear leaf",
       "закрой все"
     ],
-    "description": "Выключает все",
+    "description": "Сворачивает все",
     "steps": [
       {
-        "tool": "close_all_windows",
-        "description": "Close all  application windows",
+        "tool": "minimize_all_windows",
+        "description": "Minimize all application windows",
         "parameters": {},
         "optional": false
       }
