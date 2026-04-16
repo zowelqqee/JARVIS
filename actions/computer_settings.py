@@ -44,30 +44,38 @@ def _get_api_key() -> str:
         return json.load(f)["gemini_api_key"]
 
 
-def volume_up():
-    if _OS == "Windows":
-        for _ in range(5): pyautogui.press("volumeup")
-    elif _OS == "Darwin":
-        subprocess.run(["osascript", "-e", "set volume output volume (output volume of (get volume settings) + 10)"])
-    else:
-        subprocess.run(["pactl", "set-sink-volume", "@DEFAULT_SINK@", "+10%"])
+from ctypes import POINTER, cast
+from comtypes import CLSCTX_ALL
+from pycaw.pycaw import AudioUtilities, IAudioEndpointVolume
 
-def volume_down():
-    if _OS == "Windows":
-        for _ in range(5): pyautogui.press("volumedown")
-    elif _OS == "Darwin":
-        subprocess.run(["osascript", "-e", "set volume output volume (output volume of (get volume settings) - 10)"])
-    else:
-        subprocess.run(["pactl", "set-sink-volume", "@DEFAULT_SINK@", "-10%"])
+
+def _get_volume_interface():
+    devices = AudioUtilities.GetSpeakers()
+    interface = devices.Activate(
+        IAudioEndpointVolume._iid_,
+        CLSCTX_ALL,
+        None
+    )
+    return cast(interface, POINTER(IAudioEndpointVolume))
+
+
+def volume_up(step=0.05):
+    volume = _get_volume_interface()
+    current = volume.GetMasterVolumeLevelScalar()
+    volume.SetMasterVolumeLevelScalar(min(1.0, current + step), None)
+
+
+def volume_down(step=0.05):
+    volume = _get_volume_interface()
+    current = volume.GetMasterVolumeLevelScalar()
+    volume.SetMasterVolumeLevelScalar(max(0.0, current - step), None)
+
 
 def volume_mute():
-    if _OS == "Windows":
-        pyautogui.press("volumemute")
-    elif _OS == "Darwin":
-        subprocess.run(["osascript", "-e", "set volume with output muted"])
-    else:
-        subprocess.run(["pactl", "set-sink-mute", "@DEFAULT_SINK@", "toggle"])
-
+    volume = _get_volume_interface()
+    is_muted = volume.GetMute()
+    volume.SetMute(0 if is_muted else 1, None)
+    
 def volume_set(value: int) -> bool:
     value = max(0, min(100, int(value)))
 
@@ -281,9 +289,13 @@ def maximize_window():
         subprocess.run(["osascript", "-e",
             'tell application "System Events" to keystroke "f" using {control down, command down}'])
     else:
-        pyautogui.hotkey("win", "down")
-        time.sleep(0.1)
-        pyautogui.hotkey("win", "down")
+        pyautogui.hotkey("win", "up")
+
+def minimize_all_windows():
+    if _OS == "Darwin":
+        pyautogui.hotkey("command", "option", "m")
+    elif _OS == "Windows":
+        pyautogui.hotkey("win", "d")
 
 def snap_left():
     if _OS == "Windows": pyautogui.hotkey("win", "left")
@@ -626,6 +638,7 @@ ACTION_MAP = {
     "toggle_fullscreen":       full_screen,
     "minimize":                minimize_window,
     "minimize_window":         minimize_window,
+    "minimize_all_windows":    minimize_all_windows,
     "maximize":                maximize_window,
     "maximize_window":         maximize_window,
     "restore_window":          maximize_window,

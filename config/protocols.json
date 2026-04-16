@@ -102,10 +102,20 @@
     "description": "Сворачивает все",
     "steps": [
       {
-        "tool": "minimize_all_windows",
-        "description": "Minimize all application windows",
-        "parameters": {},
-        "optional": false
+        "tool": "computer_settings",
+        "description": "Minimize all windows",
+        "parameters": {
+          "action": "minimize_all_windows"
+        },
+        "optional": true
+      },
+      {
+        "tool": "computer_settings",
+        "description": "Mute volume",
+        "parameters": {
+          "action": "volume_mute"
+        },
+        "optional": true
       }
     ]
   }
