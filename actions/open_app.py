@@ -1,6 +1,7 @@
 # actions/open_app.py
 # MARK XXV — Cross-Platform App Launcher
 
+import re
 import time
 import subprocess
 import platform
@@ -51,14 +52,70 @@ _APP_ALIASES = {
     "figma":              {"Windows": "Figma",                  "Darwin": "Figma",               "Linux": "figma"},
 }
 
+# Maps every name a user might say (or that appears as a Windows alias above)
+# to the actual .exe process name (without extension, lowercase).
+# Used by _is_running and _focus_existing_window for exact process matching.
+_WIN_PROCESS: dict[str, str] = {
+    "chrome":                "chrome",
+    "google chrome":         "chrome",
+    "firefox":               "firefox",
+    "spotify":               "spotify",
+    "code":                  "code",
+    "vscode":                "code",
+    "visual studio code":    "code",
+    "discord":               "discord",
+    "telegram":              "telegram",
+    "whatsapp":              "whatsapp",
+    "instagram":             "instagram",
+    "tiktok":                "tiktok",
+    "notepad":               "notepad",
+    "notepad.exe":           "notepad",
+    "calculator":            "calculator",
+    "calc.exe":              "calculator",
+    "cmd":                   "cmd",
+    "cmd.exe":               "cmd",
+    "terminal":              "cmd",
+    "explorer":              "explorer",
+    "explorer.exe":          "explorer",
+    "file explorer":         "explorer",
+    "paint":                 "mspaint",
+    "mspaint.exe":           "mspaint",
+    "word":                  "winword",
+    "winword":               "winword",
+    "excel":                 "excel",
+    "powerpoint":            "powerpnt",
+    "powerpnt":              "powerpnt",
+    "vlc":                   "vlc",
+    "zoom":                  "zoom",
+    "slack":                 "slack",
+    "steam":                 "steam",
+    "task manager":          "taskmgr",
+    "taskmgr.exe":           "taskmgr",
+    "powershell":            "powershell",
+    "powershell.exe":        "powershell",
+    "edge":                  "msedge",
+    "msedge":                "msedge",
+    "brave":                 "brave",
+    "obsidian":              "obsidian",
+    "notion":                "notion",
+    "blender":               "blender",
+    "capcut":                "capcut",
+    "postman":               "postman",
+    "figma":                 "figma",
+}
+
 
 def _normalize(raw: str) -> str:
     system = platform.system()
     key    = raw.lower().strip()
+    # Exact match first
     if key in _APP_ALIASES:
         return _APP_ALIASES[key].get(system, raw)
+    # Word-boundary match: prevents "word" from matching "password",
+    # "code" from matching "vscode", etc.
     for alias_key, os_map in _APP_ALIASES.items():
-        if alias_key in key or key in alias_key:
+        if re.search(r'\b' + re.escape(alias_key) + r'\b', key) or \
+           re.search(r'\b' + re.escape(key) + r'\b', alias_key):
             return os_map.get(system, raw)
     return raw
 
@@ -66,12 +123,14 @@ def _normalize(raw: str) -> str:
 def _is_running(app_name: str) -> bool:
     if not _PSUTIL:
         return False
-    app_lower = app_name.lower().replace(" ", "").replace(".exe", "")
+    key = app_name.lower().strip()
+    # Resolve to the real process name; fall back to stripping spaces/.exe
+    target = _WIN_PROCESS.get(key, key.replace(" ", "").replace(".exe", ""))
     try:
         for proc in psutil.process_iter(["name"]):
             try:
-                proc_name = (proc.info["name"] or "").lower().replace(" ", "").replace(".exe", "")
-                if app_lower in proc_name or proc_name in app_lower:
+                proc_name = (proc.info["name"] or "").lower().replace(".exe", "").replace(" ", "")
+                if proc_name == target:
                     return True
             except (psutil.NoSuchProcess, psutil.AccessDenied):
                 continue
@@ -96,27 +155,47 @@ def _focus_existing_window(app_name: str) -> bool:
                 app_name.lower().replace(" ", "").strip(),
             }
 
+            # Collect PIDs of matching processes for title-independent matching
+            # (e.g. Spotify shows track name in title, not "Spotify")
+            target_pids: set[int] = set()
+            if _PSUTIL:
+                key = app_name.lower().strip()
+                proc_target = _WIN_PROCESS.get(key, key.replace(" ", "").replace(".exe", ""))
+                try:
+                    for proc in psutil.process_iter(["pid", "name"]):
+                        try:
+                            pname = (proc.info["name"] or "").lower().replace(".exe", "").replace(" ", "")
+                            if pname == proc_target:
+                                target_pids.add(proc.info["pid"])
+                        except (psutil.NoSuchProcess, psutil.AccessDenied):
+                            continue
+                except Exception:
+                    pass
+
             def enum_handler(hwnd, _):
                 if not user32.IsWindowVisible(hwnd):
                     return True
-
                 length = user32.GetWindowTextLengthW(hwnd)
                 if length == 0:
                     return True
-
                 buffer = ctypes.create_unicode_buffer(length + 1)
                 user32.GetWindowTextW(hwnd, buffer, length + 1)
                 title = buffer.value.lower().strip()
-
                 if not title:
                     return True
-
+                # 1. Match by window title
                 for candidate in candidates:
                     compact_title = title.replace(" ", "")
                     if candidate in title or candidate in compact_title:
                         found[0] = hwnd
                         return False
-
+                # 2. Match by owning process PID (handles dynamic titles like Spotify)
+                if target_pids:
+                    pid = ctypes.c_ulong()
+                    user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
+                    if pid.value in target_pids:
+                        found[0] = hwnd
+                        return False
                 return True
 
             EnumWindowsProc = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_void_p, ctypes.c_void_p)
@@ -169,6 +248,16 @@ def _focus_existing_window(app_name: str) -> bool:
     return False
 
 
+def _wait_for_process(app_name: str, timeout: float = 4.0) -> bool:
+    """Poll until app_name appears in running processes or timeout expires."""
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        if _is_running(app_name):
+            return True
+        time.sleep(0.4)
+    return False
+
+
 def _launch_windows(app_name: str) -> bool:
     # 1. Direct subprocess launch (works for .exe and PATH binaries like "code", "chrome")
     try:
@@ -178,8 +267,8 @@ def _launch_windows(app_name: str) -> bool:
             stderr=subprocess.DEVNULL,
             creationflags=subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP,
         )
-        time.sleep(1.5)
-        return True
+        if _wait_for_process(app_name, 4.0):
+            return True
     except (FileNotFoundError, OSError):
         pass
     except Exception as e:
@@ -195,8 +284,8 @@ def _launch_windows(app_name: str) -> bool:
                 stderr=subprocess.DEVNULL,
                 creationflags=subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP,
             )
-            time.sleep(1.5)
-            return True
+            if _wait_for_process(app_name, 4.0):
+                return True
         except Exception as e:
             print(f"[open_app] ⚠️ which-path launch failed: {e}")
 

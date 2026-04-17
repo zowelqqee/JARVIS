@@ -254,9 +254,37 @@ Get-Process | Where-Object {{
     return "close_all_windows: unsupported OS."
 
 
+def _kill_process_by_name(app_name: str) -> bool:
+    """
+    Forcefully terminate a Windows process by name via taskkill.
+    Covers apps minimized to tray that have no visible window.
+    """
+    if _OS != "Windows":
+        return False
+    name = app_name.lower().strip().replace(".exe", "")
+    # Try the exact name first, then with .exe suffix
+    for candidate in [name + ".exe", name]:
+        try:
+            result = subprocess.run(
+                ["taskkill", "/f", "/im", candidate],
+                capture_output=True,
+                timeout=8,
+            )
+            if result.returncode == 0:
+                print(f"[Settings] taskkill /im {candidate} succeeded")
+                return True
+        except Exception as e:
+            print(f"[Settings] taskkill failed for {candidate}: {e}")
+    return False
+
+
 def close_app(app_name: str = None):
     if app_name and _OS == "Windows":
-        _close_window_by_name(app_name)
+        n = _close_window_by_name(app_name)
+        if n == 0:
+            # _close_window_by_name found no visible window (app may be in tray).
+            # Fall back to taskkill so apps like Spotify, Discord, etc. still close.
+            _kill_process_by_name(app_name)
     elif _OS == "Darwin":
         pyautogui.hotkey("command", "q")
     else:
