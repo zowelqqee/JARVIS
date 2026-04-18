@@ -150,6 +150,11 @@ class JarvisLive:
         self.on_text_response: Callable[[str], None] | None = None
         self.on_status_change: Callable[[str], None] | None = None
 
+        # Set True while a tool call is being executed; _send_realtime discards
+        # audio chunks during this window so the Live API isn't fed audio while
+        # waiting for a tool response (the primary cause of error 1011).
+        self.tool_call_in_progress: bool = False
+
     def speak(self, text: str):
         """Thread-safe speak — any thread can call this."""
         if not self.jarvis_loop or not self.session:
@@ -205,6 +210,8 @@ class JarvisLive:
         args = dict(fc.args or {})
 
         print(f"[JARVIS] 🔧 TOOL: {name}  ARGS: {args}")
+        self.tool_call_in_progress = True
+        print("[JARVIS] ⏸️  Audio sending paused (tool_call_in_progress=True)")
 
         if hasattr(self.ui, 'set_executing'):
             self.ui.set_executing(name, args)
@@ -218,18 +225,26 @@ class JarvisLive:
         loop   = asyncio.get_running_loop()
         result = "Done."
 
-        handler = TOOL_REGISTRY.get(name)
-        if handler is None:
-            result = f"Unknown tool: {name}"
-        else:
-            try:
-                result = await loop.run_in_executor(
-                    None, lambda: handler(args, self.ui, self.speak)
+        try:
+            handler = TOOL_REGISTRY.get(name)
+            if handler is None:
+                result = (
+                    f"Unknown tool: '{name}'. "
+                    f"Available: {', '.join(sorted(TOOL_REGISTRY.keys()))}"
                 )
-                result = result or "Done."
-            except Exception as e:
-                result = f"Tool '{name}' failed: {e}"
-                traceback.print_exc()
+                print(f"[JARVIS] ⚠️  {result}")
+            else:
+                try:
+                    result = await loop.run_in_executor(
+                        None, lambda: handler(args, self.ui, self.speak)
+                    )
+                    result = result or "Done."
+                except Exception as e:
+                    result = f"Tool '{name}' failed: {e}"
+                    traceback.print_exc()
+        finally:
+            self.tool_call_in_progress = False
+            print("[JARVIS] ▶️  Audio sending resumed (tool_call_in_progress=False)")
 
         if hasattr(self.ui, 'set_idle'):
             self.ui.set_idle()
@@ -245,6 +260,10 @@ class JarvisLive:
     async def _send_realtime(self):
         while True:
             msg = await self.out_queue.get()
+            if self.tool_call_in_progress:
+                # Discard audio while waiting for tool-response handshake.
+                # Sending audio here triggers server-side error 1011.
+                continue
             await self.session.send_realtime_input(media=msg)
 
     async def _listen_audio(self):
@@ -343,14 +362,34 @@ class JarvisLive:
                     if response.tool_call:
                         fn_responses = []
                         for fc in response.tool_call.function_calls:
-                            print(f"[JARVIS] 📞 Tool call: {fc.name}")
+                            print(
+                                f"[JARVIS] 📞 Tool call: {fc.name}  "
+                                f"ARGS: {dict(fc.args or {})}"
+                            )
                             fr = await self._execute_tool(fc)
                             fn_responses.append(fr)
-                        await self.session.send_tool_response(
-                            function_responses=fn_responses
-                        )
+                        try:
+                            await self.session.send_tool_response(
+                                function_responses=fn_responses
+                            )
+                        except Exception as e:
+                            print(f"[JARVIS] ⚠️  send_tool_response failed: {e}")
+                            raise
 
         except Exception as e:
+            err_str = str(e)
+            _is_conn = (
+                "1011" in err_str
+                or "connection closed" in err_str.lower()
+                or "going away" in err_str.lower()
+                or "websocket" in type(e).__name__.lower()
+                or "connectionclosed" in type(e).__name__.lower()
+            )
+            if _is_conn:
+                print(f"[JARVIS] 🔌 Session closed (code 1011 / connection lost): {e}")
+                # Raise so TaskGroup cancels sibling tasks and the outer
+                # reconnect loop in run() picks it up cleanly.
+                raise
             print(f"[JARVIS] ❌ Recv error: {e}")
             traceback.print_exc()
             raise
@@ -383,9 +422,15 @@ class JarvisLive:
             http_options={"api_version": "v1beta"}
         )
 
+        _reconnect_count = 0
+        _MAX_BACKOFF     = 30.0
+
         while True:
             try:
-                print("[JARVIS] 🔌 Connecting...")
+                print(
+                    f"[JARVIS] 🔌 Connecting..."
+                    + (f" (attempt {_reconnect_count + 1})" if _reconnect_count else "")
+                )
                 if hasattr(self.ui, 'set_connecting'):
                     self.ui.set_connecting()
                 config = self._build_config()
@@ -399,9 +444,11 @@ class JarvisLive:
                     self._loop          = self.jarvis_loop  # backwards compat
                     self.audio_in_queue = asyncio.Queue()
                     self.out_queue      = asyncio.Queue(maxsize=10)
+                    self.tool_call_in_progress = False
 
                     print("[JARVIS] ✅ Connected.")
                     self.ui.write_log("JARVIS online.")
+                    _reconnect_count = 0  # reset on successful connection
 
                     if self.on_status_change:
                         try:
@@ -414,14 +461,33 @@ class JarvisLive:
                     tg.create_task(self._receive_audio())
                     tg.create_task(self._play_audio())
 
-            except Exception as e:
-                print(f"[JARVIS] ⚠️  Error: {e}")
-                traceback.print_exc()
+            except (asyncio.CancelledError, KeyboardInterrupt, SystemExit):
+                raise
+
+            except BaseException as e:
+                err_str = str(e)
+                _is_1011 = (
+                    "1011" in err_str
+                    or "connection closed" in err_str.lower()
+                    or "going away" in err_str.lower()
+                )
+                _reconnect_count += 1
+                if _is_1011:
+                    backoff = min(2 ** (_reconnect_count - 1), _MAX_BACKOFF)
+                    print(
+                        f"[JARVIS] 🔄 Connection lost (1011) — "
+                        f"reconnect attempt {_reconnect_count} in {backoff:.0f}s"
+                    )
+                else:
+                    backoff = 3.0
+                    print(f"[JARVIS] ⚠️  Error: {e}")
+                    traceback.print_exc()
+
                 if hasattr(self.ui, 'set_failed'):
                     self.ui.set_failed(str(e)[:120])
 
-            print("[JARVIS] 🔄 Reconnecting in 3s...")
-            await asyncio.sleep(3)
+                print(f"[JARVIS] 🔄 Reconnecting in {backoff:.0f}s...")
+                await asyncio.sleep(backoff)
 
 
 def main():

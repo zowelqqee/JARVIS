@@ -956,11 +956,22 @@ def computer_settings(
         return _close_all_windows()
     # ──────────────────────────────────────────────────────────────────────────
 
-    if action in ("scroll_up", "scroll_down"):
+    if action in ("scroll_up", "scroll_down", "scroll"):
         try:
-            amount = int(value or 500)
-            scroll_up(amount) if action == "scroll_up" else scroll_down(amount)
-            return f"Scrolled {'up' if action == 'scroll_up' else 'down'}."
+            if action == "scroll":
+                direction = "down"
+                if isinstance(value, str) and value.lower() == "up":
+                    direction = "up"
+                amount_val = 500
+                if isinstance(value, (int, float)):
+                    amount_val = int(value)
+                elif isinstance(value, str) and value.lstrip("-").isdigit():
+                    amount_val = abs(int(value))
+            else:
+                direction = "up" if action == "scroll_up" else "down"
+                amount_val = int(value or 500)
+            scroll_up(amount_val) if direction == "up" else scroll_down(amount_val)
+            return f"Scrolled {direction}."
         except Exception as e:
             return f"Scroll failed: {e}"
 
