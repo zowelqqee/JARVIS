@@ -155,6 +155,12 @@ class JarvisLive:
         # waiting for a tool response (the primary cause of error 1011).
         self.tool_call_in_progress: bool = False
 
+        # Disconnect signalling: set by _receive_audio on clean disconnect so the
+        # outer CancelledError (raised by TaskGroup after we cancel siblings) is
+        # recognised as a reconnect event rather than a real cancellation.
+        self._session_failed: bool = False
+        self._session_tasks: list[asyncio.Task] = []
+
     def speak(self, text: str):
         """Thread-safe speak — any thread can call this."""
         if not self.jarvis_loop or not self.session:
@@ -376,6 +382,8 @@ class JarvisLive:
                             print(f"[JARVIS] ⚠️  send_tool_response failed: {e}")
                             raise
 
+        except asyncio.CancelledError:
+            raise
         except Exception as e:
             err_str = str(e)
             _is_conn = (
@@ -386,10 +394,16 @@ class JarvisLive:
                 or "connectionclosed" in type(e).__name__.lower()
             )
             if _is_conn:
+                # Mark disconnect and cancel siblings so the TaskGroup shuts
+                # down cleanly.  Do NOT re-raise: that would create an
+                # ExceptionGroup whose str() does not contain "1011", breaking
+                # the outer reconnect check.
+                self._session_failed = True
                 print(f"[JARVIS] 🔌 Session closed (code 1011 / connection lost): {e}")
-                # Raise so TaskGroup cancels sibling tasks and the outer
-                # reconnect loop in run() picks it up cleanly.
-                raise
+                for t in self._session_tasks:
+                    if not t.done():
+                        t.cancel()
+                return
             print(f"[JARVIS] ❌ Recv error: {e}")
             traceback.print_exc()
             raise
@@ -445,6 +459,7 @@ class JarvisLive:
                     self.audio_in_queue = asyncio.Queue()
                     self.out_queue      = asyncio.Queue(maxsize=10)
                     self.tool_call_in_progress = False
+                    self._session_failed = False
 
                     print("[JARVIS] ✅ Connected.")
                     self.ui.write_log("JARVIS online.")
@@ -456,18 +471,40 @@ class JarvisLive:
                         except Exception:
                             pass
 
-                    tg.create_task(self._send_realtime())
-                    tg.create_task(self._listen_audio())
-                    tg.create_task(self._receive_audio())
-                    tg.create_task(self._play_audio())
+                    self._session_tasks = [
+                        tg.create_task(self._send_realtime()),
+                        tg.create_task(self._listen_audio()),
+                        tg.create_task(self._receive_audio()),
+                        tg.create_task(self._play_audio()),
+                    ]
 
-            except (asyncio.CancelledError, KeyboardInterrupt, SystemExit):
+            except asyncio.CancelledError:
+                if not self._session_failed:
+                    raise
+                # _receive_audio detected a disconnect, cancelled the sibling
+                # tasks, and returned cleanly.  The TaskGroup then cancelled the
+                # parent task (us), delivering this CancelledError.  Absorb it
+                # and reconnect instead of dying.
+                asyncio.current_task().uncancel()
+                _reconnect_count += 1
+                backoff = min(2 ** (_reconnect_count - 1), _MAX_BACKOFF)
+                print(
+                    f"[JARVIS] 🔄 Connection lost — "
+                    f"reconnect attempt {_reconnect_count} in {backoff:.0f}s"
+                )
+                if hasattr(self.ui, 'set_failed'):
+                    self.ui.set_failed("Connection lost, reconnecting...")
+                print(f"[JARVIS] 🔄 Reconnecting in {backoff:.0f}s...")
+                await asyncio.sleep(backoff)
+
+            except (KeyboardInterrupt, SystemExit):
                 raise
 
             except BaseException as e:
                 err_str = str(e)
                 _is_1011 = (
-                    "1011" in err_str
+                    self._session_failed   # our disconnect path
+                    or "1011" in err_str
                     or "connection closed" in err_str.lower()
                     or "going away" in err_str.lower()
                 )
