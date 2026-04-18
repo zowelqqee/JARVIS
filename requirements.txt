@@ -17,6 +17,16 @@ pycaw
 win10toast
 duckduckgo-search
 youtube-transcript-api
+python-dotenv
+
+# ARIA — Raspberry Pi glasses integration
+fastapi
+uvicorn[standard]
+websockets
+
+# Vector memory backend (Qdrant embedded, no server needed)
+qdrant-client
+sentence-transformers
 
 # Optional — local OCR (requires Tesseract binary: https://github.com/UB-Mannheim/tesseract/wiki)
 # pytesseract
