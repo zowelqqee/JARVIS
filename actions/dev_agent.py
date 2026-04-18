@@ -35,10 +35,10 @@ def _get_api_key() -> str:
         return json.load(f)["gemini_api_key"]
 
 
-def _get_model(model_name: str):
-    import google.generativeai as genai
-    genai.configure(api_key=_get_api_key())
-    return genai.GenerativeModel(model_name)
+def _generate(model_name: str, prompt: str) -> str:
+    from google import genai
+    client = genai.Client(api_key=_get_api_key())
+    return client.models.generate_content(model=model_name, contents=prompt).text
 
 
 def _clean_code(text: str) -> str:
@@ -111,8 +111,6 @@ def _plan_project(description: str, language: str) -> dict:
         "dependencies": ["requests", "flask"]
     }
     """
-    model = _get_model(MODEL_PLANNER)
-
     prompt = f"""You are a senior software architect.
 Plan the complete file structure for the following project.
 
@@ -140,8 +138,7 @@ Rules:
 JSON:"""
 
     try:
-        response = model.generate_content(prompt)
-        raw = _clean_json(response.text)
+        raw = _clean_json(_generate(MODEL_PLANNER, prompt))
         return json.loads(raw)
     except json.JSONDecodeError as e:
         raise ValueError(f"Planner returned invalid JSON: {e}\nRaw: {response.text[:300]}")
@@ -156,8 +153,6 @@ def _write_file(
     project_dir: Path
 ) -> str:
     """Write one file. Returns the generated code."""
-    model = _get_model(MODEL_WRITER)
-
     file_list = "\n".join(
         f"  - {f['path']}: {f['description']}" for f in all_files
     )
@@ -183,8 +178,7 @@ Rules:
 Code for {file_path}:"""
 
     try:
-        response = model.generate_content(prompt)
-        code = _clean_code(response.text)
+        code = _clean_code(_generate(MODEL_WRITER, prompt))
 
         # Save file
         full_path = project_dir / file_path
@@ -287,8 +281,6 @@ def _fix_file(
     project_dir: Path
 ) -> str:
     """Ask Gemini to fix a specific file based on error output."""
-    model = _get_model(MODEL_PLANNER)
-
     file_list = "\n".join(
         f"  - {f['path']}: {f['description']}" for f in all_files
     )
@@ -314,8 +306,7 @@ Return ONLY the fixed code — no explanation, no markdown, no backticks.
 Fixed code:"""
 
     try:
-        response = model.generate_content(prompt)
-        fixed = _clean_code(response.text)
+        fixed = _clean_code(_generate(MODEL_PLANNER, prompt))
 
         full_path = project_dir / file_path
         full_path.write_text(fixed, encoding="utf-8")

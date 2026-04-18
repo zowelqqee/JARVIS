@@ -189,25 +189,26 @@ def _get_transcript(video_id: str) -> str | None:
         return None
 
 def _summarize_with_gemini(transcript: str, video_url: str) -> str:
-    import google.generativeai as genai
+    from google import genai
+    from google.genai import types as genai_types
 
-    genai.configure(api_key=_get_api_key())
-    model = genai.GenerativeModel(
-        model_name="gemini-3.0-flash",
-        system_instruction=(
-            "You are JARVIS, Tony Stark's AI assistant. "
-            "Summarize YouTube video transcripts clearly and concisely. "
-            "Structure: 1-sentence overview, then 3-5 key points. "
-            "Be direct. Address the user as 'sir'. "
-            "Match the language of the transcript."
-        )
-    )
+    client = genai.Client(api_key=_get_api_key())
 
     max_chars = 80000
     truncated = transcript[:max_chars] + ("..." if len(transcript) > max_chars else "")
 
-    response = model.generate_content(
-        f"Please summarize this YouTube video transcript:\n\n{truncated}"
+    response = client.models.generate_content(
+        model="gemini-3.0-flash",
+        contents=f"Please summarize this YouTube video transcript:\n\n{truncated}",
+        config=genai_types.GenerateContentConfig(
+            system_instruction=(
+                "You are JARVIS, Tony Stark's AI assistant. "
+                "Summarize YouTube video transcripts clearly and concisely. "
+                "Structure: 1-sentence overview, then 3-5 key points. "
+                "Be direct. Address the user as 'sir'. "
+                "Match the language of the transcript."
+            )
+        )
     )
     return response.text.strip()
 

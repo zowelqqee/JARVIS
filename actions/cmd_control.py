@@ -104,9 +104,8 @@ def _is_safe(command: str) -> tuple[bool, str]:
 
 def _ask_gemini(task: str) -> str:
     try:
-        import google.generativeai as genai
-        genai.configure(api_key=_get_api_key())
-        model = genai.GenerativeModel("gemini-2.5-flash-lite")
+        from google import genai
+        client = genai.Client(api_key=_get_api_key())
 
         prompt = (
             f"Convert this request to a single Windows CMD command.\n"
@@ -114,7 +113,7 @@ def _ask_gemini(task: str) -> str:
             f"If unsafe or impossible, output: UNSAFE\n\n"
             f"Request: {task}\n\nCommand:"
         )
-        response = model.generate_content(prompt)
+        response = client.models.generate_content(model="gemini-2.5-flash-lite", contents=prompt)
         command  = response.text.strip().strip("`").strip()
         if command.startswith("```"):
             lines   = command.split("\n")

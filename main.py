@@ -96,28 +96,33 @@ def _update_memory_async(user_text: str, jarvis_text: str) -> None:
     _last_memory_input = text
 
     try:
-        import google.generativeai as genai_legacy
-        genai_legacy.configure(api_key=_get_api_key())
-        model = genai_legacy.GenerativeModel("gemini-2.5-flash-lite")
+        from google import genai as genai_new
+        client = genai_new.Client(api_key=_get_api_key())
 
-        check = model.generate_content(
-            f"Does this message contain personal facts about the user "
-            f"(name, age, city, job, hobby, relationship, birthday, preference)? "
-            f"Reply only YES or NO.\n\nMessage: {text[:300]}"
+        check = client.models.generate_content(
+            model="gemini-2.5-flash-lite",
+            contents=(
+                f"Does this message contain personal facts about the user "
+                f"(name, age, city, job, hobby, relationship, birthday, preference)? "
+                f"Reply only YES or NO.\n\nMessage: {text[:300]}"
+            )
         )
         if "YES" not in check.text.upper():
             return
 
-        raw = model.generate_content(
-            f"Extract personal facts from this message. Any language.\n"
-            f"Return ONLY valid JSON or {{}} if nothing found.\n"
-            f"Extract: name, age, birthday, city, job, hobbies, preferences, relationships, language.\n"
-            f"Skip: weather, reminders, search results, commands.\n\n"
-            f"Format:\n"
-            f'{{"identity":{{"name":{{"value":"..."}}}}}}, '
-            f'"preferences":{{"hobby":{{"value":"..."}}}}, '
-            f'"notes":{{"job":{{"value":"..."}}}}}}\n\n'
-            f"Message: {text[:500]}\n\nJSON:"
+        raw = client.models.generate_content(
+            model="gemini-2.5-flash-lite",
+            contents=(
+                f"Extract personal facts from this message. Any language.\n"
+                f"Return ONLY valid JSON or {{}} if nothing found.\n"
+                f"Extract: name, age, birthday, city, job, hobbies, preferences, relationships, language.\n"
+                f"Skip: weather, reminders, search results, commands.\n\n"
+                f"Format:\n"
+                f'{{"identity":{{"name":{{"value":"..."}}}}}}, '
+                f'"preferences":{{"hobby":{{"value":"..."}}}}, '
+                f'"notes":{{"job":{{"value":"..."}}}}}}\n\n'
+                f"Message: {text[:500]}\n\nJSON:"
+            )
         ).text.strip()
 
         raw = re.sub(r"```(?:json)?", "", raw).strip().rstrip("`").strip()

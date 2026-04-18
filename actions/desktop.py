@@ -59,10 +59,9 @@ def _ask_gemini_for_desktop_action(task: str) -> str:
     Asks Gemini to generate safe Python/pyautogui code
     to accomplish a desktop-related task.
     """
-    import google.generativeai as genai
+    from google import genai
 
-    genai.configure(api_key=_get_api_key())
-    model = genai.GenerativeModel("gemini-2.5-flash")
+    client = genai.Client(api_key=_get_api_key())
 
     desktop = str(_get_desktop())
 
@@ -91,7 +90,7 @@ Task: {task}
 Python code:"""
 
     try:
-        response = model.generate_content(prompt)
+        response = client.models.generate_content(model="gemini-2.5-flash", contents=prompt)
         code = response.text.strip()
         if code.startswith("```"):
             lines = code.split("\n")
