@@ -46,7 +46,7 @@ IMG_MAX_H = 480
 JPEG_Q    = 72
 
 VISION_PROMPT = (
-    "You are JARVIS from Iron Man. Analyze the image with technical precision. "
+    "You are V.E.C.T.O.R. from Iron Man. Analyze the image with technical precision. "
     "Be concise — 1 to 3 sentences. Address the user as 'sir'."
 )
 

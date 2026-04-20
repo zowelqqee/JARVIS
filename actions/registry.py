@@ -391,7 +391,7 @@ TOOL_DECLARATIONS = [
     {
         "name": "protocol",
         "description": (
-            "Activates a named JARVIS protocol — a saved sequence of actions. "
+            "Activates a named V.E.C.T.O.R. protocol — a saved sequence of actions. "
             "Use when the user says a protocol trigger phrase like 'за работу', 'work mode', "
             "'я дома', 'home mode', or any custom protocol name. "
             "Also use for: listing protocols (action: list), "

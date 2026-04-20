@@ -57,6 +57,6 @@ def weather_action(
 def _speak_and_log(message: str, player=None):
     if player:
         try:
-            player.write_log(f"JARVIS: {message}")
+            player.write_log(f"V.E.C.T.O.R.: {message}")
         except Exception:
             pass

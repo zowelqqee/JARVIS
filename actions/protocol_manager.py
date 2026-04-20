@@ -1,11 +1,11 @@
 # actions/protocol_manager.py
-# JARVIS Protocol Engine
+# V.E.C.T.O.R. Protocol Engine
 #
 # Protocols are named sequences of steps stored in config/protocols.json.
-# Each step uses the same tool names as the main JARVIS tool system,
+# Each step uses the same tool names as the main V.E.C.T.O.R. tool system,
 # plus built-ins: speak | wait | close_all_windows
 #
-# Designed to scale: users and JARVIS can add/edit/remove protocols at runtime.
+# Designed to scale: users and V.E.C.T.O.R. can add/edit/remove protocols at runtime.
 #
 # Public API:
 #   run_protocol(name_or_phrase, speak, player) → str
@@ -58,7 +58,7 @@ def _save(data: dict) -> None:
 def _close_all_windows() -> str:
     """
     Gracefully closes all visible application windows.
-    Excludes system processes, JARVIS/Python, VS Code, and Terminal.
+    Excludes system processes, V.E.C.T.O.R./Python, VS Code, and Terminal.
     """
     system = platform.system()
 
@@ -114,7 +114,7 @@ Get-Process | Where-Object {{
             return f"close_all_windows failed: {e}"
 
     elif system == "Darwin":
-        # Keep VS Code, Terminal variants, Finder, Python/JARVIS, and Claude Code
+        # Keep VS Code, Terminal variants, Finder, Python/V.E.C.T.O.R., and Claude Code
         keep_apps = {
             "code", "visual studio code", "terminal", "iterm2", "iterm",
             "finder", "python", "python3", "jarvis", "claude", "dock",
@@ -175,7 +175,7 @@ def _run_step(step: dict, speak: Callable | None, player) -> str:
     if tool == "close_all_windows":
         return _close_all_windows()
 
-    # ── Delegate to existing JARVIS tools ──────────────────
+    # ── Delegate to existing V.E.C.T.O.R. tools ──────────────────
     try:
         from agent.executor import _call_tool
         return _call_tool(tool, params, speak) or "Done."

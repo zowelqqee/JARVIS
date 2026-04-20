@@ -1,7 +1,7 @@
 """
 Section 3 — Current Action Display (always visible).
 
-Shows what JARVIS is doing right now.
+Shows what V.E.C.T.O.R. is doing right now.
 Height: min 48px, expands to 3 lines max.
 Text truncates at 3 lines; no scrolling within this section.
 """

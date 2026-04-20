@@ -16,7 +16,7 @@ BASE_DIR   = get_base_dir()
 CONFIG_DIR = BASE_DIR / "config"
 API_FILE   = CONFIG_DIR / "api_keys.json"
 
-SYSTEM_NAME = "J.A.R.V.I.S"
+SYSTEM_NAME = "V.E.C.T.O.R"
 MODEL_BADGE = "V.E.C.T.O.R."
 
 C_BG     = "#000000"
@@ -32,10 +32,10 @@ C_GREEN  = "#00ff88"
 C_RED    = "#ff3333"
 
 
-class JarvisUI:
+class VectorUI:
     def __init__(self, face_path, size=None):
         self.root = tk.Tk()
-        self.root.title("J.A.R.V.I.S — V.E.C.T.O.R.")
+        self.root.title("V.E.C.T.O.R.")
         self.root.resizable(False, False)
 
         sw = self.root.winfo_screenwidth()
@@ -255,7 +255,7 @@ class JarvisUI:
         c.create_line(0, HDR, W, HDR, fill=C_MID, width=1)
         c.create_text(W // 2, 22, text=SYSTEM_NAME,
                       fill=C_PRI, font=("Courier", 18, "bold"))
-        c.create_text(W // 2, 44, text="Just A Rather Very Intelligent System",
+        c.create_text(W // 2, 44, text="Vigilance Engine, Command Tracking and Operational Response",
                       fill=C_MID, font=("Courier", 9))
         c.create_text(16, 31,    text=MODEL_BADGE,
                       fill=C_DIM, font=("Courier", 9), anchor="w")
@@ -335,7 +335,7 @@ class JarvisUI:
         return API_FILE.exists()
 
     def wait_for_api_key(self):
-        """Block until API key is saved (called from main thread before starting JARVIS)."""
+        """Block until API key is saved (called from main thread before starting V.E.C.T.O.R.)."""
         while not self._api_key_ready:
             time.sleep(0.1)
 
@@ -349,7 +349,7 @@ class JarvisUI:
         tk.Label(self.setup_frame, text="◈  INITIALISATION REQUIRED",
                  fg=C_PRI, bg="#00080d", font=("Courier", 13, "bold")).pack(pady=(18, 4))
         tk.Label(self.setup_frame,
-                 text="Enter your Gemini API key to boot J.A.R.V.I.S.",
+                 text="Enter your Gemini API key to boot V.E.C.T.O.R.",
                  fg=C_MID, bg="#00080d", font=("Courier", 9)).pack(pady=(0, 10))
 
         tk.Label(self.setup_frame, text="GEMINI API KEY",
@@ -377,4 +377,4 @@ class JarvisUI:
         self.setup_frame.destroy()
         self._api_key_ready = True
         self.status_text = "ONLINE"
-        self.write_log("SYS: Systems initialised. JARVIS online.")
+        self.write_log("SYS: Systems initialised. V.E.C.T.O.R. online.")

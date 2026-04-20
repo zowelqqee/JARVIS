@@ -1,9 +1,9 @@
 """
-PanelBridge — thread-safe bridge between JarvisLive (background thread)
+PanelBridge — thread-safe bridge between VectorLive (background thread)
 and the PySide6 panel (main Qt thread).
 
-Implements the same public interface as JarvisUI so it can be passed
-directly to JarvisLive as `ui`.
+Implements the same public interface as VectorUI so it can be passed
+directly to VectorLive as `ui`.
 
 Thread-safety strategy: background thread writes to _state under _lock,
 then queues a copy.  A QTimer on the main thread drains the queue and
@@ -64,7 +64,7 @@ except ImportError:
         current_action_text: str = ""
         pending_prompt: PendingPrompt | None = None
         last_user: str = ""
-        last_jarvis: str = ""
+        last_vector: str = ""
         speaking: bool = False
         command_summary: str | None = None
 
@@ -134,7 +134,7 @@ class PanelBridge(QObject):
         self._lock      = threading.Lock()
         self._state     = PanelState()
         self._queue: queue.SimpleQueue = queue.SimpleQueue()
-        self._jarvis_ref = None
+        self._vector_ref = None
 
         if _QT_AVAILABLE:
             self._timer = QTimer(self)
@@ -144,7 +144,7 @@ class PanelBridge(QObject):
             self._timer = None
 
     # ------------------------------------------------------------------ #
-    # JarvisUI-compatible interface (may be called from any thread)       #
+    # VectorUI-compatible interface (may be called from any thread)       #
     # ------------------------------------------------------------------ #
 
     def write_log(self, text: str) -> None:
@@ -153,7 +153,7 @@ class PanelBridge(QObject):
         t     = text.strip()
         lower = t.lower()
 
-        print(f"[JARVIS] {t}")
+        print(f"[VECTOR] {t}")
 
         if not _QT_AVAILABLE:
             return
@@ -168,9 +168,9 @@ class PanelBridge(QObject):
                 s.mode               = "VOICE"
                 s.current_action_text = "Processing…"
 
-            elif lower.startswith("jarvis:"):
-                jarvis_text = t[7:].strip()
-                s.last_jarvis        = jarvis_text
+            elif lower.startswith("v.e.c.t.o.r.:"):
+                jarvis_text = t[13:].strip()
+                s.last_vector        = jarvis_text
                 s.runtime_state      = "answering"
                 s.mode               = "VOICE"
                 s.current_action_text = (
@@ -274,9 +274,9 @@ class PanelBridge(QObject):
     def submit_text(self, text: str | None) -> None:
         if not text:
             return
-        if self._jarvis_ref is not None:
+        if self._vector_ref is not None:
             try:
-                self._jarvis_ref.speak(text)
+                self._vector_ref.speak(text)
             except Exception as e:
                 logger.warning(f"submit_text speak error: {e}")
         with self._lock:
@@ -328,18 +328,18 @@ class PanelBridge(QObject):
 
 
 # ---------------------------------------------------------------------------
-# HeadlessUI — minimal JarvisUI-compatible stub for ARIA / server mode
+# HeadlessUI — minimal VectorUI-compatible stub for ARIA / server mode
 # ---------------------------------------------------------------------------
 
 class HeadlessUI:
     """
-    Drop-in replacement for JarvisUI when running JARVIS without any GUI.
+    Drop-in replacement for VectorUI when running V.E.C.T.O.R. without any GUI.
     All methods are safe to call; output goes to stdout.
     """
 
     def write_log(self, text: str) -> None:
         if text:
-            print(f"[JARVIS] {text.strip()}")
+            print(f"[V.E.C.T.O.R.] {text.strip()}")
 
     def wait_for_api_key(self) -> None:
         import time
@@ -348,13 +348,13 @@ class HeadlessUI:
             time.sleep(0.2)
 
     def set_connecting(self) -> None:
-        print("[JARVIS] Connecting…")
+        print("[V.E.C.T.O.R.] Connecting…")
 
     def set_executing(self, tool_name: str | None = None, args: dict | None = None) -> None:
-        print(f"[JARVIS] Executing: {tool_name}")
+        print(f"[V.E.C.T.O.R.] Executing: {tool_name}")
 
     def set_idle(self) -> None:
         pass
 
     def set_failed(self, message: str | None = None) -> None:
-        print(f"[JARVIS] Failed: {message}")
+        print(f"[V.E.C.T.O.R.] Failed: {message}")

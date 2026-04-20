@@ -82,7 +82,7 @@ class PanelWidget(QWidget):
         self._state_row.update_state(state.mode, state.runtime_state)
         self._current_action.update_text(state.current_action_text, state.runtime_state)
         self._sync_prompt_zone(state.pending_prompt)
-        self._last_exchange.update_exchange(state.last_user, state.last_jarvis)
+        self._last_exchange.update_exchange(state.last_user, state.last_vector)
         self._input_bar.update_state(state.runtime_state)
 
     # ------------------------------------------------------------------ #

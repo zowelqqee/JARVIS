@@ -2,7 +2,7 @@
 # MARK XXV — Flight Finder
 #
 # Searches for flights using Google Flights via browser_control.
-# Results are spoken by JARVIS. Optionally saved to Notepad or opened in browser.
+# Results are spoken by V.E.C.T.O.R.. Optionally saved to Notepad or opened in browser.
 #
 # Flow:
 #   1. Parse origin, destination, date, passengers from parameters
@@ -280,7 +280,7 @@ def _format_notepad(
     from datetime import datetime as dt
 
     lines = [
-        "JARVIS — Flight Search Results",
+        "V.E.C.T.O.R. — Flight Search Results",
         "─" * 50,
         f"Route     : {origin} → {destination}",
         f"Date      : {date}",

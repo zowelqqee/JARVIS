@@ -13,7 +13,7 @@ import pyaudio
 from google import genai
 from google.genai import types
 import time
-from ui import JarvisUI
+from ui import VectorUI
 from memory.memory_manager import load_memory, update_memory, format_memory_for_prompt
 
 from agent.task_queue import get_queue
@@ -39,13 +39,13 @@ CHUNK_SIZE          = 1024
 
 pya = pyaudio.PyAudio()
 
-# Global reference to the active JarvisLive instance (set during run())
-_active_jarvis: "JarvisLive | None" = None
+# Global reference to the active VectorLive instance (set during run())
+_active_vector: "VectorLive | None" = None
 
 
-def get_jarvis_loop() -> asyncio.AbstractEventLoop | None:
-    """Return the running event loop of the active JarvisLive instance."""
-    return _active_jarvis.jarvis_loop if _active_jarvis else None
+def get_vector_loop() -> asyncio.AbstractEventLoop | None:
+    """Return the running event loop of the active VectorLive instance."""
+    return _active_vector.vector_loop if _active_vector else None
 
 
 def _get_api_key() -> str:
@@ -60,7 +60,7 @@ def _load_system_prompt() -> str:
         return PROMPT_PATH.read_text(encoding="utf-8")
     except Exception:
         return (
-            "You are JARVIS, Tony Stark's AI assistant. "
+            "You are V.E.C.T.O.R., a personal AI assistant. "
             "Be concise, direct, and always use the provided tools to complete tasks. "
             "Never simulate or guess results — always call the appropriate tool."
         )
@@ -72,7 +72,7 @@ _MEMORY_EVERY_N_TURNS = 5
 _last_memory_input    = ""
 
 
-def _update_memory_async(user_text: str, jarvis_text: str) -> None:
+def _update_memory_async(user_text: str, vector_text: str) -> None:
     """
     Multilingual memory updater.
     Stage 1: Quick YES/NO check  → ~5 tokens output
@@ -141,15 +141,15 @@ def _update_memory_async(user_text: str, jarvis_text: str) -> None:
             print(f"[Memory] ⚠️ {e}")
 
 
-class JarvisLive:
+class VectorLive:
 
-    def __init__(self, ui: JarvisUI):
+    def __init__(self, ui: VectorUI):
         self.ui               = ui
         self.session          = None
         self.audio_in_queue   = None  # audio received FROM Gemini → speakers
         self.out_queue        = None  # audio to SEND to Gemini
         self._loop            = None
-        self.jarvis_loop: asyncio.AbstractEventLoop | None = None
+        self.vector_loop: asyncio.AbstractEventLoop | None = None
 
         # ARIA callbacks — set by ARIAOutputAdapter after construction
         self.on_text_response: Callable[[str], None] | None = None
@@ -168,14 +168,14 @@ class JarvisLive:
 
     def speak(self, text: str):
         """Thread-safe speak — any thread can call this."""
-        if not self.jarvis_loop or not self.session:
+        if not self.vector_loop or not self.session:
             return
         asyncio.run_coroutine_threadsafe(
             self.session.send_client_content(
                 turns={"parts": [{"text": text}]},
                 turn_complete=True
             ),
-            self.jarvis_loop
+            self.vector_loop
         )
 
     def _build_config(self) -> types.LiveConnectConfig:
@@ -220,9 +220,9 @@ class JarvisLive:
         name = fc.name
         args = dict(fc.args or {})
 
-        print(f"[JARVIS] 🔧 TOOL: {name}  ARGS: {args}")
+        print(f"[VECTOR] 🔧 TOOL: {name}  ARGS: {args}")
         self.tool_call_in_progress = True
-        print("[JARVIS] ⏸️  Audio sending paused (tool_call_in_progress=True)")
+        print("[VECTOR] ⏸️  Audio sending paused (tool_call_in_progress=True)")
 
         if hasattr(self.ui, 'set_executing'):
             self.ui.set_executing(name, args)
@@ -243,7 +243,7 @@ class JarvisLive:
                     f"Unknown tool: '{name}'. "
                     f"Available: {', '.join(sorted(TOOL_REGISTRY.keys()))}"
                 )
-                print(f"[JARVIS] ⚠️  {result}")
+                print(f"[VECTOR] ⚠️  {result}")
             else:
                 try:
                     result = await loop.run_in_executor(
@@ -255,12 +255,12 @@ class JarvisLive:
                     traceback.print_exc()
         finally:
             self.tool_call_in_progress = False
-            print("[JARVIS] ▶️  Audio sending resumed (tool_call_in_progress=False)")
+            print("[VECTOR] ▶️  Audio sending resumed (tool_call_in_progress=False)")
 
         if hasattr(self.ui, 'set_idle'):
             self.ui.set_idle()
 
-        print(f"[JARVIS] 📤 {name} → {str(result)[:80]}")
+        print(f"[VECTOR] 📤 {name} → {str(result)[:80]}")
 
         return types.FunctionResponse(
             id=fc.id,
@@ -278,7 +278,7 @@ class JarvisLive:
             await self.session.send_realtime_input(media=msg)
 
     async def _listen_audio(self):
-        print("[JARVIS] 🎤 Mic started")
+        print("[VECTOR] 🎤 Mic started")
         stream = await asyncio.to_thread(
             pya.open,
             format=FORMAT,
@@ -294,13 +294,13 @@ class JarvisLive:
                 )
                 await self.out_queue.put({"data": data, "mime_type": "audio/pcm"})
         except Exception as e:
-            print(f"[JARVIS] ❌ Mic error: {e}")
+            print(f"[VECTOR] ❌ Mic error: {e}")
             raise
         finally:
             stream.close()
 
     async def _receive_audio(self):
-        print("[JARVIS] 👂 Recv started")
+        print("[VECTOR] 👂 Recv started")
         out_buf = []
         in_buf  = []
 
@@ -354,7 +354,7 @@ class JarvisLive:
                             if out_buf:
                                 full_out = " ".join(out_buf).strip()
                                 if full_out:
-                                    self.ui.write_log(f"Jarvis: {full_out}")
+                                    self.ui.write_log(f"V.E.C.T.O.R.: {full_out}")
                             out_buf = []
 
                             if self.on_status_change:
@@ -374,7 +374,7 @@ class JarvisLive:
                         fn_responses = []
                         for fc in response.tool_call.function_calls:
                             print(
-                                f"[JARVIS] 📞 Tool call: {fc.name}  "
+                                f"[VECTOR] 📞 Tool call: {fc.name}  "
                                 f"ARGS: {dict(fc.args or {})}"
                             )
                             fr = await self._execute_tool(fc)
@@ -384,7 +384,7 @@ class JarvisLive:
                                 function_responses=fn_responses
                             )
                         except Exception as e:
-                            print(f"[JARVIS] ⚠️  send_tool_response failed: {e}")
+                            print(f"[VECTOR] ⚠️  send_tool_response failed: {e}")
                             raise
 
         except asyncio.CancelledError:
@@ -404,17 +404,17 @@ class JarvisLive:
                 # ExceptionGroup whose str() does not contain "1011", breaking
                 # the outer reconnect check.
                 self._session_failed = True
-                print(f"[JARVIS] 🔌 Session closed (code 1011 / connection lost): {e}")
+                print(f"[VECTOR] 🔌 Session closed (code 1011 / connection lost): {e}")
                 for t in self._session_tasks:
                     if not t.done():
                         t.cancel()
                 return
-            print(f"[JARVIS] ❌ Recv error: {e}")
+            print(f"[VECTOR] ❌ Recv error: {e}")
             traceback.print_exc()
             raise
 
     async def _play_audio(self):
-        print("[JARVIS] 🔊 Play started")
+        print("[VECTOR] 🔊 Play started")
         stream = await asyncio.to_thread(
             pya.open,
             format=FORMAT,
@@ -427,14 +427,14 @@ class JarvisLive:
                 chunk = await self.audio_in_queue.get()
                 await asyncio.to_thread(stream.write, chunk)
         except Exception as e:
-            print(f"[JARVIS] ❌ Play error: {e}")
+            print(f"[VECTOR] ❌ Play error: {e}")
             raise
         finally:
             stream.close()
 
     async def run(self):
-        global _active_jarvis
-        _active_jarvis = self
+        global _active_vector
+        _active_vector = self
 
         client = genai.Client(
             api_key=_get_api_key(),
@@ -447,7 +447,7 @@ class JarvisLive:
         while True:
             try:
                 print(
-                    f"[JARVIS] 🔌 Connecting..."
+                    f"[VECTOR] 🔌 Connecting..."
                     + (f" (attempt {_reconnect_count + 1})" if _reconnect_count else "")
                 )
                 if hasattr(self.ui, 'set_connecting'):
@@ -459,15 +459,15 @@ class JarvisLive:
                     asyncio.TaskGroup() as tg,
                 ):
                     self.session        = session
-                    self.jarvis_loop    = asyncio.get_running_loop()
-                    self._loop          = self.jarvis_loop  # backwards compat
+                    self.vector_loop    = asyncio.get_running_loop()
+                    self._loop          = self.vector_loop  # backwards compat
                     self.audio_in_queue = asyncio.Queue()
                     self.out_queue      = asyncio.Queue(maxsize=10)
                     self.tool_call_in_progress = False
                     self._session_failed = False
 
-                    print("[JARVIS] ✅ Connected.")
-                    self.ui.write_log("JARVIS online.")
+                    print("[VECTOR] ✅ Connected.")
+                    self.ui.write_log("V.E.C.T.O.R. online.")
                     _reconnect_count = 0  # reset on successful connection
 
                     if self.on_status_change:
@@ -494,12 +494,12 @@ class JarvisLive:
                 _reconnect_count += 1
                 backoff = min(2 ** (_reconnect_count - 1), _MAX_BACKOFF)
                 print(
-                    f"[JARVIS] 🔄 Connection lost — "
+                    f"[VECTOR] 🔄 Connection lost — "
                     f"reconnect attempt {_reconnect_count} in {backoff:.0f}s"
                 )
                 if hasattr(self.ui, 'set_failed'):
                     self.ui.set_failed("Connection lost, reconnecting...")
-                print(f"[JARVIS] 🔄 Reconnecting in {backoff:.0f}s...")
+                print(f"[VECTOR] 🔄 Reconnecting in {backoff:.0f}s...")
                 await asyncio.sleep(backoff)
 
             except (KeyboardInterrupt, SystemExit):
@@ -517,30 +517,30 @@ class JarvisLive:
                 if _is_1011:
                     backoff = min(2 ** (_reconnect_count - 1), _MAX_BACKOFF)
                     print(
-                        f"[JARVIS] 🔄 Connection lost (1011) — "
+                        f"[VECTOR] 🔄 Connection lost (1011) — "
                         f"reconnect attempt {_reconnect_count} in {backoff:.0f}s"
                     )
                 else:
                     backoff = 3.0
-                    print(f"[JARVIS] ⚠️  Error: {e}")
+                    print(f"[VECTOR] ⚠️  Error: {e}")
                     traceback.print_exc()
 
                 if hasattr(self.ui, 'set_failed'):
                     self.ui.set_failed(str(e)[:120])
 
-                print(f"[JARVIS] 🔄 Reconnecting in {backoff:.0f}s...")
+                print(f"[VECTOR] 🔄 Reconnecting in {backoff:.0f}s...")
                 await asyncio.sleep(backoff)
 
 
 def main():
-    ui = JarvisUI("face.png")
+    ui = VectorUI("face.png")
 
     def runner():
         ui.wait_for_api_key()
 
-        jarvis = JarvisLive(ui)
+        vector = VectorLive(ui)
         try:
-            asyncio.run(jarvis.run())
+            asyncio.run(vector.run())
         except KeyboardInterrupt:
             print("\n🔴 Shutting down...")
 

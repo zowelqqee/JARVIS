@@ -48,5 +48,5 @@ If you got some problems or questions to ask or just want to support;
 
 ## ⚠️ License
 
-Engineered by a 17-year-old building a real JARVIS-style assistant.
+Engineered by a 17-year-old building a real V.E.C.T.O.R.-style assistant.
 ⭐ Star the repository to support the project.

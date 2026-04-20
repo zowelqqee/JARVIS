@@ -3,10 +3,10 @@ ARIA FastAPI server.
 
 Endpoints:
   WS  /ws/audio   — Pi sends PCM audio chunks (16 kHz mono int16) → Gemini
-  WS  /ws/display — Pi receives status/response JSON from JARVIS
+  WS  /ws/display — Pi receives status/response JSON from V.E.C.T.O.R.
   POST /tool/{name} — call any tool directly without Gemini
   GET  /tools       — list available tools
-  GET  /status      — {"jarvis_running": bool, "aria_connected": bool}
+  GET  /status      — {"vector_running": bool, "aria_connected": bool}
 
 Auth: all endpoints require  Authorization: Bearer <aria_secret>
 """
@@ -30,16 +30,16 @@ security = HTTPBearer(auto_error=False)
 # Global state injected by server_runner.py at startup
 # ---------------------------------------------------------------------------
 
-_jarvis_instance = None          # JarvisLive instance
+_vector_instance = None          # VectorLive instance
 _input_adapter   = None          # ARIAInputAdapter
 _output_adapter  = None          # ARIAOutputAdapter
 _server_loop: Optional[asyncio.AbstractEventLoop] = None  # FastAPI/uvicorn loop
 
 
-def inject(jarvis, input_adapter, output_adapter):
-    """Called by server_runner after JarvisLive starts."""
-    global _jarvis_instance, _input_adapter, _output_adapter
-    _jarvis_instance = jarvis
+def inject(vector, input_adapter, output_adapter):
+    """Called by server_runner after VectorLive starts."""
+    global _vector_instance, _input_adapter, _output_adapter
+    _vector_instance = vector
     _input_adapter   = input_adapter
     _output_adapter  = output_adapter
 
@@ -102,7 +102,7 @@ async def ws_audio(websocket: WebSocket):
 
 
 # ---------------------------------------------------------------------------
-# WebSocket /ws/display — JARVIS → Pi OLED
+# WebSocket /ws/display — V.E.C.T.O.R. → Pi OLED
 # ---------------------------------------------------------------------------
 
 @app.websocket("/ws/display")
@@ -152,8 +152,8 @@ async def call_tool(name: str, request: Request, _: str = Depends(_verify)):
 
     parameters = body.get("parameters", {})
 
-    ui    = _jarvis_instance.ui if _jarvis_instance else None
-    speak = _jarvis_instance.speak if _jarvis_instance else (lambda t: None)
+    ui    = _vector_instance.ui if _vector_instance else None
+    speak = _vector_instance.speak if _vector_instance else (lambda t: None)
 
     loop = asyncio.get_running_loop()
     try:
@@ -181,9 +181,9 @@ def list_tools(_: str = Depends(_verify)):
 
 @app.get("/status")
 def get_status(_: str = Depends(_verify)):
-    jarvis_running  = _jarvis_instance is not None and _jarvis_instance.session is not None
+    vector_running  = _vector_instance is not None and _vector_instance.session is not None
     aria_connected  = (
         _output_adapter is not None
         and len(_output_adapter._clients) > 0
     )
-    return {"jarvis_running": jarvis_running, "aria_connected": aria_connected}
+    return {"vector_running": vector_running, "aria_connected": aria_connected}

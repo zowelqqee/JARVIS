@@ -1,6 +1,6 @@
 """
 Starts the ARIA FastAPI/uvicorn server in a daemon thread.
-Call start_aria_server(jarvis_instance) after JarvisLive.run() sets self.jarvis_loop.
+Call start_aria_server(vector_instance) after VectorLive.run() sets self.vector_loop.
 """
 from __future__ import annotations
 
@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from main import JarvisLive
+    from main import VectorLive
 
 logger = logging.getLogger("aria.server_runner")
 
@@ -27,7 +27,7 @@ def _load_port() -> int:
         return 8765
 
 
-def start_aria_server(jarvis: "JarvisLive") -> None:
+def start_aria_server(vector: "VectorLive") -> None:
     """
     Launch uvicorn in a daemon thread and wire up ARIA adapters.
     Safe to call multiple times — only starts once.
@@ -41,13 +41,13 @@ def start_aria_server(jarvis: "JarvisLive") -> None:
     from aria.output_adapter import ARIAOutputAdapter
     from aria.api_server     import app, inject
 
-    input_adapter  = ARIAInputAdapter(jarvis)
+    input_adapter  = ARIAInputAdapter(vector)
     output_adapter = ARIAOutputAdapter()
 
-    # Wire callbacks into JarvisLive
-    output_adapter.register_callbacks(jarvis)
+    # Wire callbacks into VectorLive
+    output_adapter.register_callbacks(vector)
 
-    inject(jarvis, input_adapter, output_adapter)
+    inject(vector, input_adapter, output_adapter)
 
     port = _load_port()
 

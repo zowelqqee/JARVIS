@@ -37,7 +37,7 @@ class MainWindow(QMainWindow):
         self.setMaximumWidth(440)
         self.setMinimumHeight(420)
         self.resize(400, 520)
-        self.setWindowTitle("JARVIS")
+        self.setWindowTitle("V.E.C.T.O.R.")
 
         # Prevent horizontal scroll / overflow at all costs
         self.setSizePolicy(

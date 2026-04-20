@@ -1,6 +1,6 @@
 """
 Stub native/platform-specific modules so tests run on macOS without a full
-JARVIS install (the real app targets Windows).
+V.E.C.T.O.R. install (the real app targets Windows).
 """
 import sys
 from unittest.mock import MagicMock

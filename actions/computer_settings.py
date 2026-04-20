@@ -174,7 +174,7 @@ def _close_window_by_name(app_name: str) -> int:
 
 def _close_all_windows() -> str:
     """
-    Closes all visible app windows except system processes, VS Code, and JARVIS/Python.
+    Closes all visible app windows except system processes, VS Code, and V.E.C.T.O.R./Python.
     Also minimizes VS Code instead of closing it.
     """
     if _OS == "Windows":

@@ -1,6 +1,6 @@
 """
-ARIAOutputAdapter — broadcasts JARVIS output to all connected /ws/display WebSocket clients.
-Registered as on_text_response and on_status_change callbacks on JarvisLive.
+ARIAOutputAdapter — broadcasts V.E.C.T.O.R. output to all connected /ws/display WebSocket clients.
+Registered as on_text_response and on_status_change callbacks on VectorLive.
 """
 from __future__ import annotations
 
@@ -12,7 +12,7 @@ from typing import TYPE_CHECKING
 from aria.oled_formatter import format_for_oled
 
 if TYPE_CHECKING:
-    from main import JarvisLive
+    from main import VectorLive
 
 logger = logging.getLogger("aria.output_adapter")
 
@@ -38,13 +38,13 @@ class ARIAOutputAdapter:
             pass
         logger.info(f"[ARIA] Display client removed (total={len(self._clients)})")
 
-    def register_callbacks(self, jarvis: "JarvisLive") -> None:
-        """Wire self into JarvisLive callbacks."""
-        jarvis.on_text_response = self.on_text
-        jarvis.on_status_change = self.on_status
+    def register_callbacks(self, vector: "VectorLive") -> None:
+        """Wire self into VectorLive callbacks."""
+        vector.on_text_response = self.on_text
+        vector.on_status_change = self.on_status
 
     # ------------------------------------------------------------------
-    # Callback methods (called from JARVIS asyncio thread)
+    # Callback methods (called from V.E.C.T.O.R. asyncio thread)
     # ------------------------------------------------------------------
 
     def on_text(self, text: str) -> None:

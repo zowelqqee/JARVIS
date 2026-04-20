@@ -14,8 +14,8 @@ def build_application(argv: Sequence[str] | None = None) -> QApplication:
     if app is None:
         app = QApplication(list(argv or []))
 
-    app.setApplicationName("JARVIS")
-    app.setOrganizationName("JARVIS")
+    app.setApplicationName("V.E.C.T.O.R.")
+    app.setOrganizationName("V.E.C.T.O.R.")
 
     # Monospace font hierarchy — same across all platforms
     font = QFont()

@@ -19,7 +19,7 @@ class PanelState:
       Section 2 (State Row)      : mode + runtime_state
       Section 3 (Current Action) : current_action_text
       Section 4 (Prompt Zone)    : pending_prompt (None = hidden)
-      Section 5 (Last Exchange)  : last_user + last_jarvis
+      Section 5 (Last Exchange)  : last_user + last_vector
       Section 6 (Input Bar)      : runtime_state (for disabled/placeholder logic)
     """
 
@@ -37,7 +37,7 @@ class PanelState:
 
     # Last Exchange Strip
     last_user: str | None = None
-    last_jarvis: str | None = None
+    last_vector: str | None = None
 
     # Auxiliary
     speaking: bool = False

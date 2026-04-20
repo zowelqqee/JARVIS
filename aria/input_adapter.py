@@ -1,6 +1,6 @@
 """
 ARIAInputAdapter — receives PCM chunks from the Pi WebSocket handler
-and delivers them into JarvisLive's out_queue (the queue that _send_realtime
+and delivers them into VectorLive's out_queue (the queue that _send_realtime
 reads and forwards to Gemini).
 """
 from __future__ import annotations
@@ -10,25 +10,25 @@ import logging
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from main import JarvisLive
+    from main import VectorLive
 
 logger = logging.getLogger("aria.input_adapter")
 
 
 class ARIAInputAdapter:
-    def __init__(self, jarvis: "JarvisLive") -> None:
-        self._jarvis = jarvis
+    def __init__(self, vector: "VectorLive") -> None:
+        self._vector = vector
 
     def feed_chunk(self, pcm_bytes: bytes) -> None:
         """
-        Thread-safe: schedule PCM chunk delivery into the JARVIS event loop.
+        Thread-safe: schedule PCM chunk delivery into the V.E.C.T.O.R. event loop.
         pcm_bytes must be 16 kHz mono int16 PCM.
         """
-        loop = self._jarvis.jarvis_loop
+        loop = self._vector.vector_loop
         if loop is None or not loop.is_running():
             return
 
-        queue = self._jarvis.out_queue
+        queue = self._vector.out_queue
         if queue is None:
             return
 

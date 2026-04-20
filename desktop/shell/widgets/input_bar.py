@@ -26,11 +26,11 @@ from desktop.shell.theme import BG, BORDER, TEXT_PRI, TEXT_SEC, SURFACE
 
 
 _PLACEHOLDERS: dict[str, str] = {
-    "idle":                   "Ask JARVIS…",
+    "idle":                   "Ask V.E.C.T.O.R.…",
     "listening":              "Listening… or type here",
-    "thinking":               "JARVIS is processing…",
-    "executing":              "JARVIS is executing…",
-    "answering":              "JARVIS is responding…",
+    "thinking":               "V.E.C.T.O.R. is processing…",
+    "executing":              "V.E.C.T.O.R. is executing…",
+    "answering":              "V.E.C.T.O.R. is responding…",
     "awaiting_clarification": "Clarification required…",
     "awaiting_confirmation":  "Confirmation required…",
     "failed":                 "Ready — type a new request",
@@ -71,7 +71,7 @@ class InputBarWidget(QWidget):
         self._field = QLineEdit()
         self._field.setFont(font)
         self._field.setFixedHeight(28)
-        self._field.setPlaceholderText("Ask JARVIS…")
+        self._field.setPlaceholderText("Ask V.E.C.T.O.R.…")
         self._field.returnPressed.connect(self._on_submit)
         layout.addWidget(self._field)
 
@@ -88,7 +88,7 @@ class InputBarWidget(QWidget):
 
     def update_state(self, runtime_state: str) -> None:
         disabled = runtime_state in _DISABLED_STATES
-        placeholder = _PLACEHOLDERS.get(runtime_state, "Ask JARVIS…")
+        placeholder = _PLACEHOLDERS.get(runtime_state, "Ask V.E.C.T.O.R.…")
 
         self._field.setPlaceholderText(placeholder)
         self._field.setEnabled(not disabled)
