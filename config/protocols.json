@@ -35,10 +35,19 @@
         "optional": false
       },
       {
+        "tool": "wait",
+        "description": "Wait for VS Code window to fully load",
+        "parameters": {
+          "seconds": 1.5
+        },
+        "optional": true
+      },
+      {
         "tool": "computer_settings",
         "description": "Snap VSCode to the left",
         "parameters": {
-          "action": "snap_left"
+          "action": "snap_app_left",
+          "value": "Visual Studio Code"
         },
         "optional": true
       },
@@ -51,10 +60,19 @@
         "optional": false
       },
       {
+        "tool": "wait",
+        "description": "Wait for CMD window to fully load",
+        "parameters": {
+          "seconds": 1.5
+        },
+        "optional": true
+      },
+      {
         "tool": "computer_settings",
         "description": "Snap CMD to the right",
         "parameters": {
-          "action": "snap_right"
+          "action": "snap_app_right",
+          "value": "Command Prompt"
         },
         "optional": true
       }

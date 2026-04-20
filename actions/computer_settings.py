@@ -370,6 +370,13 @@ def _focus_window_by_name(app_name: str) -> bool:
         print(f"[Settings] _focus_window_by_name failed: {e}")
     return False
 
+_WINDOW_TITLE_ALIASES: dict[str, list[str]] = {
+    "cmd":             ["cmd", "command prompt", "cmd.exe"],
+    "command prompt":  ["cmd", "command prompt", "cmd.exe"],
+    "visual studio code": ["visual studio code", "vscode"],
+    "vscode":          ["visual studio code", "vscode"],
+}
+
 def snap_app(app_name: str, direction: str = "left"):
     """
     Focus a window by app name then snap it left or right.
@@ -378,8 +385,12 @@ def snap_app(app_name: str, direction: str = "left"):
     if _OS != "Windows":
         return
 
-    # Try ctypes first
-    if not _focus_window_by_name(app_name):
+    key = app_name.lower().strip()
+    search_terms = _WINDOW_TITLE_ALIASES.get(key, [key])
+
+    focused = any(_focus_window_by_name(term) for term in search_terms)
+
+    if not focused:
         # Fallback: PowerShell AppActivate
         try:
             script = f'(New-Object -ComObject WScript.Shell).AppActivate("{app_name}")'
