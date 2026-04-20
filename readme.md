@@ -1,4 +1,4 @@
-# 🤖 MARK XXX
+# 🤖 V.E.C.T.O.R.
 
 ### Next-Generation Personal AI Assistant — By FatihMakes
 
@@ -8,7 +8,7 @@ Built for intelligent automation.
 
 ## ✨ Overview
 
-**MARK XXX** is an advanced voice-driven AI assistant designed to turn your computer into an interactive intelligent system.
+**V.E.C.T.O.R.** is an advanced voice-driven AI assistant designed to turn your computer into an interactive intelligent system.
 
 Speak naturally — it listens, understands context, responds with a human-like voice, and executes tasks across your system automatically.
 
