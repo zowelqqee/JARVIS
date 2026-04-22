@@ -149,10 +149,21 @@ def generate_random_data(data_type: str) -> str:
     return f"random_{data_type}_{random.randint(1000,9999)}"
 
 
+def _mod() -> str:
+    """Returns the primary modifier key for the current OS."""
+    return "command" if platform.system() == "Darwin" else "ctrl"
+
+
 def _type_text(text: str, interval: float = 0.03) -> str:
-    """Types text at the current cursor position."""
+    """Types text at the current cursor position using clipboard (supports Unicode)."""
     _ensure_pyautogui()
     time.sleep(0.3)
+    if _PYPERCLIP:
+        pyperclip.copy(text)
+        time.sleep(0.15)
+        pyautogui.hotkey(_mod(), "v")
+        return f"Typed: {text[:50]}{'...' if len(text) > 50 else ''}"
+    # ASCII-only fallback
     pyautogui.typewrite(text, interval=interval)
     return f"Typed: {text[:50]}{'...' if len(text) > 50 else ''}"
 
@@ -237,7 +248,7 @@ def _clipboard_set(text: str) -> str:
     if _PYPERCLIP:
         pyperclip.copy(text)
         time.sleep(0.1)
-        _hotkey("ctrl", "v")
+        _hotkey(_mod(), "v")
         return f"Pasted: {text[:50]}"
     return "pyperclip not available"
 
@@ -281,9 +292,15 @@ def _get_screen_size() -> str:
 
 
 def _focus_window(title: str) -> str:
-    """Brings a window to focus by title (Windows)."""
-    if platform.system() == "Windows":
-        try:
+    """Brings a window to focus by title."""
+    system = platform.system()
+    try:
+        if system == "Darwin":
+            script = f'tell application "{title}" to activate'
+            subprocess.run(["osascript", "-e", script], capture_output=True, timeout=5)
+            time.sleep(0.3)
+            return f"Focused window: {title}"
+        elif system == "Windows":
             script = f'(New-Object -ComObject WScript.Shell).AppActivate("{title}")'
             subprocess.run(
                 ["powershell", "-NoProfile", "-Command", script],
@@ -291,18 +308,22 @@ def _focus_window(title: str) -> str:
             )
             time.sleep(0.3)
             return f"Focused window: {title}"
-        except Exception as e:
-            return f"Could not focus window: {e}"
-    return "Window focus only supported on Windows"
+        elif system == "Linux":
+            subprocess.run(["wmctrl", "-a", title], capture_output=True, timeout=5)
+            time.sleep(0.3)
+            return f"Focused window: {title}"
+    except Exception as e:
+        return f"Could not focus window: {e}"
+    return f"Window focus not supported on {system}"
 
 
 def _select_all() -> str:
-    return _hotkey("ctrl", "a")
+    return _hotkey(_mod(), "a")
 
 
 def _clear_field() -> str:
     """Selects all and deletes — clears an input field."""
-    _hotkey("ctrl", "a")
+    _hotkey(_mod(), "a")
     time.sleep(0.1)
     _press("delete")
     return "Field cleared"
@@ -310,9 +331,8 @@ def _clear_field() -> str:
 
 def _smart_type(text: str, clear_first: bool = True) -> str:
     """
-    Types text into the currently focused field.
+    Types text into the currently focused field using clipboard (supports Unicode).
     Optionally clears the field first.
-    Uses clipboard for long text (faster, more reliable).
     """
     _ensure_pyautogui()
 
@@ -320,14 +340,14 @@ def _smart_type(text: str, clear_first: bool = True) -> str:
         _clear_field()
         time.sleep(0.1)
 
-    if len(text) > 20 and _PYPERCLIP:
+    if _PYPERCLIP:
         pyperclip.copy(text)
-        time.sleep(0.1)
-        pyautogui.hotkey("ctrl", "v")
+        time.sleep(0.15)
+        pyautogui.hotkey(_mod(), "v")
         return f"Smart-typed (clipboard): {text[:50]}"
-    else:
-        pyautogui.typewrite(text, interval=0.04)
-        return f"Smart-typed: {text[:50]}"
+    # ASCII-only fallback
+    pyautogui.typewrite(text, interval=0.04)
+    return f"Smart-typed: {text[:50]}"
 
 
 def _analyze_screen_for_element(description: str) -> tuple[int, int] | None:

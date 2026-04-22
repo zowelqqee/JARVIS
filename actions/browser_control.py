@@ -140,17 +140,21 @@ def _find_browser_executable(prog_id: str) -> tuple:
     return "chromium", None, None
 
 
+_CDP_PORT = 9222
+_CDP_URL  = f"http://localhost:{_CDP_PORT}"
+
+
 class _BrowserThread:
 
-
     def __init__(self):
-        self._loop       = None
-        self._thread     = None
-        self._ready      = threading.Event()
-        self._playwright = None
-        self._browser    = None
-        self._context    = None
-        self._page       = None
+        self._loop            = None
+        self._thread          = None
+        self._ready           = threading.Event()
+        self._playwright      = None
+        self._browser         = None
+        self._context         = None
+        self._page            = None
+        self._launched_by_us  = False  # True = we launched, False = connected via CDP
 
     def start(self):
         if self._thread and self._thread.is_alive():
@@ -183,14 +187,45 @@ class _BrowserThread:
         return self._page
 
     async def _launch(self):
+        # ── 1. Try connecting to an already-open browser via CDP ──────── #
+        try:
+            self._browser        = await self._playwright.chromium.connect_over_cdp(_CDP_URL)
+            self._launched_by_us = False
+            contexts = self._browser.contexts
+            if contexts:
+                self._context = contexts[0]
+                pages = self._context.pages
+                if pages:
+                    self._page = pages[-1]
+                    await self._page.bring_to_front()
+                else:
+                    self._page = await self._context.new_page()
+            else:
+                self._context = await self._browser.new_context(
+                    viewport=None,
+                    user_agent=(
+                        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                        "AppleWebKit/537.36 (KHTML, like Gecko) "
+                        "Chrome/120.0.0.0 Safari/537.36"
+                    )
+                )
+                self._page = await self._context.new_page()
+            print("[Browser] ✅ Connected to existing browser via CDP")
+            return
+        except Exception:
+            pass  # no existing browser — launch fresh
+
+        # ── 2. Launch fresh browser (with CDP port so next call reuses) ── #
         prog_id                        = _get_default_browser_id()
         engine_name, exe_path, channel = _find_browser_executable(prog_id)
         engine                         = getattr(self._playwright, engine_name)
 
         launch_kwargs = {"headless": False}
-
         if engine_name == "chromium":
-            launch_kwargs["args"] = ["--start-maximized"]
+            launch_kwargs["args"] = [
+                "--start-maximized",
+                f"--remote-debugging-port={_CDP_PORT}",
+            ]
 
         if exe_path:
             launch_kwargs["executable_path"] = exe_path
@@ -199,7 +234,8 @@ class _BrowserThread:
 
         try:
             if self._browser is None or not self._browser.is_connected():
-                self._browser = await engine.launch(**launch_kwargs)
+                self._browser        = await engine.launch(**launch_kwargs)
+                self._launched_by_us = True
                 print(
                     f"[Browser] ✅ Launched ({engine_name}"
                     f"{' / ' + channel if channel else ''}"
@@ -207,10 +243,11 @@ class _BrowserThread:
                 )
         except Exception as e:
             print(f"[Browser] ⚠️ Launch failed ({e}), falling back to built-in Chromium")
-            self._browser = await self._playwright.chromium.launch(
+            self._browser        = await self._playwright.chromium.launch(
                 headless=False,
-                args=["--start-maximized"]
+                args=["--start-maximized", f"--remote-debugging-port={_CDP_PORT}"],
             )
+            self._launched_by_us = True
 
         self._context = await self._browser.new_context(
             viewport=None,
@@ -222,11 +259,15 @@ class _BrowserThread:
         )
         self._page = await self._context.new_page()
 
-    async def _close(self):
+    async def _close(self, close_browser: bool = True):
         if self._browser:
-            await self._browser.close()
-            self._browser = None
-            self._page    = None
+            # Only close the browser process if we launched it ourselves.
+            # For CDP-connected browsers just release the reference.
+            if close_browser and self._launched_by_us:
+                await self._browser.close()
+            self._browser   = None
+            self._context   = None
+            self._page      = None
         if self._playwright:
             await self._playwright.stop()
             self._playwright = None
@@ -366,9 +407,26 @@ class _BrowserThread:
 
         return f"Could not find input: '{description}'"
 
+    async def _close_tab(self) -> str:
+        """Closes the current tab/page without closing the whole browser."""
+        if self._page and not self._page.is_closed():
+            await self._page.close()
+            self._page = None
+            # Try to pick another open page from the same context
+            if self._context:
+                pages = self._context.pages
+                if pages:
+                    self._page = pages[-1]
+                    await self._page.bring_to_front()
+        return "Tab closed."
+
     async def _close_browser(self) -> str:
-        await self._close()
-        return "Browser closed."
+        """Closes the browser (only if we launched it; otherwise just the tab)."""
+        if self._launched_by_us:
+            await self._close(close_browser=True)
+            return "Browser closed."
+        # Connected via CDP — don't kill the external browser, just close our tab
+        return await self._close_tab()
 
 _bt         = _BrowserThread()
 _bt_started = False
@@ -393,7 +451,7 @@ def browser_control(
 
     parameters:
         action      : go_to | search | click | type | scroll | fill_form |
-                      smart_click | smart_type | get_text | press | close
+                      smart_click | smart_type | get_text | press | close | close_tab
         url         : URL for go_to
         query       : search query
         engine      : google | bing | duckduckgo (default: google)
@@ -460,6 +518,9 @@ def browser_control(
 
         elif action == "close":
             result = _bt.run(_bt._close_browser())
+
+        elif action == "close_tab":
+            result = _bt.run(_bt._close_tab())
 
         else:
             result = f"Unknown action: {action}"
