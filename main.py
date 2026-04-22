@@ -221,6 +221,15 @@ class VectorLive:
         args = dict(fc.args or {})
 
         print(f"[VECTOR] 🔧 TOOL: {name}  ARGS: {args}")
+
+        # Clear stale interrupt before any new command (stop_execution sets it, not clears it)
+        if name != "stop_execution":
+            try:
+                from agent.task_queue import clear_interrupt
+                clear_interrupt()
+            except ImportError:
+                pass
+
         self.tool_call_in_progress = True
         print("[VECTOR] ⏸️  Audio sending paused (tool_call_in_progress=True)")
 

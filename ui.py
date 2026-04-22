@@ -331,6 +331,20 @@ class VectorUI:
         self.speaking    = False
         self.status_text = "ONLINE"
 
+    def set_executing(self, tool_name: str = "", args: dict = None):
+        label = tool_name.replace("_", " ").upper() if tool_name else "EXECUTING"
+        self.status_text = f"▶ {label}"
+
+    def set_idle(self):
+        self.speaking    = False
+        self.status_text = "ONLINE"
+
+    def set_connecting(self):
+        self.status_text = "CONNECTING"
+
+    def set_failed(self, msg: str = ""):
+        self.status_text = "ERROR"
+
     def _api_keys_exist(self):
         return API_FILE.exists()
 

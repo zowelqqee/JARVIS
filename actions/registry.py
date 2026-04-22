@@ -29,7 +29,8 @@ from actions.protocol_manager import protocol as protocol_action
 def _agent_task_handler(parameters: dict, player, speak) -> str:
     goal         = parameters.get("goal", "")
     priority_str = parameters.get("priority", "normal").lower()
-    from agent.task_queue import get_queue, TaskPriority
+    from agent.task_queue import get_queue, TaskPriority, clear_interrupt
+    clear_interrupt()
     priority_map = {
         "low":    TaskPriority.LOW,
         "normal": TaskPriority.NORMAL,
@@ -42,6 +43,17 @@ def _agent_task_handler(parameters: dict, player, speak) -> str:
         speak=speak,
     )
     return f"Task started (ID: {task_id}). I'll update you as I make progress, sir."
+
+
+def _stop_execution_handler(parameters: dict, player, speak) -> str:
+    from agent.task_queue import cancel_all
+    cancel_all()
+    if player:
+        if hasattr(player, "status_text"):
+            player.status_text = "■ STOPPED"
+        if hasattr(player, "write_log"):
+            player.write_log("SYS: Execution interrupted.")
+    return "STOPPED. Execution cancelled. Do not start any other action."
 
 
 TOOL_REGISTRY: dict[str, Callable] = {
@@ -63,6 +75,7 @@ TOOL_REGISTRY: dict[str, Callable] = {
     "flight_finder":     lambda p, ui, speak: flight_finder(parameters=p, player=ui) or "Done.",
     "protocol":          lambda p, ui, speak: protocol_action(parameters=p, player=ui, speak=speak) or "Done.",
     "agent_task":        _agent_task_handler,
+    "stop_execution":    _stop_execution_handler,
 }
 
 
@@ -405,6 +418,21 @@ TOOL_DECLARATIONS = [
                 "data":   {"type": "STRING", "description": "JSON string with protocol definition for 'add' action"},
             },
             "required": ["name"]
+        }
+    },
+    {
+        "name": "stop_execution",
+        "description": (
+            "IMMEDIATELY stops all active tasks, protocols, and agent execution. "
+            "Call this tool — and ONLY this tool — when the user says: "
+            "stop, стоп, cancel, отмена, halt, прекрати, dur, iptal, enough, хватит. "
+            "Do NOT say anything before calling this. Call it instantly. "
+            "After it returns, say ONE word: 'Stopped.' and nothing else."
+        ),
+        "parameters": {
+            "type": "OBJECT",
+            "properties": {},
+            "required": []
         }
     },
 ]

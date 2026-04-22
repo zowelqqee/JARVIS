@@ -10,6 +10,7 @@ from typing import Callable
 
 from agent.planner       import create_plan, replan
 from agent.error_handler import analyze_error, generate_fix, ErrorDecision
+from agent.task_queue    import is_interrupted, clear_interrupt
 
 
 def get_base_dir() -> Path:
@@ -325,10 +326,11 @@ class AgentExecutor:
         cancel_flag: threading.Event | None = None,
     ) -> str:
         print(f"\n[Executor] 🎯 Goal: {goal}")
+        clear_interrupt()
 
         replan_attempts = 0
         completed_steps = []
-        step_results    = {} 
+        step_results    = {}
         plan            = create_plan(goal)
 
         while True:
@@ -344,9 +346,9 @@ class AgentExecutor:
             failed_error = ""
 
             for step in steps:
-                if cancel_flag and cancel_flag.is_set():
-                    if speak: speak("Task cancelled, sir.")
-                    return "Task cancelled."
+                if (cancel_flag and cancel_flag.is_set()) or is_interrupted():
+                    if speak: speak("Stopped, sir.")
+                    return "Task interrupted."
 
                 step_num = step.get("step", "?")
                 tool     = step.get("tool", "generated_code")
@@ -361,7 +363,7 @@ class AgentExecutor:
                 step_ok = False
 
                 while attempt <= 3:
-                    if cancel_flag and cancel_flag.is_set():
+                    if (cancel_flag and cancel_flag.is_set()) or is_interrupted():
                         break
                     try:
                         result = _call_tool(tool, params, speak)

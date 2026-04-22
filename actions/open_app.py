@@ -377,9 +377,16 @@ def _launch_macos(app_name: str) -> bool:
 
     try:
         import pyautogui
-        pyautogui.hotkey("command", "space")
-        time.sleep(0.6)
-        pyautogui.write(app_name, interval=0.05)
+        try:
+            import pyperclip
+            pyautogui.hotkey("command", "space")
+            time.sleep(0.6)
+            pyperclip.copy(app_name)
+            pyautogui.hotkey("command", "v")
+        except ImportError:
+            pyautogui.hotkey("command", "space")
+            time.sleep(0.6)
+            pyautogui.write(app_name, interval=0.05)
         time.sleep(0.8)
         pyautogui.press("enter")
         time.sleep(1.5)

@@ -17,6 +17,7 @@
 import json
 import sys
 import time
+import threading
 import platform
 import subprocess
 from pathlib import Path
@@ -241,6 +242,15 @@ def run_protocol(
     failures = []
 
     for i, step in enumerate(steps, 1):
+        # Check global interrupt between every step
+        try:
+            from agent.task_queue import is_interrupted
+            if is_interrupted():
+                print(f"[Protocol] 🛑 Interrupted at step {i}")
+                return "Protocol interrupted."
+        except ImportError:
+            pass
+
         optional = step.get("optional", False)
         try:
             result = _run_step(step, speak=speak, player=player)
@@ -258,7 +268,6 @@ def run_protocol(
             + "\n".join(failures)
         )
 
-    # If the protocol spoke directly, tell Gemini not to repeat or announce it.
     has_speak = any(s.get("tool") == "speak" for s in steps)
     if has_speak:
         return "Done. Voice response was spoken directly — stay silent, do not announce anything."
@@ -344,7 +353,38 @@ def protocol(
             return f"Invalid protocol data: {e}"
         return add_protocol(name, data)
 
-    # Default: run
+    # Default: run — execute in background so user audio isn't blocked
     if not name:
         return "Please specify which protocol to activate, sir."
-    return run_protocol(name, speak=speak, player=player)
+
+    protocols = _load()
+    pid, pdata = _resolve_protocol(name, protocols)
+    if not pdata:
+        available = ", ".join(
+            f"'{pd.get('name', k)}'" for k, pd in protocols.items()
+        )
+        return (
+            f"Protocol '{name}' not found, sir. "
+            f"Available: {available or 'none'}."
+        )
+
+    # Clear any stale interrupt before starting
+    try:
+        from agent.task_queue import clear_interrupt
+        clear_interrupt()
+    except ImportError:
+        pass
+
+    display_name = pdata.get("name", pid)
+
+    def _bg_run():
+        try:
+            result = run_protocol(name, speak=speak, player=player)
+            print(f"[Protocol] Background run finished: {result[:80]}")
+        except Exception as e:
+            print(f"[Protocol] Background run error: {e}")
+
+    t = threading.Thread(target=_bg_run, daemon=True, name=f"Protocol-{pid}")
+    t.start()
+
+    return f"Protocol '{display_name}' activated. Say: 'On it, sir.' — do not describe the steps."

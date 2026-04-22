@@ -25,6 +25,10 @@ ABSOLUTE RULES:
 - Use file_controller to save content to disk.
 - Use cmd_control to open files or run system commands.
 - Max 5 steps. Use the minimum steps needed.
+- NEVER use code_helper or dev_agent unless the goal explicitly says "write code", "create script", or "build app".
+- "open project" → open_app with VS Code. NOT code_helper.
+- "open code" → open_app with Visual Studio Code. Nothing else.
+- If goal is ambiguous, pick the simplest interpretation using open_app or browser_control.
 
 AVAILABLE TOOLS AND THEIR PARAMETERS:
 

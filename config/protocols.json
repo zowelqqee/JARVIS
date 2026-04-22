@@ -8,10 +8,25 @@
       "начинаем работу",
       "let's work",
       "time to work",
-      "включи рабочий режим"
+      "включи рабочий режим",
+      "подготовь рабочее место",
+      "prepare workspace",
+      "prepare my workspace",
+      "set up workspace",
+      "set up my workspace",
+      "рабочее место",
+      "workspace"
     ],
     "description": "Closes all open windows, launches VSCode and CMD side by side",
     "steps": [
+      {
+        "tool": "wait",
+        "description": "Brief pause so Gemini finishes speaking before we begin",
+        "parameters": {
+          "seconds": 1.5
+        },
+        "optional": true
+      },
       {
         "tool": "close_all_windows",
         "description": "Close all open application windows (except VS Code and Python windows)",
@@ -38,7 +53,7 @@
         "tool": "wait",
         "description": "Wait for VS Code window to fully load",
         "parameters": {
-          "seconds": 1.5
+          "seconds": 2.0
         },
         "optional": true
       },
@@ -53,7 +68,7 @@
       },
       {
         "tool": "open_app",
-        "description": "cmd",
+        "description": "Open Command Prompt",
         "parameters": {
           "app_name": "cmd"
         },
@@ -73,6 +88,14 @@
         "parameters": {
           "action": "snap_app_right",
           "value": "Command Prompt"
+        },
+        "optional": true
+      },
+      {
+        "tool": "speak",
+        "description": "Announce workspace ready",
+        "parameters": {
+          "text": "Workspace ready, sir."
         },
         "optional": true
       }
@@ -117,7 +140,7 @@
       "clear leaf",
       "закрой все"
     ],
-    "description": "Сворачивает все",
+    "description": "Minimizes all windows and mutes volume",
     "steps": [
       {
         "tool": "computer_settings",
@@ -132,6 +155,14 @@
         "description": "Mute volume",
         "parameters": {
           "action": "volume_mute"
+        },
+        "optional": true
+      },
+      {
+        "tool": "speak",
+        "description": "Confirm completion",
+        "parameters": {
+          "text": "All clear, sir."
         },
         "optional": true
       }

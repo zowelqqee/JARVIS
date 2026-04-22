@@ -5,6 +5,29 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Callable, Any
 
+# ── Global interrupt ─────────────────────────────────────────────────────────
+# Set by stop_execution tool; checked by executor + protocol_manager between steps.
+_global_interrupt = threading.Event()
+
+
+def cancel_all() -> None:
+    """Interrupt all running/pending tasks immediately."""
+    _global_interrupt.set()
+    with _queue._lock:
+        for task in _queue._tasks.values():
+            if task.status in (TaskStatus.PENDING, TaskStatus.RUNNING):
+                task.cancel_flag.set()
+    print("[TaskQueue] 🛑 Global interrupt set — all tasks cancelled")
+
+
+def clear_interrupt() -> None:
+    """Reset interrupt before a new command begins."""
+    _global_interrupt.clear()
+
+
+def is_interrupted() -> bool:
+    return _global_interrupt.is_set()
+
 
 class TaskStatus(Enum):
     PENDING    = "pending"
