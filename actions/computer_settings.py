@@ -953,7 +953,7 @@ def computer_settings(
             return f"Could not snap {app}: {e}"
 
     # ── Close actions — must pass app_name from value ─────────────────────────
-    if action in ("close_app", "quit_app", "exit_app", "kill_app"):
+    if action in ("close_app", "quit_app", "exit_app", "kill_app", "close"):
         app_name = str(value).strip() if value else None
         close_app(app_name)
         return f"Closed {app_name}." if app_name else "Window closed."

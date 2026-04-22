@@ -257,13 +257,13 @@ def _local_detect(image_bytes: bytes) -> str | None:
 
 def _gemini_analyze(image_bytes: bytes, question: str) -> str:
     """
-    Analyze image via Gemini 2.0 Flash REST API.
+    Analyze image via Gemini 2.5 Flash REST API.
     Typical latency: 0.4–1.5s (vs 5–20s for Live API).
     """
     client = genai.Client(api_key=_get_api_key())
     full_q = f"{VISION_PROMPT}\n\nUser: {question}"
     resp   = client.models.generate_content(
-        model="gemini-2.0-flash",
+        model="gemini-2.5-flash",
         contents=[
             types.Part.from_bytes(data=image_bytes, mime_type="image/jpeg"),
             full_q,
