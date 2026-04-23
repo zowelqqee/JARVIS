@@ -61,7 +61,7 @@ _BROWSER_BINARIES = {
         "opera":   ["opera", "opera-stable"],
         "brave":   ["brave-browser", "brave"],
         "vivaldi": ["vivaldi-stable", "vivaldi"],
-        "chrome":  ["google-chrome", "google-chrome-stable", "chromium-browser", "chromium"],
+        "chrome":  ["google-chrome", "google-chrome-stable", "chrome-browser", "chrome"],
         "firefox": ["firefox"],
     },
 }
@@ -107,16 +107,16 @@ def _find_browser_executable(prog_id: str) -> tuple:
         return "webkit", None, None
 
     if "edge" in prog_id:
-        return "chromium", None, "msedge"
+        return "chrome", None, "msedge"
 
     if "opera" in prog_id:
         exe = _get_opera_executable()
         if exe:
-            return "chromium", exe, None
+            return "chrome", exe, None
         for binary in os_bins.get("opera", []):
             path = shutil.which(binary)
             if path:
-                return "chromium", path, None
+                return "chrome", path, None
 
     browser_patterns = {
         "brave":   ["brave"],
@@ -131,13 +131,13 @@ def _find_browser_executable(prog_id: str) -> tuple:
             path = shutil.which(binary)
             if path:
                 print(f"[Browser] 🔍 Found {browser_name} at: {path}")
-                return "chromium", path, None
+                return "chrome", path, None
 
     if "chrome" in prog_id or not prog_id:
-        return "chromium", None, "chrome"
+        return "chrome", None, "chrome"
 
 
-    return "chromium", None, None
+    return "chrome", None, None
 
 
 _CDP_PORT = 9222
@@ -189,7 +189,7 @@ class _BrowserThread:
     async def _launch(self):
         # ── 1. Try connecting to an already-open browser via CDP ──────── #
         try:
-            self._browser        = await self._playwright.chromium.connect_over_cdp(_CDP_URL)
+            self._browser        = await self._playwright.chrome.connect_over_cdp(_CDP_URL)
             self._launched_by_us = False
             contexts = self._browser.contexts
             if contexts:
@@ -221,7 +221,7 @@ class _BrowserThread:
         engine                         = getattr(self._playwright, engine_name)
 
         launch_kwargs = {"headless": False}
-        if engine_name == "chromium":
+        if engine_name == "chrome":
             launch_kwargs["args"] = [
                 "--start-maximized",
                 f"--remote-debugging-port={_CDP_PORT}",
@@ -242,8 +242,8 @@ class _BrowserThread:
                     f"{' / ' + exe_path if exe_path else ''})"
                 )
         except Exception as e:
-            print(f"[Browser] ⚠️ Launch failed ({e}), falling back to built-in Chromium")
-            self._browser        = await self._playwright.chromium.launch(
+            print(f"[Browser] ⚠️ Launch failed ({e}), falling back to built-in chrome")
+            self._browser        = await self._playwright.chrome.launch(
                 headless=False,
                 args=["--start-maximized", f"--remote-debugging-port={_CDP_PORT}"],
             )
