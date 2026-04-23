@@ -7,7 +7,11 @@ from unittest.mock import MagicMock
 
 _STUBS = [
     "pyaudio",
+    "pyautogui",
     "ui",
+    "google",
+    "google.genai",
+    "google.genai.types",
     "comtypes",
     "comtypes.client",
     "win32api",

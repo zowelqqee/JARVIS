@@ -30,6 +30,7 @@ _APP_ALIASES = {
     "calculator":         {"Windows": "calc.exe",               "Darwin": "Calculator",          "Linux": "gnome-calculator"},
     "terminal":           {"Windows": "cmd.exe",                "Darwin": "Terminal",            "Linux": "gnome-terminal"},
     "cmd":                {"Windows": "cmd.exe",                "Darwin": "Terminal",            "Linux": "bash"},
+    "command prompt":     {"Windows": "cmd.exe",                "Darwin": "Terminal",            "Linux": "bash"},
     "explorer":           {"Windows": "explorer.exe",           "Darwin": "Finder",              "Linux": "nautilus"},
     "file explorer":      {"Windows": "explorer.exe",           "Darwin": "Finder",              "Linux": "nautilus"},
     "paint":              {"Windows": "mspaint.exe",            "Darwin": "Preview",             "Linux": "gimp"},
@@ -43,6 +44,7 @@ _APP_ALIASES = {
     "task manager":       {"Windows": "taskmgr.exe",            "Darwin": "Activity Monitor",    "Linux": "gnome-system-monitor"},
     "settings":           {"Windows": "ms-settings:",           "Darwin": "System Preferences",  "Linux": "gnome-control-center"},
     "powershell":         {"Windows": "powershell.exe",         "Darwin": "Terminal",            "Linux": "bash"},
+    "pwsh":               {"Windows": "pwsh.exe",               "Darwin": "Terminal",            "Linux": "bash"},
     "edge":               {"Windows": "msedge",                 "Darwin": "Microsoft Edge",      "Linux": "microsoft-edge"},
     "brave":              {"Windows": "brave",                  "Darwin": "Brave Browser",       "Linux": "brave-browser"},
     "obsidian":           {"Windows": "Obsidian",               "Darwin": "Obsidian",            "Linux": "obsidian"},
@@ -75,6 +77,7 @@ _WIN_PROCESS: dict[str, str] = {
     "calc.exe":              "calculator",
     "cmd":                   "cmd",
     "cmd.exe":               "cmd",
+    "command prompt":        "cmd",
     "terminal":              "cmd",
     "explorer":              "explorer",
     "explorer.exe":          "explorer",
@@ -94,6 +97,8 @@ _WIN_PROCESS: dict[str, str] = {
     "taskmgr.exe":           "taskmgr",
     "powershell":            "powershell",
     "powershell.exe":        "powershell",
+    "pwsh":                  "pwsh",
+    "pwsh.exe":              "pwsh",
     "edge":                  "msedge",
     "msedge":                "msedge",
     "brave":                 "brave",
@@ -121,7 +126,26 @@ def _normalize(raw: str) -> str:
     return raw
 
 
-_TERMINAL_APPS = {"cmd", "powershell"}
+def _compact_app_key(app_name: str) -> str:
+    return app_name.lower().strip().replace(".exe", "").replace(" ", "")
+
+
+_TERMINAL_APPS = {"terminal", "cmd", "commandprompt", "powershell", "pwsh"}
+
+
+def _is_terminal_app(app_name: str) -> bool:
+    return _compact_app_key(app_name) in _TERMINAL_APPS
+
+
+def _terminal_launch_args(app_name: str) -> list[str]:
+    key = _compact_app_key(app_name)
+    if key in {"terminal", "cmd", "commandprompt"}:
+        return ["cmd.exe"]
+    if key == "powershell":
+        return ["powershell.exe", "-NoExit"]
+    if key == "pwsh":
+        return ["pwsh.exe", "-NoExit"]
+    return [app_name]
 
 SW_RESTORE      = 9
 SW_SHOWMAXIMIZED = 3
@@ -284,13 +308,12 @@ def _maximize_later(app_name: str, delay: float = 2.0) -> None:
 
 def _launch_windows(app_name: str) -> bool:
     # 0. Terminal apps must open with a visible console window
-    key = app_name.lower().replace(".exe", "").replace(" ", "")
+    key = _compact_app_key(app_name)
     if key in _TERMINAL_APPS:
         try:
             subprocess.Popen(
-                app_name,
-                shell=True,
-                creationflags=subprocess.CREATE_NEW_CONSOLE,
+                _terminal_launch_args(app_name),
+                creationflags=getattr(subprocess, "CREATE_NEW_CONSOLE", 0),
             )
             time.sleep(0.8)
             _maximize_later(app_name)
@@ -502,6 +525,22 @@ def open_app(
         player.write_log(f"[open_app] {app_name}")
 
     try:
+        # Terminal requests should always create a fresh console window on Windows.
+        if system == "Windows" and (_is_terminal_app(normalized) or _is_terminal_app(app_name)):
+            success = launcher(normalized)
+            if success:
+                return f"Opened {app_name} successfully, sir."
+
+            if normalized != app_name:
+                success = launcher(app_name)
+                if success:
+                    return f"Opened {app_name} successfully, sir."
+
+            return (
+                f"I tried to open {app_name}, sir, but couldn't confirm it launched. "
+                f"It may still be loading or might not be installed."
+            )
+
         # 1. If already running, try to bring existing window to front / restore
         if _is_running(normalized) or _is_running(app_name):
             focused = (
