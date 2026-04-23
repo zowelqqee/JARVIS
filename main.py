@@ -178,6 +178,12 @@ class VectorLive:
             self.vector_loop
         )
 
+    @staticmethod
+    def _tool_response_payload(result):
+        if isinstance(result, dict):
+            return result
+        return {"result": result}
+
     def _build_config(self) -> types.LiveConnectConfig:
         from datetime import datetime
         from actions.computer_settings import get_desktop_context
@@ -283,7 +289,7 @@ class VectorLive:
         return types.FunctionResponse(
             id=fc.id,
             name=name,
-            response={"result": result}
+            response=self._tool_response_payload(result)
         )
 
     async def _send_realtime(self):

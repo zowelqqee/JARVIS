@@ -29,6 +29,8 @@ except ImportError:
     _PYPERCLIP = False
 
 _OS = platform.system() 
+SW_RESTORE = 9
+SW_SHOWMAXIMIZED = 3
 
 def get_base_dir() -> Path:
     if getattr(sys, "frozen", False):
@@ -312,12 +314,69 @@ def minimize_window():
         time.sleep(0.1)
         pyautogui.hotkey("win", "down")
 
-def maximize_window():
+def _set_foreground_window(hwnd) -> bool:
+    if _OS != "Windows" or not hwnd:
+        return False
+    try:
+        import ctypes
+        user32 = ctypes.windll.user32
+        user32.BringWindowToTop(hwnd)
+        try:
+            fg_hwnd = user32.GetForegroundWindow()
+            fg_tid  = user32.GetWindowThreadProcessId(fg_hwnd, None)
+            tgt_tid = user32.GetWindowThreadProcessId(hwnd, None)
+            if fg_tid and fg_tid != tgt_tid:
+                user32.AttachThreadInput(fg_tid, tgt_tid, True)
+                user32.SetForegroundWindow(hwnd)
+                user32.AttachThreadInput(fg_tid, tgt_tid, False)
+            else:
+                user32.SetForegroundWindow(hwnd)
+        except Exception:
+            user32.SetForegroundWindow(hwnd)
+        return True
+    except Exception as e:
+        print(f"[Settings] _set_foreground_window failed: {e}")
+        return False
+
+
+def _show_window(hwnd, show_cmd: int) -> bool:
+    if _OS != "Windows" or not hwnd:
+        return False
+    try:
+        import ctypes
+        user32 = ctypes.windll.user32
+        if show_cmd == SW_SHOWMAXIMIZED:
+            user32.ShowWindow(hwnd, SW_RESTORE)
+            time.sleep(0.05)
+        user32.ShowWindow(hwnd, show_cmd)
+        _set_foreground_window(hwnd)
+        time.sleep(0.15)
+        return True
+    except Exception as e:
+        print(f"[Settings] _show_window failed: {e}")
+        return False
+
+
+def maximize_window(app_name: str | None = None):
     if _OS == "Darwin":
         subprocess.run(["osascript", "-e",
             'tell application "System Events" to keystroke "f" using {control down, command down}'])
+        return True
+    if _OS == "Windows":
+        if app_name and _focus_window_by_name(app_name, SW_SHOWMAXIMIZED):
+            return True
+        try:
+            import ctypes
+            hwnd = ctypes.windll.user32.GetForegroundWindow()
+            if hwnd and _show_window(hwnd, SW_SHOWMAXIMIZED):
+                return True
+        except Exception as e:
+            print(f"[Settings] maximize_window WinAPI failed: {e}")
+        pyautogui.hotkey("win", "up")
+        return True
     else:
         pyautogui.hotkey("win", "up")
+        return True
 
 def minimize_all_windows():
     if _OS == "Darwin":
@@ -331,7 +390,7 @@ def snap_left():
 def snap_right():
     if _OS == "Windows": pyautogui.hotkey("win", "right")
 
-def _focus_window_by_name(app_name: str) -> bool:
+def _focus_window_by_name(app_name: str, show_cmd: int = SW_RESTORE) -> bool:
     """
     Focus a visible window whose title contains app_name.
     Uses ctypes (no extra packages needed). Windows only.
@@ -361,9 +420,7 @@ def _focus_window_by_name(app_name: str) -> bool:
 
         if found[0]:
             hwnd = found[0]
-            user32.ShowWindow(hwnd, 9)        # SW_RESTORE (un-minimize)
-            user32.SetForegroundWindow(hwnd)
-            time.sleep(0.4)
+            _show_window(hwnd, show_cmd)
             print(f"[Settings] Focused window: {app_name}")
             return True
     except Exception as e:
@@ -1115,6 +1172,14 @@ def computer_settings(
             return f"Snapped {app} to {direction}."
         except Exception as e:
             return f"Could not snap {app}: {e}"
+
+    if action in ("maximize", "maximize_window", "restore_window"):
+        app_name = str(value or params.get("app", "")).strip() or None
+        try:
+            maximize_window(app_name)
+            return f"Maximized {app_name}." if app_name else "Window maximized."
+        except Exception as e:
+            return f"Could not maximize window: {e}"
 
     # ── Close actions — must pass app_name from value ─────────────────────────
     if action in ("close_app", "quit_app", "exit_app", "kill_app", "close"):

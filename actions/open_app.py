@@ -298,11 +298,24 @@ def _wait_for_process(app_name: str, timeout: float = 4.0) -> bool:
     return False
 
 
+def _maximize_window_with_retries(
+    app_name: str,
+    attempts: int = 6,
+    interval: float = 0.75,
+) -> bool:
+    for attempt in range(attempts):
+        if _focus_existing_window(app_name, SW_SHOWMAXIMIZED):
+            return True
+        if attempt < attempts - 1:
+            time.sleep(interval)
+    return False
+
+
 def _maximize_later(app_name: str, delay: float = 2.0) -> None:
     """Maximize the app window in a background thread after a short delay."""
     def _do():
         time.sleep(delay)
-        _focus_existing_window(app_name, SW_SHOWMAXIMIZED)
+        _maximize_window_with_retries(app_name)
     threading.Thread(target=_do, daemon=True, name="MaximizeWindow").start()
 
 

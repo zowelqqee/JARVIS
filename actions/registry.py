@@ -42,7 +42,11 @@ def _agent_task_handler(parameters: dict, player, speak) -> str:
         priority=priority_map.get(priority_str, TaskPriority.NORMAL),
         speak=speak,
     )
-    return f"Task started (ID: {task_id}). I'll update you as I make progress, sir."
+    if player and hasattr(player, "write_log"):
+        player.write_log(f"[agent_task] queued [{task_id}]")
+    # Keep the tool result machine-readable so Gemini doesn't read a hardcoded
+    # English status line like "Task started, sir." back to the user.
+    return {"status": "queued"}
 
 
 def _stop_execution_handler(parameters: dict, player, speak) -> str:
@@ -304,7 +308,10 @@ TOOL_DECLARATIONS = [
             "Writes, edits, explains, runs, builds, optimizes, or screen-debugs code files. "
             "Use for ANY coding request: writing a script, fixing a file, editing existing code, "
             "running a file, building and testing automatically, optimizing code, "
-            "or analyzing an error visible on the screen."
+            "or analyzing an error visible on the screen. "
+            "If the user refers to the currently visible editor tab with phrases like "
+            "'this file', 'этот файл', or 'this code' and gives no path, this tool "
+            "should still be used — it can inspect the current file from the screen first."
         ),
         "parameters": {
             "type": "OBJECT",

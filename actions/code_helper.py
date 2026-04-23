@@ -30,6 +30,39 @@ DESKTOP            = Path.home() / "Desktop"
 MAX_BUILD_ATTEMPTS = 3
 GEMINI_MODEL       = "gemini-2.5-flash"
 
+_SCREEN_DEBUG_KW = [
+    "screen", "screenshot", "what's on screen", "what i see",
+    "ekrandaki", "ekranda", "bu hatayı", "why am i getting",
+    "neden hata", "what's wrong", "görüntü",
+]
+_OPTIMIZE_KW = [
+    "optimize", "refactor", "clean up", "improve", "temizle",
+    "iyileştir", "daha iyi", "make it better", "hızlandır",
+]
+_EDIT_KW = [
+    "edit", "update", "modify", "change", "add", "remove",
+    "refactor", "fix", "rename", "replace", "düzenle", "değiştir",
+    "исправ", "измени", "обнови", "добавь", "убери", "поменяй",
+]
+_RUN_KW = [
+    "run", "execute", "launch", "start", "çalıştır",
+    "запусти", "выполни",
+]
+_BUILD_KW = [
+    "build", "make it work", "try", "attempt",
+    "собери", "сделай чтобы работало",
+]
+_EXPLAIN_KW = [
+    "explain", "what does", "describe", "analyze", "açıkla", "ne yapıyor",
+    "объясни", "что делает", "как работает", "разбери", "проанализируй",
+]
+_VISIBLE_FILE_REF_KW = [
+    "this file", "that file", "current file", "open file", "opened file",
+    "this code", "that code", "current code", "this script",
+    "этот файл", "этого файла", "из этого файла", "в этом файле",
+    "текущий файл", "этот код", "этого кода", "этот скрипт",
+]
+
 
 def _get_api_key() -> str:
     with open(API_CONFIG_PATH, "r", encoding="utf-8") as f:
@@ -118,42 +151,169 @@ def _take_screenshot() -> Path | None:
         return None
 
 
+def _contains_any(text: str, keywords: list[str]) -> bool:
+    return any(k in text for k in keywords)
+
+
+def _needs_visible_file_context(description: str, file_path: str, code: str) -> bool:
+    if file_path or code:
+        return False
+    desc = (description or "").lower()
+    return _contains_any(desc, _VISIBLE_FILE_REF_KW)
+
+
+def _parse_json_object(text: str) -> dict:
+    cleaned = _clean_code(text or "")
+    try:
+        data = json.loads(cleaned)
+        return data if isinstance(data, dict) else {}
+    except Exception:
+        pass
+
+    match = re.search(r"\{.*\}", cleaned, re.DOTALL)
+    if not match:
+        return {}
+
+    try:
+        data = json.loads(match.group(0))
+        return data if isinstance(data, dict) else {}
+    except Exception:
+        return {}
+
+
+def _extract_current_file_context_from_screen(description: str, player=None) -> tuple[dict, str]:
+    from google import genai
+    from google.genai import types
+
+    if player:
+        player.write_log("[Code] Reading current file from screen...")
+
+    screenshot_path = _take_screenshot()
+    if not screenshot_path:
+        return {}, "Could not capture the current editor from the screen, sir."
+
+    try:
+        client = genai.Client(api_key=_get_api_key())
+        image_bytes = screenshot_path.read_bytes()
+
+        prompt = f"""You are extracting code-editor context from a screenshot.
+
+The user asked: {description or "Explain the current file."}
+
+Return ONLY valid JSON with this exact shape:
+{{
+  "is_code_file": true,
+  "file_path": "",
+  "file_name": "",
+  "language": "",
+  "visible_code": ""
+}}
+
+Rules:
+- Use the focused code editor pane only.
+- "file_path" must be the absolute path only if it is clearly visible; otherwise use "".
+- "file_name" should be the visible file name or tab title if present.
+- "language" should be the best language guess from the visible editor content.
+- "visible_code" must contain only the code visibly readable on screen, preserving indentation as much as possible.
+- If this is not a code file/editor, set "is_code_file" to false and leave the other fields empty.
+- Do not add markdown, comments, or any text outside the JSON object."""
+
+        response = client.models.generate_content(
+            model=GEMINI_MODEL,
+            contents=[
+                types.Part.from_bytes(data=image_bytes, mime_type="image/png"),
+                prompt,
+            ],
+        )
+
+        data = _parse_json_object(response.text or "")
+        if not data:
+            return {}, "I couldn't understand the current file from the screen, sir."
+
+        return data, ""
+    except Exception as e:
+        return {}, f"Could not inspect the current file on screen: {e}"
+    finally:
+        try:
+            screenshot_path.unlink()
+        except Exception:
+            pass
+
+
+def _resolve_visible_file_context(
+    action: str,
+    description: str,
+    file_path: str,
+    code: str,
+    language: str,
+    player=None,
+) -> tuple[str, str, str, str]:
+    if action not in {"explain", "edit", "optimize", "run"}:
+        return file_path, code, language, ""
+    if not _needs_visible_file_context(description, file_path, code):
+        return file_path, code, language, ""
+
+    data, err = _extract_current_file_context_from_screen(description, player)
+    if err:
+        return file_path, code, language, err
+
+    if not data.get("is_code_file", True):
+        return file_path, code, language, "I couldn't detect an open code file on the screen, sir."
+
+    resolved_path = str(data.get("file_path") or "").strip()
+    resolved_code = str(data.get("visible_code") or "").rstrip()
+    resolved_lang = str(data.get("language") or "").strip() or language
+    resolved_name = str(data.get("file_name") or "").strip()
+
+    if resolved_path and Path(resolved_path).exists():
+        if player:
+            player.write_log(f"[Code] Current file: {resolved_path}")
+        return resolved_path, code, resolved_lang, ""
+
+    if resolved_code:
+        if player:
+            label = resolved_name or "visible code"
+            player.write_log(f"[Code] Current file from screen: {label}")
+        return "", resolved_code, resolved_lang, ""
+
+    return file_path, code, language, "I couldn't read enough code from the current file on screen, sir."
+
+
 def _detect_intent(description: str, file_path: str, code: str) -> str:
     desc = (description or "").lower()
 
-    screen_kw = ["screen", "screenshot", "what's on screen", "what i see",
-                 "ekrandaki", "ekranda", "bu hatayı", "why am i getting",
-                 "neden hata", "what's wrong", "görüntü"]
-    if any(k in desc for k in screen_kw):
+    if _contains_any(desc, _SCREEN_DEBUG_KW):
         return "screen_debug"
 
-    optimize_kw = ["optimize", "refactor", "clean up", "improve", "temizle",
-                   "iyileştir", "daha iyi", "make it better", "hızlandır"]
-    if any(k in desc for k in optimize_kw) and (code or file_path):
+    if _needs_visible_file_context(description, file_path, code):
+        if _contains_any(desc, _EDIT_KW):
+            return "edit"
+        if _contains_any(desc, _RUN_KW):
+            return "run"
+        if _contains_any(desc, _OPTIMIZE_KW):
+            return "optimize"
+        if _contains_any(desc, _BUILD_KW):
+            return "build"
+        return "explain"
+
+    if _contains_any(desc, _OPTIMIZE_KW) and (code or file_path):
         return "optimize"
 
     if file_path:
         p = Path(file_path)
-        edit_kw  = ["edit", "update", "modify", "change", "add", "remove",
-                    "refactor", "fix", "rename", "replace", "düzenle", "değiştir"]
-        run_kw   = ["run", "execute", "launch", "start", "çalıştır"]
-        build_kw = ["build", "make it work", "try", "attempt"]
-
-        if p.exists() and any(k in desc for k in edit_kw):
+        if p.exists() and _contains_any(desc, _EDIT_KW):
             return "edit"
-        if p.exists() and any(k in desc for k in run_kw):
+        if p.exists() and _contains_any(desc, _RUN_KW):
             return "run"
-        if any(k in desc for k in build_kw):
+        if _contains_any(desc, _BUILD_KW):
             return "build"
         if p.exists():
             return "explain"
 
-    explain_kw = ["explain", "what does", "describe", "analyze", "açıkla", "ne yapıyor"]
-    if any(k in desc for k in explain_kw) and (code or file_path):
+    if _contains_any(desc, _EXPLAIN_KW) and (code or file_path):
         return "explain"
 
-    build_kw = ["build", "make it work", "try and", "attempt"]
-    if any(k in desc for k in build_kw):
+    if _contains_any(desc, _BUILD_KW + ["try and"]):
         return "build"
 
     return "write"
@@ -275,15 +435,17 @@ def _write_action(description, language, output_path, player) -> str:
         return f"Could not generate code: {e}"
 
 
-def _edit_action(file_path, instruction, player) -> str:
-    if not file_path:
+def _edit_action(file_path, instruction, player, code="") -> str:
+    if not file_path and not code:
         return "Please provide a file path to edit, sir."
     if not instruction:
         return "Please describe what change to make, sir."
 
-    content, err = _read_file(file_path)
-    if err:
-        return err
+    content = code
+    if file_path:
+        content, err = _read_file(file_path)
+        if err:
+            return err
 
     if player:
         player.write_log("[Code] Editing file...")
@@ -304,9 +466,16 @@ Updated code:"""
     except Exception as e:
         return f"Could not edit code: {e}"
 
-    status = _save_file(Path(file_path), edited)
-    print(f"[Code] Edited: {file_path}")
-    return f"File edited. {status}\n\nPreview:\n{_preview(edited)}"
+    if file_path:
+        status = _save_file(Path(file_path), edited)
+        print(f"[Code] Edited: {file_path}")
+        return f"File edited. {status}\n\nPreview:\n{_preview(edited)}"
+
+    return (
+        "I prepared an updated version of the visible code, sir, "
+        "but I couldn't save it because the real file path was not visible on screen.\n\n"
+        f"Preview:\n{_preview(edited)}"
+    )
 
 
 def _explain_action(file_path, code, player) -> str:
@@ -335,8 +504,10 @@ Explanation:"""
         return f"Could not explain code: {e}"
 
 
-def _run_action(file_path, args, timeout, player) -> str:
+def _run_action(file_path, args, timeout, player, code="") -> str:
     if not file_path:
+        if code:
+            return "I can see the current code on screen, sir, but I still need the actual file path to run it."
         return "Please provide a file path to run, sir."
     p = Path(file_path)
     if not p.exists():
@@ -432,13 +603,22 @@ Optimized code:"""
     except Exception as e:
         return f"Could not optimize code: {e}"
 
-    save_path = Path(file_path) if file_path else _resolve_save_path(output_path, lang)
-    status = _save_file(save_path, optimized)
-    print(f"[Code] Optimized: {save_path}")
-
     original_lines  = len(code.splitlines())
     optimized_lines = len(optimized.splitlines())
     diff = original_lines - optimized_lines
+
+    if not file_path and not output_path:
+        return (
+            "I prepared an optimized version of the visible code, sir, "
+            "but I couldn't save it because the real file path was not visible on screen.\n"
+            f"Lines: {original_lines} → {optimized_lines} "
+            f"({'−' if diff > 0 else '+'}{abs(diff)} lines)\n\n"
+            f"Preview:\n{_preview(optimized)}"
+        )
+
+    save_path = Path(file_path) if file_path else _resolve_save_path(output_path, lang)
+    status = _save_file(save_path, optimized)
+    print(f"[Code] Optimized: {save_path}")
 
     return (
         f"Code optimized. {status}\n"
@@ -560,6 +740,17 @@ def code_helper(
         action = _detect_intent(description, file_path, code)
         print(f"[Code] Auto-detected action: {action}")
 
+    file_path, code, language, ctx_err = _resolve_visible_file_context(
+        action,
+        description,
+        file_path,
+        code,
+        language,
+        player,
+    )
+    if ctx_err:
+        return ctx_err
+
     if action == "write":
         return _write_action(description, language, output_path, player)
 
@@ -567,14 +758,15 @@ def code_helper(
         return _edit_action(
             file_path,
             description or p.get("instruction", ""),
-            player
+            player,
+            code=code,
         )
 
     elif action == "explain":
         return _explain_action(file_path, code, player)
 
     elif action == "run":
-        return _run_action(file_path, args, timeout, player)
+        return _run_action(file_path, args, timeout, player, code=code)
 
     elif action == "build":
         return _build_action(description, language, output_path, args, timeout, speak, player)
