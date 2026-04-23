@@ -235,12 +235,14 @@ TOOL_DECLARATIONS = [
         "description": (
             "Manages files and folders. Use for: listing files, creating/deleting/moving/copying "
             "files, reading file contents, finding files by name or extension, checking disk usage, "
-            "organizing the desktop, getting file info."
+            "organizing the desktop, getting file info, or analyzing a file's content by path. "
+            "IMPORTANT: for delete action, ALWAYS call first without confirm (returns confirmation "
+            "prompt), then call again with confirm=true only after user approves."
         ),
         "parameters": {
             "type": "OBJECT",
             "properties": {
-                "action":      {"type": "STRING", "description": "list | create_file | create_folder | delete | move | copy | rename | read | write | find | largest | disk_usage | organize_desktop | info"},
+                "action":      {"type": "STRING", "description": "list | create_file | create_folder | delete | move | copy | rename | read | write | find | largest | disk_usage | organize_desktop | info | analyze"},
                 "path":        {"type": "STRING", "description": "File/folder path or shortcut: desktop, downloads, documents, home"},
                 "destination": {"type": "STRING", "description": "Destination path for move/copy"},
                 "new_name":    {"type": "STRING", "description": "New name for rename"},
@@ -248,6 +250,8 @@ TOOL_DECLARATIONS = [
                 "name":        {"type": "STRING", "description": "File name to search for"},
                 "extension":   {"type": "STRING", "description": "File extension to search (e.g. .pdf)"},
                 "count":       {"type": "INTEGER", "description": "Number of results for largest"},
+                "confirm":     {"type": "BOOLEAN", "description": "Set true to confirm a delete after user approval"},
+                "append":      {"type": "BOOLEAN", "description": "Append instead of overwrite for write action"},
             },
             "required": ["action"]
         }

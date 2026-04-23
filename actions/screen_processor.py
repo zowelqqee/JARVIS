@@ -123,7 +123,7 @@ class _CameraManager:
         self._cap = cv2.VideoCapture(idx, cv2.CAP_DSHOW)
         if self._cap.isOpened():
             # Flush stale frames from the buffer
-            for _ in range(5):
+            for _ in range(3):
                 self._cap.read()
             self.ready = True
             print(f"[Camera] ✅ Singleton open (index {idx})")
@@ -257,13 +257,13 @@ def _local_detect(image_bytes: bytes) -> str | None:
 
 def _gemini_analyze(image_bytes: bytes, question: str) -> str:
     """
-    Analyze image via Gemini 2.5 Flash REST API.
-    Typical latency: 0.4–1.5s (vs 5–20s for Live API).
+    Analyze image via Gemini REST API.
+    Uses flash-lite for fast responses (~0.3–0.8s).
     """
     client = genai.Client(api_key=_get_api_key())
     full_q = f"{VISION_PROMPT}\n\nUser: {question}"
     resp   = client.models.generate_content(
-        model="gemini-2.5-flash",
+        model="gemini-2.5-flash-lite",
         contents=[
             types.Part.from_bytes(data=image_bytes, mime_type="image/jpeg"),
             full_q,

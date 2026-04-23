@@ -3,6 +3,7 @@
 
 import re
 import time
+import threading
 import subprocess
 import platform
 import shutil
@@ -120,6 +121,11 @@ def _normalize(raw: str) -> str:
     return raw
 
 
+_TERMINAL_APPS = {"cmd", "powershell"}
+
+SW_RESTORE      = 9
+SW_SHOWMAXIMIZED = 3
+
 def _is_running(app_name: str) -> bool:
     if not _PSUTIL:
         return False
@@ -138,7 +144,7 @@ def _is_running(app_name: str) -> bool:
         pass
     return False
 
-def _focus_existing_window(app_name: str) -> bool:
+def _focus_existing_window(app_name: str, show_cmd: int = SW_RESTORE) -> bool:
     system = platform.system()
 
     if system == "Windows":
@@ -146,7 +152,6 @@ def _focus_existing_window(app_name: str) -> bool:
             import ctypes
             user32 = ctypes.windll.user32
 
-            SW_RESTORE = 9
             found = [None]
 
             candidates = {
@@ -155,8 +160,6 @@ def _focus_existing_window(app_name: str) -> bool:
                 app_name.lower().replace(" ", "").strip(),
             }
 
-            # Collect PIDs of matching processes for title-independent matching
-            # (e.g. Spotify shows track name in title, not "Spotify")
             target_pids: set[int] = set()
             if _PSUTIL:
                 key = app_name.lower().strip()
@@ -173,7 +176,8 @@ def _focus_existing_window(app_name: str) -> bool:
                     pass
 
             def enum_handler(hwnd, _):
-                if not user32.IsWindowVisible(hwnd):
+                # Include iconic (minimized) windows in addition to visible ones
+                if not user32.IsWindowVisible(hwnd) and not user32.IsIconic(hwnd):
                     return True
                 length = user32.GetWindowTextLengthW(hwnd)
                 if length == 0:
@@ -183,13 +187,11 @@ def _focus_existing_window(app_name: str) -> bool:
                 title = buffer.value.lower().strip()
                 if not title:
                     return True
-                # 1. Match by window title
                 for candidate in candidates:
                     compact_title = title.replace(" ", "")
                     if candidate in title or candidate in compact_title:
                         found[0] = hwnd
                         return False
-                # 2. Match by owning process PID (handles dynamic titles like Spotify)
                 if target_pids:
                     pid = ctypes.c_ulong()
                     user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
@@ -203,8 +205,22 @@ def _focus_existing_window(app_name: str) -> bool:
 
             if found[0]:
                 hwnd = found[0]
-                user32.ShowWindow(hwnd, SW_RESTORE)
-                user32.SetForegroundWindow(hwnd)
+                user32.ShowWindow(hwnd, show_cmd)
+                user32.BringWindowToTop(hwnd)
+                # Attach input threads so SetForegroundWindow succeeds even when
+                # another app has focus (e.g. after minimize/background state).
+                try:
+                    fg_hwnd = user32.GetForegroundWindow()
+                    fg_tid  = user32.GetWindowThreadProcessId(fg_hwnd, None)
+                    tgt_tid = user32.GetWindowThreadProcessId(hwnd, None)
+                    if fg_tid and fg_tid != tgt_tid:
+                        user32.AttachThreadInput(fg_tid, tgt_tid, True)
+                        user32.SetForegroundWindow(hwnd)
+                        user32.AttachThreadInput(fg_tid, tgt_tid, False)
+                    else:
+                        user32.SetForegroundWindow(hwnd)
+                except Exception:
+                    user32.SetForegroundWindow(hwnd)
                 time.sleep(0.4)
                 return True
 
@@ -258,7 +274,30 @@ def _wait_for_process(app_name: str, timeout: float = 4.0) -> bool:
     return False
 
 
+def _maximize_later(app_name: str, delay: float = 2.0) -> None:
+    """Maximize the app window in a background thread after a short delay."""
+    def _do():
+        time.sleep(delay)
+        _focus_existing_window(app_name, SW_SHOWMAXIMIZED)
+    threading.Thread(target=_do, daemon=True, name="MaximizeWindow").start()
+
+
 def _launch_windows(app_name: str) -> bool:
+    # 0. Terminal apps must open with a visible console window
+    key = app_name.lower().replace(".exe", "").replace(" ", "")
+    if key in _TERMINAL_APPS:
+        try:
+            subprocess.Popen(
+                app_name,
+                shell=True,
+                creationflags=subprocess.CREATE_NEW_CONSOLE,
+            )
+            time.sleep(0.8)
+            _maximize_later(app_name)
+            return True
+        except Exception as e:
+            print(f"[open_app] ⚠️ Terminal launch failed: {e}")
+
     # 1. Direct subprocess launch (works for .exe and PATH binaries like "code", "chrome")
     try:
         subprocess.Popen(
@@ -268,6 +307,7 @@ def _launch_windows(app_name: str) -> bool:
             creationflags=subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP,
         )
         if _wait_for_process(app_name, 4.0):
+            _maximize_later(app_name)
             return True
     except (FileNotFoundError, OSError):
         pass
@@ -285,6 +325,7 @@ def _launch_windows(app_name: str) -> bool:
                 creationflags=subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP,
             )
             if _wait_for_process(app_name, 4.0):
+                _maximize_later(app_name)
                 return True
         except Exception as e:
             print(f"[open_app] ⚠️ which-path launch failed: {e}")
@@ -294,6 +335,7 @@ def _launch_windows(app_name: str) -> bool:
         import os
         os.startfile(app_name)
         time.sleep(1.5)
+        _maximize_later(app_name)
         return True
     except (FileNotFoundError, OSError):
         pass
@@ -318,6 +360,7 @@ def _launch_windows(app_name: str) -> bool:
         )
         if result.returncode == 0 and not result.stderr.strip():
             time.sleep(2.0)
+            _maximize_later(app_name)
             return True
         print(f"[open_app] ⚠️ AppX launch stderr: {result.stderr.decode(errors='ignore')[:100]}")
     except Exception as e:
@@ -333,6 +376,7 @@ def _launch_windows(app_name: str) -> bool:
         )
         if result.returncode == 0:
             time.sleep(2.0)
+            _maximize_later(app_name)
             return True
     except Exception as e:
         print(f"[open_app] ⚠️ shell start failed: {e}")
@@ -343,7 +387,6 @@ def _launch_windows(app_name: str) -> bool:
         pyautogui.PAUSE = 0.1
         pyautogui.press("win")
         time.sleep(1.0)
-        # Use clipboard paste for reliability (handles all characters)
         try:
             import pyperclip
             pyperclip.copy(app_name)
@@ -353,6 +396,7 @@ def _launch_windows(app_name: str) -> bool:
         time.sleep(1.2)
         pyautogui.press("enter")
         time.sleep(3.0)
+        _maximize_later(app_name)
         return True
     except Exception as e:
         print(f"[open_app] ⚠️ pyautogui fallback failed: {e}")
@@ -458,11 +502,21 @@ def open_app(
         player.write_log(f"[open_app] {app_name}")
 
     try:
-        # 1. If already running, focus existing window first
+        # 1. If already running, try to bring existing window to front / restore
         if _is_running(normalized) or _is_running(app_name):
-            if _focus_existing_window(normalized) or _focus_existing_window(app_name):
+            focused = (
+                _focus_existing_window(normalized, SW_RESTORE)
+                or _focus_existing_window(app_name, SW_RESTORE)
+            )
+            if focused:
                 return f"Focused existing {app_name} window, sir."
 
+            # Process alive but no visible window found (e.g. app was closed but
+            # background service still runs) — launch a fresh instance instead.
+            print(f"[open_app] ℹ️ {app_name} process alive but no window found — relaunching")
+            success = launcher(normalized) or (normalized != app_name and launcher(app_name))
+            if success:
+                return f"Opened {app_name} successfully, sir."
             return f"{app_name} is already running, sir, but I couldn't bring its window to the front."
 
         # 2. Otherwise launch normally

@@ -387,6 +387,51 @@ def get_file_info(path: str) -> str:
     except Exception as e:
         return f"Could not get file info: {e}"
 
+_TEXT_EXTENSIONS = {
+    '.txt', '.log', '.md', '.csv', '.json', '.xml', '.py', '.js', '.ts',
+    '.html', '.css', '.java', '.cpp', '.c', '.h', '.sh', '.yaml', '.yml',
+    '.toml', '.ini', '.cfg', '.bat', '.ps1', '.conf', '.env', '.gitignore',
+    '.sql', '.rs', '.go', '.rb', '.php', '.swift', '.kt', '.lua', '.r',
+}
+_IMAGE_EXTENSIONS = {
+    '.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp', '.ico', '.tiff', '.tif',
+}
+
+
+def analyze_file(path: str) -> str:
+    """Detects file type and returns content or description."""
+    target = Path(path).expanduser()
+    if not target.exists():
+        return f"File not found: {path}"
+    if not target.is_file():
+        return f"Not a file: {path}"
+
+    ext  = target.suffix.lower()
+    info = get_file_info(path)
+
+    if ext in _TEXT_EXTENSIONS:
+        content = target.read_text(encoding="utf-8", errors="ignore")
+        if len(content) > 3000:
+            content = content[:3000] + f"\n\n... (truncated, {len(content)} total chars)"
+        return f"{info}\n\nContent:\n{content}"
+
+    if ext in _IMAGE_EXTENSIONS:
+        return (
+            f"{info}\n\n"
+            f"Image file ({ext}). To analyze its visual content, use screen_process "
+            f"with angle='screen' after opening the file."
+        )
+
+    if ext == ".pdf":
+        return f"{info}\n\nPDF document. Open it to read its contents."
+
+    if ext in {".exe", ".dll", ".bin", ".so", ".dylib"}:
+        return f"{info}\n\nBinary executable — cannot read as text."
+
+    # Unknown / binary: return metadata only
+    return f"{info}\n\nFormat '{ext}' cannot be read directly."
+
+
 def file_controller(
     parameters: dict,
     response=None,
@@ -419,7 +464,14 @@ def file_controller(
             result = create_folder(full)
 
         elif action == "delete":
-            full = _full_path(path, name)
+            full    = _full_path(path, name)
+            confirm = (parameters or {}).get("confirm", False)
+            if not confirm:
+                item_name = Path(full).name if Path(full).exists() else full
+                return (
+                    f"CONFIRM_REQUIRED: Are you sure you want to delete '{item_name}'? "
+                    f"Call file_controller again with action='delete' and confirm=true to proceed."
+                )
             result = delete_file(full)
 
         elif action == "move":
@@ -469,6 +521,10 @@ def file_controller(
         elif action == "info":
             full = _full_path(path, name)
             result = get_file_info(full)
+
+        elif action == "analyze":
+            full = _full_path(path, name)
+            result = analyze_file(full)
 
         else:
             result = f"Unknown action: '{action}'"
