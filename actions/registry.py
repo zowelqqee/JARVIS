@@ -195,6 +195,11 @@ TOOL_DECLARATIONS = [
             "ALSO use for: snapping windows — snap_left/snap_right (active window), "
             "snap_app_left/snap_app_right with value=AppName (targets a specific app by name). "
             "ALSO use for repeated actions: 'refresh 10 times' → action: reload_n, value: 10. "
+            "ALSO use for window awareness: "
+            "action=active_window → returns the title of the currently focused window; "
+            "action=list_windows → returns all open window titles. "
+            "Call active_window whenever you need to know what the user is currently working in. "
+            "Call list_windows whenever user asks what is open or you need to resolve an ambiguous app reference. "
             "Use for ANY single computer control command. "
             "NEVER route simple computer commands to agent_task."
         ),

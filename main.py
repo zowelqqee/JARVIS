@@ -180,6 +180,7 @@ class VectorLive:
 
     def _build_config(self) -> types.LiveConnectConfig:
         from datetime import datetime
+        from actions.computer_settings import get_desktop_context
 
         memory  = load_memory()
         mem_str = format_memory_for_prompt(memory)
@@ -195,10 +196,18 @@ class VectorLive:
             f"If user says 'in 2 minutes', add 2 minutes to this time.\n\n"
         )
 
-        if mem_str:
-            sys_prompt = time_ctx + mem_str + "\n\n" + sys_prompt
-        else:
-            sys_prompt = time_ctx + sys_prompt
+        try:
+            desktop_ctx = (
+                f"[DESKTOP CONTEXT — snapshot at session start]\n"
+                f"{get_desktop_context()}\n"
+                f"Use this to understand references like 'this window', 'the open app', "
+                f"'what I'm working on'. For live state, call computer_settings active_window or list_windows.\n\n"
+            )
+        except Exception:
+            desktop_ctx = ""
+
+        blocks = [time_ctx, desktop_ctx, mem_str + "\n\n" if mem_str else "", sys_prompt]
+        sys_prompt = "".join(blocks)
 
         return types.LiveConnectConfig(
             response_modalities=["AUDIO"],

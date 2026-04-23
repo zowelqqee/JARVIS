@@ -370,6 +370,145 @@ def _focus_window_by_name(app_name: str) -> bool:
         print(f"[Settings] _focus_window_by_name failed: {e}")
     return False
 
+def get_active_window() -> str:
+    """Returns the title of the currently focused window."""
+    if _OS == "Windows":
+        try:
+            import ctypes
+            user32 = ctypes.windll.user32
+            hwnd   = user32.GetForegroundWindow()
+            length = user32.GetWindowTextLengthW(hwnd)
+            if length == 0:
+                return "No active window."
+            buf = ctypes.create_unicode_buffer(length + 1)
+            user32.GetWindowTextW(hwnd, buf, length + 1)
+            return buf.value
+        except Exception as e:
+            return f"Could not get active window: {e}"
+    elif _OS == "Darwin":
+        try:
+            result = subprocess.run(
+                ["osascript", "-e",
+                 'tell application "System Events" to get name of first process whose frontmost is true'],
+                capture_output=True, text=True, timeout=3
+            )
+            return result.stdout.strip() or "Unknown"
+        except Exception as e:
+            return f"Could not get active window: {e}"
+    return "Active window detection not supported on this OS."
+
+
+_WIN_NOISE = {
+    "program manager", "default ime", "msctfime ui", "gdi+ window",
+    "nvidia overlay", "amdow", "shell_traywnd",
+}
+
+def list_open_windows() -> str:
+    """Returns titles of all visible top-level windows."""
+    if _OS == "Windows":
+        try:
+            import ctypes
+            user32      = ctypes.windll.user32
+            WNDENUMPROC = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_void_p, ctypes.c_void_p)
+            titles: list[str] = []
+
+            def _cb(hwnd, _):
+                if not user32.IsWindowVisible(hwnd):
+                    return True
+                length = user32.GetWindowTextLengthW(hwnd)
+                if length == 0:
+                    return True
+                buf = ctypes.create_unicode_buffer(length + 1)
+                user32.GetWindowTextW(hwnd, buf, length + 1)
+                title = buf.value.strip()
+                if title:
+                    titles.append(title)
+                return True
+
+            user32.EnumWindows(WNDENUMPROC(_cb), 0)
+
+            seen: set[str] = set()
+            clean: list[str] = []
+            for t in titles:
+                if any(n in t.lower() for n in _WIN_NOISE):
+                    continue
+                key = t.lower()[:50]
+                if key not in seen:
+                    seen.add(key)
+                    clean.append(t)
+
+            if not clean:
+                return "No visible windows found."
+            return "Open windows:\n" + "\n".join(f"  • {t}" for t in clean[:25])
+        except Exception as e:
+            return f"Could not list windows: {e}"
+    elif _OS == "Darwin":
+        try:
+            result = subprocess.run(
+                ["osascript", "-e",
+                 'tell application "System Events" to get name of every process whose visible is true'],
+                capture_output=True, text=True, timeout=3,
+            )
+            apps = [a.strip() for a in result.stdout.strip().split(",") if a.strip()]
+            return "Open apps:\n" + "\n".join(f"  • {a}" for a in apps)
+        except Exception as e:
+            return f"Could not list windows: {e}"
+    return "Window listing not supported on this OS."
+
+
+def get_desktop_context() -> str:
+    """Returns a compact snapshot: active window + open app names. Used for system prompt injection."""
+    active = get_active_window()
+    if _OS == "Windows":
+        try:
+            import ctypes
+            user32      = ctypes.windll.user32
+            WNDENUMPROC = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_void_p, ctypes.c_void_p)
+            app_names: list[str] = []
+
+            def _cb(hwnd, _):
+                if not user32.IsWindowVisible(hwnd):
+                    return True
+                length = user32.GetWindowTextLengthW(hwnd)
+                if length == 0:
+                    return True
+                buf = ctypes.create_unicode_buffer(length + 1)
+                user32.GetWindowTextW(hwnd, buf, length + 1)
+                title = buf.value.strip()
+                if title and not any(n in title.lower() for n in _WIN_NOISE):
+                    app_names.append(title)
+                return True
+
+            user32.EnumWindows(WNDENUMPROC(_cb), 0)
+
+            # Deduplicate and trim to app root name (before " - ")
+            seen: set[str] = set()
+            apps: list[str] = []
+            for t in app_names:
+                root = t.split(" — ")[0].split(" - ")[0].strip()
+                key  = root.lower()[:40]
+                if key and key not in seen:
+                    seen.add(key)
+                    apps.append(root)
+
+            open_str = ", ".join(apps[:15]) if apps else "none"
+            return f"Active window: {active}\nOpen apps: {open_str}"
+        except Exception:
+            return f"Active window: {active}"
+    elif _OS == "Darwin":
+        try:
+            result = subprocess.run(
+                ["osascript", "-e",
+                 'tell application "System Events" to get name of every process whose visible is true'],
+                capture_output=True, text=True, timeout=3,
+            )
+            apps = [a.strip() for a in result.stdout.strip().split(",") if a.strip()]
+            return f"Active window: {active}\nOpen apps: {', '.join(apps[:15])}"
+        except Exception:
+            return f"Active window: {active}"
+    return f"Active window: {active}"
+
+
 _WINDOW_TITLE_ALIASES: dict[str, list[str]] = {
     "cmd":             ["cmd", "command prompt", "cmd.exe"],
     "command prompt":  ["cmd", "command prompt", "cmd.exe"],
@@ -664,6 +803,14 @@ ACTION_MAP = {
     "toggle_play":             pause_video,
     "stop_video":              pause_video,
     "resume_video":            pause_video,
+    "active_window":           get_active_window,
+    "get_active_window":       get_active_window,
+    "current_window":          get_active_window,
+    "what_is_open":            get_active_window,
+    "list_windows":            list_open_windows,
+    "list_open_windows":       list_open_windows,
+    "open_windows":            list_open_windows,
+    "show_windows":            list_open_windows,
     "close_app":               close_app,
     "close_window":            close_window,
     "quit_app":                close_app,
@@ -780,7 +927,7 @@ def _detect_action(description: str) -> dict:
     from google import genai as _genai
     _client = _genai.Client(api_key=_get_api_key())
 
-    available = ", ".join(sorted(ACTION_MAP.keys())) + ", volume_set, type_text, write_on_screen, reload_n, press_key, snap_app_left, snap_app_right"
+    available = ", ".join(sorted(ACTION_MAP.keys())) + ", volume_set, type_text, write_on_screen, reload_n, press_key, snap_app_left, snap_app_right, active_window, list_windows"
 
     prompt = f"""The user wants to control their computer. Detect their intent.
 
@@ -855,6 +1002,13 @@ Examples:
 - "snap Chrome to the left" → {{"action": "snap_app_left", "value": "Chrome"}}
 - "snap VSCode to right" → {{"action": "snap_app_right", "value": "Visual Studio Code"}}
 - "put Chrome on the left side" → {{"action": "snap_app_left", "value": "Chrome"}}
+- "what window is open" → {{"action": "active_window", "value": null}}
+- "what's in focus" → {{"action": "active_window", "value": null}}
+- "какое окно активно" → {{"action": "active_window", "value": null}}
+- "что сейчас открыто" → {{"action": "list_windows", "value": null}}
+- "list all open windows" → {{"action": "list_windows", "value": null}}
+- "show all open apps" → {{"action": "list_windows", "value": null}}
+- "какие окна открыты" → {{"action": "list_windows", "value": null}}
 
 IMPORTANT:
 - Always return one of the available actions listed above.
@@ -940,6 +1094,16 @@ def computer_settings(
             return f"Reloaded page {n} time{'s' if n > 1 else ''}."
         except Exception as e:
             return f"Could not reload: {e}"
+
+    if action in ("active_window", "get_active_window", "current_window", "what_is_open"):
+        result = get_active_window()
+        print(f"[Settings] Active window: {result}")
+        return result
+
+    if action in ("list_windows", "list_open_windows", "open_windows", "show_windows"):
+        result = list_open_windows()
+        print(f"[Settings] {result[:80]}")
+        return result
 
     if action in ("snap_app_left", "snap_app_right"):
         app = str(value or params.get("app", "")).strip()
