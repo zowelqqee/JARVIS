@@ -1,10 +1,12 @@
 import asyncio
+import re
 import threading
 import concurrent.futures
 import platform
 import shutil
 import subprocess
 from pathlib import Path
+from urllib.parse import quote_plus
 from playwright.async_api import async_playwright, TimeoutError as PlaywrightTimeout
 
 def _get_default_browser_id() -> str:
@@ -28,7 +30,16 @@ def _get_default_browser_id() -> str:
                  "LSHandlers"],
                 capture_output=True, text=True, timeout=5
             )
-            return result.stdout.lower()
+            output = result.stdout
+            # Parse specifically for the HTTP URL scheme handler to avoid
+            # false-positive "safari" matches from other content-type entries.
+            blocks = re.findall(r'\{[^}]+\}', output, re.DOTALL)
+            for block in blocks:
+                if re.search(r'\bLSHandlerURLScheme\s*=\s*http\s*;', block):
+                    role = re.search(r'LSHandlerRoleAll\s*=\s*"?([^";\s]+)"?', block)
+                    if role:
+                        return role.group(1).lower()
+            return ""
 
         elif system == "Linux":
             result = subprocess.run(
@@ -273,11 +284,15 @@ class _BrowserThread:
             self._playwright = None
 
     async def _go_to(self, url: str) -> str:
+        url = url.strip()
+        if not url:
+            return "No URL provided."
         if not url.startswith("http"):
             url = "https://" + url
         page = await self._get_page()
         try:
             await page.goto(url, wait_until="domcontentloaded", timeout=15000)
+            await page.bring_to_front()
             return f"Opened: {page.url}"
         except PlaywrightTimeout:
             return f"Timeout loading: {url}"
@@ -285,10 +300,11 @@ class _BrowserThread:
             return f"Navigation error: {e}"
 
     async def _search(self, query: str, engine: str = "google") -> str:
+        q = quote_plus(query)
         engines = {
-            "google":     f"https://www.google.com/search?q={query.replace(' ', '+')}",
-            "bing":       f"https://www.bing.com/search?q={query.replace(' ', '+')}",
-            "duckduckgo": f"https://duckduckgo.com/?q={query.replace(' ', '+')}",
+            "google":     f"https://www.google.com/search?q={q}",
+            "bing":       f"https://www.bing.com/search?q={q}",
+            "duckduckgo": f"https://duckduckgo.com/?q={q}",
         }
         url = engines.get(engine.lower(), engines["google"])
         return await self._go_to(url)
