@@ -151,14 +151,6 @@
         "optional": true
       },
       {
-        "tool": "computer_settings",
-        "description": "Mute volume",
-        "parameters": {
-          "action": "volume_mute"
-        },
-        "optional": true
-      },
-      {
         "tool": "speak",
         "description": "Confirm completion",
         "parameters": {

@@ -1,0 +1,12 @@
+V.E.C.T.O.R. Project Description
+
+V.E.C.T.O.R. is a sophisticated Personal AI Assistant developed by sowohl. Built upon the robust Gemini AI model, V.E.C.T.O.R. is engineered for unparalleled efficiency, precision, and comprehensive computer control.
+
+Key Features & Capabilities:
+- **Comprehensive Control:** Seamless integration with Windows environment, enabling intuitive control over system settings (volume, brightness), application management (open, close, maximize, minimize), and navigation.
+- **Task Automation:** Advanced multi-step task execution via `agent_task` and customizable `protocol` triggers (e.g., 'work mode', 'home mode') for streamlined workflows.
+- **Development & Coding:** Integrated `code_helper` and `dev_agent` tools to facilitate rapid code writing, debugging, building, and project generation across multiple languages.
+- **Web & Productivity:** Tools for web `browser_control`, `web_search`, `file_controller`, `reminder`, and `send_message`, optimizing productivity and information retrieval.
+- **Contextual Awareness:** Utilizes `screen_process` for real-time analysis of screen content and webcam input, enabling sophisticated contextual interaction.
+
+V.E.C.T.O.R. embodies the synergy of Google's powerful AI engine and sowohl's precise engineering, delivering a sharp, calm, and highly efficient assistant designed to maximize user productivity and streamline complex digital interactions.
