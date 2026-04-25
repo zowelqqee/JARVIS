@@ -572,5 +572,121 @@ def main():
     ui.root.mainloop()
 
 
+# ---------------------------------------------------------------------------
+# WebSocket UI — replaces tkinter VectorUI for Tauri/React frontend
+# ---------------------------------------------------------------------------
+
+class WebSocketUI:
+    """
+    Drop-in replacement for VectorUI that broadcasts runtime events over
+    a WebSocket connection instead of rendering tkinter widgets.
+
+    Protocol (server → client), all messages are JSON:
+      {"type": "log",    "text": "...", "role": "user|assistant|system"}
+      {"type": "status", "state": "connecting|listening|thinking|responding|executing|error",
+                         "detail": "optional string"}
+    """
+
+    def __init__(self):
+        self._clients: set = set()
+        self._status: str = "connecting"
+
+    # ------------------------------------------------------------------
+    # WebSocket server handler (one coroutine per connected client)
+    # ------------------------------------------------------------------
+
+    async def handle_client(self, websocket):
+        self._clients.add(websocket)
+        print(f"[WS-UI] Client connected — {len(self._clients)} total")
+        try:
+            await websocket.send(json.dumps({"type": "status", "state": self._status}))
+            await websocket.wait_closed()
+        finally:
+            self._clients.discard(websocket)
+            print(f"[WS-UI] Client disconnected — {len(self._clients)} remaining")
+
+    # ------------------------------------------------------------------
+    # Broadcast helpers
+    # ------------------------------------------------------------------
+
+    async def _broadcast(self, data: dict):
+        if not self._clients:
+            return
+        msg = json.dumps(data)
+        dead: set = set()
+        for ws in list(self._clients):
+            try:
+                await ws.send(msg)
+            except Exception:
+                dead.add(ws)
+        self._clients -= dead
+
+    def _queue_broadcast(self, data: dict):
+        """Schedule a broadcast from within the running asyncio event loop."""
+        try:
+            loop = asyncio.get_running_loop()
+            loop.create_task(self._broadcast(data))
+        except RuntimeError:
+            pass  # called before loop started; drop silently
+
+    # ------------------------------------------------------------------
+    # VectorUI-compatible interface
+    # ------------------------------------------------------------------
+
+    def write_log(self, text: str):
+        tl = text.lower()
+        role = (
+            "user" if tl.startswith("you:")
+            else "assistant" if tl.startswith("v.e.c.t.o.r.:")
+            else "system"
+        )
+        self._queue_broadcast({"type": "log", "text": text, "role": role})
+
+    def set_executing(self, tool_name: str = "", args: dict = None):
+        self._status = "executing"
+        self._queue_broadcast({"type": "status", "state": "executing", "detail": tool_name})
+
+    def set_idle(self):
+        self._status = "listening"
+        self._queue_broadcast({"type": "status", "state": "listening"})
+
+    def set_connecting(self):
+        self._status = "connecting"
+        self._queue_broadcast({"type": "status", "state": "connecting"})
+
+    def set_failed(self, msg: str = ""):
+        self._status = "error"
+        self._queue_broadcast({"type": "status", "state": "error", "detail": msg[:120]})
+
+    def wait_for_api_key(self):
+        if not os.getenv("GEMINI_API_KEY"):
+            raise RuntimeError(
+                "GEMINI_API_KEY not found in .env — "
+                "WebSocket mode requires the key to be set before launch."
+            )
+
+
+def main_ws():
+    """Entry point for Tauri/React frontend via WebSocket."""
+    try:
+        import websockets as _ws
+    except ImportError:
+        raise SystemExit("websockets package not installed — run: pip install websockets")
+
+    ws_ui = WebSocketUI()
+    ws_ui.wait_for_api_key()
+
+    async def serve():
+        vector = VectorLive(ws_ui)
+        async with _ws.serve(ws_ui.handle_client, "localhost", 8765):
+            print("[WS-UI] Listening on ws://localhost:8765")
+            await vector.run()
+
+    try:
+        asyncio.run(serve())
+    except KeyboardInterrupt:
+        print("\n🔴 Shutting down...")
+
+
 if __name__ == "__main__":
-    main()
+    main_ws()
