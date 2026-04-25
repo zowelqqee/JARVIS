@@ -13,7 +13,7 @@ import pyaudio
 from google import genai
 from google.genai import types
 import time
-from ui import VectorUI
+from ws_ui import WebSocketUI
 from memory.memory_manager import load_memory, update_memory, format_memory_for_prompt
 
 from agent.task_queue import get_queue
@@ -143,7 +143,7 @@ def _update_memory_async(user_text: str, vector_text: str) -> None:
 
 class VectorLive:
 
-    def __init__(self, ui: VectorUI):
+    def __init__(self, ui: "WebSocketUI"):
         self.ui               = ui
         self.session          = None
         self.audio_in_queue   = None  # audio received FROM Gemini → speakers
@@ -556,20 +556,21 @@ class VectorLive:
                 await asyncio.sleep(backoff)
 
 
+async def _async_main() -> None:
+    ui = WebSocketUI()
+    ui._loop = asyncio.get_running_loop()
+    await asyncio.to_thread(ui.wait_for_api_key)
+    vector = VectorLive(ui)
+    async with asyncio.TaskGroup() as tg:
+        tg.create_task(ui.serve_forever(), name="ws-server")
+        tg.create_task(vector.run(),       name="vector-live")
+
+
 def main():
-    ui = VectorUI("face.png")
-
-    def runner():
-        ui.wait_for_api_key()
-
-        vector = VectorLive(ui)
-        try:
-            asyncio.run(vector.run())
-        except KeyboardInterrupt:
-            print("\n🔴 Shutting down...")
-
-    threading.Thread(target=runner, daemon=True).start()
-    ui.root.mainloop()
+    try:
+        asyncio.run(_async_main())
+    except (KeyboardInterrupt, SystemExit):
+        print("\n🔴 Shutting down...")
 
 
 if __name__ == "__main__":
