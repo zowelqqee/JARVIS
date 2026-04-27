@@ -1,7 +1,16 @@
 import { useEffect, useRef, useState } from "react";
+import { listen } from "@tauri-apps/api/event";
 import "./App.css";
 
-type Status = "LISTENING" | "EXECUTING" | "CONNECTING" | "OFFLINE";
+type Status = "LISTENING" | "EXECUTING" | "CONNECTING" | "OFFLINE" | "BACKEND_ERROR";
+
+const STATUS_LABEL: Record<Status, string> = {
+  LISTENING: "LISTENING",
+  EXECUTING: "EXECUTING",
+  CONNECTING: "CONNECTING",
+  OFFLINE: "OFFLINE",
+  BACKEND_ERROR: "BACKEND ERROR",
+};
 
 interface LogEntry {
   id: number;
@@ -321,7 +330,21 @@ export default function App() {
   const hudReadouts = useHudReadouts();
 
   const currentTask = activeTools[activeTools.length - 1] ?? "";
-  const statusClass = status.toLowerCase();
+  // BACKEND_ERROR reuses the "offline" visual style (red/inactive state).
+  const statusClass = status === "BACKEND_ERROR" ? "offline" : status.toLowerCase();
+
+  // Listen for backend-error events emitted by the Rust layer.
+  useEffect(() => {
+    let unlisten: (() => void) | undefined;
+    listen<string>("backend-error", () => {
+      setStatus("BACKEND_ERROR");
+    }).then((fn) => {
+      unlisten = fn;
+    });
+    return () => {
+      unlisten?.();
+    };
+  }, []);
 
   useEffect(() => {
     let ws: WebSocket | null = null;
@@ -375,9 +398,11 @@ export default function App() {
       ws.onerror = () => ws?.close();
     }
 
-    connect();
+    // 2-second delay: give Python backend time to start before connecting.
+    const initTimer = setTimeout(connect, 2000);
     return () => {
       alive = false;
+      clearTimeout(initTimer);
       clearTimeout(reconnectTimer);
       ws?.close();
     };
@@ -395,7 +420,7 @@ export default function App() {
         <div className="logo">V.E.C.T.O.R.</div>
         <div className={`status-pill status-pill--${statusClass}`}>
           <span className="status-pill__label">◉ STATUS</span>
-          <span className="status-pill__value">{status}</span>
+          <span className="status-pill__value">{STATUS_LABEL[status]}</span>
         </div>
         <time className="clock">{clock}</time>
       </header>
