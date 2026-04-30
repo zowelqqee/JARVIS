@@ -398,8 +398,8 @@ export default function App() {
       ws.onerror = () => ws?.close();
     }
 
-    // 2-second delay: give Python backend time to start before connecting.
-    const initTimer = setTimeout(connect, 2000);
+    // 5-second delay: give Python backend time to start before connecting.
+    const initTimer = setTimeout(connect, 5000);
     return () => {
       alive = false;
       clearTimeout(initTimer);

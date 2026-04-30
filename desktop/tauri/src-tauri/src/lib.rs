@@ -1,19 +1,17 @@
+use std::fs::OpenOptions;
 use std::path::PathBuf;
+use std::process::{Child, Command, Stdio};
 use std::sync::Mutex;
 use tauri::{AppHandle, Emitter, Manager};
-use tauri_plugin_shell::ShellExt;
 
-struct BackendProcess(Mutex<Option<tauri_plugin_shell::process::CommandChild>>);
+struct BackendProcess(Mutex<Option<Child>>);
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
-        .plugin(tauri_plugin_shell::init())
         .manage(BackendProcess(Mutex::new(None)))
         .setup(|app| {
             let handle = app.handle().clone();
-            // Run in a background thread so the window can open first,
-            // giving the frontend time to mount and register event listeners.
             std::thread::spawn(move || {
                 std::thread::sleep(std::time::Duration::from_millis(500));
                 spawn_python_backend(&handle);
@@ -22,7 +20,7 @@ pub fn run() {
         })
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::Destroyed = event {
-                if let Some(child) = window
+                if let Some(mut child) = window
                     .app_handle()
                     .state::<BackendProcess>()
                     .0
@@ -38,9 +36,6 @@ pub fn run() {
         .expect("error while running tauri application");
 }
 
-// Walk up the directory tree from the exe until main.py is found.
-// In dev builds the exe lives deep inside target/debug/; in production
-// the user is expected to place main.py next to the exe.
 fn find_script() -> Option<PathBuf> {
     let exe = std::env::current_exe().ok()?;
     let mut dir = exe.parent()?;
@@ -53,9 +48,15 @@ fn find_script() -> Option<PathBuf> {
     }
 }
 
+fn log_path() -> PathBuf {
+    if cfg!(windows) {
+        PathBuf::from(r"C:\Users\zowel\AppData\Local\vector-ui\vector_backend.log")
+    } else {
+        std::env::temp_dir().join("vector_backend.log")
+    }
+}
+
 fn spawn_python_backend(app: &AppHandle) {
-    // 1. Prefer bundled resource (production bundle)
-    // 2. Fall back to walking up from the exe (dev + portable installs)
     let script_path = app
         .path()
         .resource_dir()
@@ -67,29 +68,66 @@ fn spawn_python_backend(app: &AppHandle) {
     let script_path = match script_path {
         Some(p) => p,
         None => {
-            eprintln!("[VECTOR] main.py not found");
+            eprintln!("[VECTOR] main.py not found — searched resource_dir and exe ancestors");
             let _ = app.emit("backend-error", "main.py not found".to_string());
             return;
         }
     };
 
-    // Run from main.py's directory so relative imports resolve correctly.
     let cwd = script_path.parent().unwrap().to_path_buf();
-    let python = if cfg!(windows) { "python" } else { "python3" };
+    let log = log_path();
 
-    match app
-        .shell()
-        .command(python)
-        .args(["main.py"])
-        .current_dir(&cwd)
-        .spawn()
-    {
-        Ok((_rx, child)) => {
-            *app.state::<BackendProcess>().0.lock().unwrap() = Some(child);
+    eprintln!("[VECTOR] script_path = {}", script_path.display());
+    eprintln!("[VECTOR] cwd         = {}", cwd.display());
+    eprintln!("[VECTOR] log_file    = {}", log.display());
+
+    if let Some(dir) = log.parent() {
+        let _ = std::fs::create_dir_all(dir);
+    }
+
+    // On Windows try "python" first (standard install), then "python3" (MS Store alias).
+    // On Unix prefer "python3" then fall back to "python".
+    let candidates: &[&str] = if cfg!(windows) {
+        &["python", "python3"]
+    } else {
+        &["python3", "python"]
+    };
+
+    for &exe_name in candidates {
+        eprintln!("[VECTOR] Trying: {} main.py  (cwd: {})", exe_name, cwd.display());
+
+        // Re-open log each attempt so we get fresh file handles for stdout + stderr.
+        let stdout_file = OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&log)
+            .ok();
+        let stderr_file = stdout_file.as_ref().and_then(|f| f.try_clone().ok());
+
+        let mut cmd = Command::new(exe_name);
+        cmd.arg("main.py").current_dir(&cwd);
+
+        match stdout_file {
+            Some(f) => { cmd.stdout(f); }
+            None    => { cmd.stdout(Stdio::null()); }
         }
-        Err(e) => {
-            eprintln!("[VECTOR] Backend launch failed: {e}");
-            let _ = app.emit("backend-error", e.to_string());
+        match stderr_file {
+            Some(f) => { cmd.stderr(f); }
+            None    => { cmd.stderr(Stdio::null()); }
+        }
+
+        match cmd.spawn() {
+            Ok(child) => {
+                eprintln!("[VECTOR] Backend started with '{}' (PID {})", exe_name, child.id());
+                *app.state::<BackendProcess>().0.lock().unwrap() = Some(child);
+                return;
+            }
+            Err(e) => {
+                eprintln!("[VECTOR] '{}' failed: {}", exe_name, e);
+            }
         }
     }
+
+    eprintln!("[VECTOR] All Python executables failed — backend not started");
+    let _ = app.emit("backend-error", "Python executable not found".to_string());
 }
