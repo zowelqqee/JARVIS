@@ -223,8 +223,8 @@ class _BrowserThread:
                 self._page = await self._context.new_page()
             print("[Browser] ✅ Connected to existing browser via CDP")
             return
-        except Exception:
-            pass  # no existing browser — launch fresh
+        except Exception as e:
+            print(f"[Browser] CDP not available ({e}) — launching fresh browser")
 
         # ── 2. Launch fresh browser (with CDP port so next call reuses) ── #
         prog_id                        = _get_default_browser_id()

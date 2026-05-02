@@ -22,7 +22,7 @@ class ErrorDecision(Enum):
     ABORT       = "abort"    
 
 
-ERROR_ANALYST_PROMPT = """You are the error recovery module of MARK XXV AI assistant.
+ERROR_ANALYST_PROMPT = """You are the error recovery module of V.E.C.T.O.R. AI assistant.
 
 A task step has failed. Analyze the error and decide what to do.
 
@@ -177,15 +177,24 @@ Return ONLY the Python code, no explanation."""
         code = response.text.strip()
         code = re.sub(r"```(?:python)?", "", code).strip().rstrip("`").strip()
 
+        # code_helper's "run" action needs a file_path, not a raw code string.
+        # Write the generated code to a temp file and pass its path.
+        import tempfile, os
+        with tempfile.NamedTemporaryFile(
+            mode="w", suffix=".py", delete=False, encoding="utf-8"
+        ) as f:
+            f.write(code)
+            tmp_path = f.name
+        print(f"[ErrorHandler] 📝 Fix code written to: {tmp_path}")
+
         return {
             "step":        step.get("step"),
             "tool":        "code_helper",
             "description": f"Auto-fix for: {step.get('description')}",
             "parameters": {
-                "action":      "run",
-                "description": fix_suggestion,
-                "code":        code,
-                "language":    "python"
+                "action":    "run",
+                "file_path": tmp_path,
+                "language":  "python"
             },
             "depends_on": step.get("depends_on", []),
             "critical":   step.get("critical", False)

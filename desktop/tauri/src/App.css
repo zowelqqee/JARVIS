@@ -11,6 +11,8 @@
   --glow-text: 0 0 10px #00fff7, 0 0 20px #00fff7;
   --glow-drop: drop-shadow(0 0 8px #00fff7) drop-shadow(0 0 24px rgba(0, 255, 247, 0.48));
   --font: "JetBrains Mono", "Courier New", monospace;
+  --amber: #FFB300;
+  --amber-rgb: 255, 179, 0;
 }
 
 *,
@@ -177,6 +179,14 @@ select {
   border-color: rgba(0, 255, 247, 0.22);
   text-shadow: 0 0 8px rgba(0, 255, 247, 0.18);
   filter: drop-shadow(0 0 4px rgba(0, 255, 247, 0.18));
+}
+
+.status-pill--thinking {
+  color: var(--amber);
+  border-color: rgba(255, 179, 0, 0.62);
+  text-shadow: 0 0 10px var(--amber), 0 0 22px var(--amber);
+  filter: drop-shadow(0 0 8px var(--amber)) drop-shadow(0 0 24px rgba(255, 179, 0, 0.5));
+  animation: thinking-pulse 1.4s ease-in-out infinite;
 }
 
 .hud-layout {
@@ -352,6 +362,10 @@ select {
   opacity: 0.34;
 }
 
+.core-chamber--thinking {
+  animation: thinking-pulse 1.4s ease-in-out infinite;
+}
+
 .core-corner {
   position: absolute;
   z-index: 3;
@@ -518,6 +532,34 @@ select {
   opacity: 0.28;
 }
 
+.core-svg--thinking .reactor-outer-rotor {
+  animation: spin-cw 14s linear infinite;
+}
+
+.core-svg--thinking .reactor-middle-ring {
+  animation: spin-cw 20s linear infinite;
+}
+
+.core-svg--thinking .reactor-inner-ring {
+  animation: spin-ccw 10s linear infinite;
+}
+
+.core-svg--thinking .reactor-primary-stroke,
+.core-svg--thinking .reactor-accent-stroke {
+  stroke: var(--amber);
+}
+
+.core-svg--thinking .reactor-accent-fill,
+.core-svg--thinking .reactor-core-fill,
+.core-svg--thinking .reactor-core-dot {
+  fill: var(--amber);
+}
+
+.core-svg--thinking .reactor-core,
+.core-svg--thinking .reactor-core-dot {
+  animation: thinking-pulse 1.4s ease-in-out infinite;
+}
+
 .tools-feed {
   display: flex;
   flex-direction: column;
@@ -575,6 +617,12 @@ select {
   letter-spacing: 0.22em;
   color: rgba(222, 255, 254, 0.98);
   animation: status-burst 1.2s ease-in-out infinite;
+}
+
+.task-text--thinking {
+  color: var(--amber);
+  text-shadow: 0 0 10px var(--amber), 0 0 20px var(--amber);
+  animation: thinking-pulse 1.4s ease-in-out infinite;
 }
 
 @keyframes spin-cw {
@@ -676,6 +724,19 @@ select {
 
   50% {
     transform: translateY(-4px);
+  }
+}
+
+@keyframes thinking-pulse {
+  0%,
+  100% {
+    opacity: 0.80;
+    filter: drop-shadow(0 0 6px rgba(255, 179, 0, 0.5));
+  }
+
+  50% {
+    opacity: 1;
+    filter: drop-shadow(0 0 10px var(--amber)) drop-shadow(0 0 28px rgba(255, 179, 0, 0.82));
   }
 }
 

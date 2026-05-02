@@ -1,5 +1,5 @@
 # actions/computer_control.py
-# MARK XXV — Computer Control
+# V.E.C.T.O.R. — Computer Control
 #
 # Atomic computer control functions using PyAutoGUI + keyboard + clipboard.
 # Used by the agent when no existing action file covers the task.

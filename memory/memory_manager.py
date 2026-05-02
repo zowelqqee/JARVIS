@@ -130,10 +130,13 @@ def save_memory(memory: dict) -> None:
     MEMORY_PATH.parent.mkdir(parents=True, exist_ok=True)
 
     with _lock:
-        MEMORY_PATH.write_text(
-            json.dumps(memory, indent=2, ensure_ascii=False),
-            encoding="utf-8",
-        )
+        try:
+            MEMORY_PATH.write_text(
+                json.dumps(memory, indent=2, ensure_ascii=False),
+                encoding="utf-8",
+            )
+        except Exception as e:
+            print(f"[Memory] ⚠️ Save failed: {e}")
 
 
 def _truncate_value(val: str) -> str:

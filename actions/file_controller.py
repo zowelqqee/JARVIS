@@ -262,12 +262,15 @@ def get_largest_files(path: str = "home", count: int = 10) -> str:
             return f"Path not found: {path}"
 
         files = []
+        _MAX_SCAN = 50_000
         for item in search_path.rglob("*"):
             if item.is_file():
                 try:
                     files.append((item.stat().st_size, item))
                 except Exception:
                     continue
+            if len(files) >= _MAX_SCAN:
+                break
 
         files.sort(reverse=True)
         top = files[:count]

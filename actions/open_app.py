@@ -1,5 +1,5 @@
 # actions/open_app.py
-# MARK XXV — Cross-Platform App Launcher
+# V.E.C.T.O.R. — Cross-Platform App Launcher
 
 import re
 import time
@@ -432,8 +432,11 @@ def _launch_windows(app_name: str) -> bool:
         time.sleep(1.2)
         pyautogui.press("enter")
         time.sleep(3.0)
-        _maximize_later(app_name)
-        return True
+        if _is_running(app_name):
+            _maximize_later(app_name)
+            return True
+        print(f"[open_app] ⚠️ pyautogui Start Menu search done but {app_name!r} not detected running")
+        return False
     except Exception as e:
         print(f"[open_app] ⚠️ pyautogui fallback failed: {e}")
         return False

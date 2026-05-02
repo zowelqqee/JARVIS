@@ -111,18 +111,19 @@ def _run_generated_code(description: str, speak: Callable | None = None) -> str:
 
         print(f"[Executor] 🐍 Running generated code: {tmp_path}")
 
-        result = subprocess.run(
-            [sys.executable, tmp_path],
-            capture_output=True,
-            text=True,
-            timeout=120,
-            cwd=str(Path.home())
-        )
-
         try:
-            os.unlink(tmp_path)
-        except Exception:
-            pass
+            result = subprocess.run(
+                [sys.executable, tmp_path],
+                capture_output=True,
+                text=True,
+                timeout=120,
+                cwd=str(Path.home())
+            )
+        finally:
+            try:
+                os.unlink(tmp_path)
+            except Exception:
+                pass
 
         output = result.stdout.strip()
         error = result.stderr.strip()
@@ -193,13 +194,15 @@ def _inject_context(params: dict, tool: str, step_results: dict, goal: str = "")
     return params
 def _detect_language(text: str) -> str:
     from google import genai
-    genai.configure(api_key=_get_api_key())
-    model = genai.GenerativeModel("gemini-2.5-flash-lite")
+    client = genai.Client(api_key=_get_api_key())
     try:
-        response = model.generate_content(
-            f"What language is this text written in? "
-            f"Reply with ONLY the language name in English (e.g. Turkish, English, French).\n\n"
-            f"Text: {text[:200]}"
+        response = client.models.generate_content(
+            model="gemini-2.5-flash-lite",
+            contents=(
+                f"What language is this text written in? "
+                f"Reply with ONLY the language name in English (e.g. Turkish, English, French).\n\n"
+                f"Text: {text[:200]}"
+            )
         )
         return response.text.strip()
     except Exception:
@@ -211,23 +214,24 @@ def _translate_to_goal_language(content: str, goal: str) -> str:
         return content
     try:
         from google import genai
-        genai.configure(api_key=_get_api_key())
-        model = genai.GenerativeModel("gemini-2.5-flash")
+        client = genai.Client(api_key=_get_api_key())
 
         target_lang = _detect_language(goal)
         print(f"[Executor] 🌐 Translating to: {target_lang}")
 
-        prompt = (
-            f"You are a professional translator. "
-            f"Translate the following text into {target_lang}.\n"
-            f"IMPORTANT:\n"
-            f"- Translate EVERYTHING, leave nothing in English\n"
-            f"- Keep all facts, numbers, and data intact\n"
-            f"- Keep the structure and formatting\n"
-            f"- Output ONLY the translated text, nothing else\n\n"
-            f"Text to translate:\n{content[:4000]}"
+        response = client.models.generate_content(
+            model="gemini-2.5-flash",
+            contents=(
+                f"You are a professional translator. "
+                f"Translate the following text into {target_lang}.\n"
+                f"IMPORTANT:\n"
+                f"- Translate EVERYTHING, leave nothing in English\n"
+                f"- Keep all facts, numbers, and data intact\n"
+                f"- Keep the structure and formatting\n"
+                f"- Output ONLY the translated text, nothing else\n\n"
+                f"Text to translate:\n{content[:4000]}"
+            )
         )
-        response = model.generate_content(prompt)
         translated = response.text.strip()
         print(f"[Executor] ✅ Translation done ({target_lang})")
         return translated
@@ -267,8 +271,8 @@ def _call_tool(tool: str, parameters: dict, speak: Callable | None) -> str:
 
     elif tool == "screen_process":
         from actions.screen_processor import screen_process
-        screen_process(parameters=parameters, player=None)
-        return "Screen captured and analyzed."
+        result = screen_process(parameters=parameters, player=None)
+        return result if result else "Screen captured and analyzed."
 
     elif tool == "send_message":
         from actions.send_message import send_message
@@ -308,7 +312,7 @@ def _call_tool(tool: str, parameters: dict, speak: Callable | None) -> str:
         from actions.flight_finder import flight_finder
         return flight_finder(parameters=parameters, player=None, speak=speak) or "Done."
     elif tool == "agent_task":
-        description = parameters.get("description", "")
+        description = parameters.get("goal", parameters.get("description", ""))
         if not description:
             description = str(parameters)
         return _run_generated_code(description, speak=speak)
@@ -448,8 +452,7 @@ class AgentExecutor:
         fallback = f"All done, sir. Completed {len(completed_steps)} steps for: {goal[:60]}."
         try:
             from google import genai
-            genai.configure(api_key=_get_api_key())
-            model     = genai.GenerativeModel(model_name="gemini-2.5-flash-lite")
+            client    = genai.Client(api_key=_get_api_key())
             steps_str = "\n".join(f"- {s.get('description', '')}" for s in completed_steps)
             prompt    = (
                 f'User goal: "{goal}"\n'
@@ -457,7 +460,10 @@ class AgentExecutor:
                 "Write a single natural sentence summarizing what was accomplished. "
                 "Address the user as 'sir'. Be direct and positive."
             )
-            response = model.generate_content(prompt)
+            response = client.models.generate_content(
+                model="gemini-2.5-flash-lite",
+                contents=prompt,
+            )
             summary  = response.text.strip()
             if speak: speak(summary)
             return summary

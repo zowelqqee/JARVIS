@@ -48,10 +48,14 @@ def _load() -> dict:
 
 def _save(data: dict) -> None:
     PROTOCOLS_PATH.parent.mkdir(parents=True, exist_ok=True)
-    PROTOCOLS_PATH.write_text(
-        json.dumps(data, ensure_ascii=False, indent=2),
-        encoding="utf-8"
-    )
+    try:
+        PROTOCOLS_PATH.write_text(
+            json.dumps(data, ensure_ascii=False, indent=2),
+            encoding="utf-8"
+        )
+    except Exception as e:
+        print(f"[Protocol] ⚠️ Failed to save protocols: {e}")
+        raise
 
 
 # ─── Built-in step actions ─────────────────────────────────────────────────────

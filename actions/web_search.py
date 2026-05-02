@@ -1,5 +1,5 @@
 # actions/web_search.py
-# MARK XXV — Web Search
+# V.E.C.T.O.R. — Web Search
 # Primary: Gemini google_search (yeni google.genai SDK)
 # Fallback: DuckDuckGo (ddgs)
 

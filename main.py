@@ -91,9 +91,11 @@ def _update_memory_async(user_text: str, vector_text: str) -> None:
     text = user_text.strip()
     if len(text) < 10:
         return
-    if text == _last_memory_input:
-        return
-    _last_memory_input = text
+
+    with _memory_turn_lock:
+        if text == _last_memory_input:
+            return
+        _last_memory_input = text
 
     try:
         from google import genai as genai_new
@@ -343,6 +345,7 @@ class VectorLive:
                             txt = sc.input_transcription.text.strip()
                             if txt:
                                 in_buf.append(txt)
+                                self.ui.set_thinking()
                                 if self.on_status_change:
                                     try:
                                         self.on_status_change("thinking")
@@ -381,6 +384,7 @@ class VectorLive:
                                     self.ui.write_log(f"V.E.C.T.O.R.: {full_out}")
                             out_buf = []
 
+                            self.ui.set_idle()
                             if self.on_status_change:
                                 try:
                                     self.on_status_change("listening")

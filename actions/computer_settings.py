@@ -1,5 +1,5 @@
 # actions/computer_settings.py
-# MARK XXV — Computer Settings & UI Controls
+# V.E.C.T.O.R. — Computer Settings & UI Controls
 #
 # Kullanıcı "sesi aç", "uygulamayı kapat", "tam ekran yap", "şunu yaz" gibi
 # bilgisayar kontrol komutları verdiğinde bu dosya devreye girer.
@@ -46,12 +46,20 @@ def _get_api_key() -> str:
         return json.load(f)["gemini_api_key"]
 
 
-from ctypes import POINTER, cast
-from comtypes import CLSCTX_ALL
-from pycaw.pycaw import AudioUtilities, IAudioEndpointVolume
+_PYCAW = False
+if _OS == "Windows":
+    try:
+        from ctypes import POINTER, cast
+        from comtypes import CLSCTX_ALL
+        from pycaw.pycaw import AudioUtilities, IAudioEndpointVolume
+        _PYCAW = True
+    except ImportError:
+        pass
 
 
 def _get_volume_interface():
+    if not _PYCAW:
+        raise RuntimeError("pycaw is not available on this platform.")
     devices = AudioUtilities.GetSpeakers()
     interface = devices.Activate(
         IAudioEndpointVolume._iid_,

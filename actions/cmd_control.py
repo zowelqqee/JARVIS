@@ -222,8 +222,10 @@ def cmd_control(
         return f"Opened: {command}"
 
     if visible:
+        # Open a visible terminal only — do NOT also call _run_silent().
+        # Running both would execute the command twice, which is wrong for
+        # any command with side effects (mkdir, pip install, file writes, etc.).
         _run_visible(command)
-        output = _run_silent(command)
-        return f"Terminal opened.\n\nOutput:\n{output}"
+        return f"Command opened in terminal: {command[:80]}"
     else:
         return _run_silent(command)

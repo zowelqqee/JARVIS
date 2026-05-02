@@ -1,9 +1,12 @@
+import concurrent.futures
 import threading
 import time
 import uuid
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Callable, Any
+
+_TASK_TIMEOUT = 300  # seconds before a stuck task is forcibly timed out
 
 # ── Global interrupt ─────────────────────────────────────────────────────────
 # Set by stop_execution tool; checked by executor + protocol_manager between steps.
@@ -198,11 +201,20 @@ class TaskQueue:
         print(f"[TaskQueue] ▶️ Running: [{task.task_id}] {task.goal[:60]}")
         try:
             executor = self._get_executor()
-            result   = executor.execute(
-                goal        = task.goal,
-                speak       = task.speak,
-                cancel_flag = task.cancel_flag,
-            )
+
+            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+                future = pool.submit(
+                    executor.execute,
+                    goal        = task.goal,
+                    speak       = task.speak,
+                    cancel_flag = task.cancel_flag,
+                )
+                try:
+                    result = future.result(timeout=_TASK_TIMEOUT)
+                except concurrent.futures.TimeoutError:
+                    task.cancel_flag.set()
+                    print(f"[TaskQueue] ⏱️ Task timed out after {_TASK_TIMEOUT}s: [{task.task_id}]")
+                    raise TimeoutError(f"Task exceeded {_TASK_TIMEOUT}s time limit")
 
             with self._lock:
                 if task.cancel_flag.is_set():

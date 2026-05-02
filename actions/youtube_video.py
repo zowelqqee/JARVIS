@@ -1,5 +1,5 @@
 # actions/youtube_video.py
-# MARK XXV — YouTube Controller
+# V.E.C.T.O.R. — YouTube Controller
 #
 # Features:
 #   - play      : Search and play a YouTube video (original feature, preserved)

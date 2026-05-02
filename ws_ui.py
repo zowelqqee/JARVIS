@@ -104,6 +104,9 @@ class WebSocketUI:
             self._current_tool = None
         self._broadcast({"type": "status", "value": "OFFLINE"})
 
+    def set_thinking(self) -> None:
+        self._broadcast({"type": "status", "value": "THINKING"})
+
     def start_speaking(self) -> None:
         pass
 

@@ -93,8 +93,9 @@ class _CameraManager:
             return None
 
     def _detect_index(self) -> int:
+        _backend = cv2.CAP_DSHOW if sys.platform == "win32" else cv2.CAP_ANY
         for idx in range(6):
-            cap = cv2.VideoCapture(idx, cv2.CAP_DSHOW)
+            cap = cv2.VideoCapture(idx, _backend)
             if not cap.isOpened():
                 cap.release()
                 continue
@@ -120,7 +121,8 @@ class _CameraManager:
     # ── Open / close ──────────────────────────────────────────────────────────
 
     def _open(self, idx: int):
-        self._cap = cv2.VideoCapture(idx, cv2.CAP_DSHOW)
+        _backend = cv2.CAP_DSHOW if sys.platform == "win32" else cv2.CAP_ANY
+        self._cap = cv2.VideoCapture(idx, _backend)
         if self._cap.isOpened():
             # Flush stale frames from the buffer
             for _ in range(3):

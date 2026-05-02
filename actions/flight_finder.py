@@ -1,5 +1,5 @@
 # actions/flight_finder.py
-# MARK XXV — Flight Finder
+# V.E.C.T.O.R. — Flight Finder
 #
 # Searches for flights using Google Flights via browser_control.
 # Results are spoken by V.E.C.T.O.R.. Optionally saved to Notepad or opened in browser.

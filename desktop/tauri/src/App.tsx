@@ -2,10 +2,11 @@ import { useEffect, useRef, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 import "./App.css";
 
-type Status = "LISTENING" | "EXECUTING" | "CONNECTING" | "OFFLINE" | "BACKEND_ERROR";
+type Status = "LISTENING" | "THINKING" | "EXECUTING" | "CONNECTING" | "OFFLINE" | "BACKEND_ERROR";
 
 const STATUS_LABEL: Record<Status, string> = {
   LISTENING: "LISTENING",
+  THINKING: "PROCESSING...",
   EXECUTING: "EXECUTING",
   CONNECTING: "CONNECTING",
   OFFLINE: "OFFLINE",
@@ -27,7 +28,7 @@ interface WsMessage {
   state?: "start" | "end";
 }
 
-const MAX_LOGS = 10;
+const MAX_LOGS = 50;
 const WS_URL = "ws://localhost:8765";
 const S3 = Math.sqrt(3);
 
@@ -398,8 +399,8 @@ export default function App() {
       ws.onerror = () => ws?.close();
     }
 
-    // 5-second delay: give Python backend time to start before connecting.
-    const initTimer = setTimeout(connect, 5000);
+    // 1-second delay: give Python backend a moment to start before connecting.
+    const initTimer = setTimeout(connect, 1000);
     return () => {
       alive = false;
       clearTimeout(initTimer);
@@ -510,6 +511,8 @@ export default function App() {
         <div className="bottom-bar__scan" aria-hidden="true" />
         {status === "EXECUTING" && currentTask ? (
           <div className="task-text">CURRENT TASK // {currentTask}</div>
+        ) : status === "THINKING" ? (
+          <div className="task-text task-text--thinking">PROCESSING...</div>
         ) : null}
       </footer>
     </div>
