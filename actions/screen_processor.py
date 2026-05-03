@@ -104,7 +104,7 @@ class _CameraManager:
             ret, frame = cap.read()
             cap.release()
             if ret and frame is not None and frame.mean() > 5:
-                print(f"[Camera] ✅ Auto-detected index {idx}")
+                print(f"[Camera] [OK] Auto-detected index {idx}")
                 try:
                     cfg = {}
                     if API_CONFIG_PATH.exists():
@@ -128,9 +128,9 @@ class _CameraManager:
             for _ in range(3):
                 self._cap.read()
             self.ready = True
-            print(f"[Camera] ✅ Singleton open (index {idx})")
+            print(f"[Camera] [OK] Singleton open (index {idx})")
         else:
-            print(f"[Camera] ⚠️ Could not open index {idx}")
+            print(f"[Camera] [WARN] Could not open index {idx}")
 
     def warmup(self):
         """Open camera in background — call at import time."""
@@ -225,7 +225,7 @@ def _get_yolo():
         if _yolo_model is None:
             try:
                 _yolo_model = _YOLO_CLS("yolov8n.pt")
-                print("[Camera] ✅ YOLOv8 nano loaded")
+                print("[Camera] [OK] YOLOv8 nano loaded")
             except Exception as e:
                 print(f"[Camera] YOLO load failed: {e}")
     return _yolo_model
@@ -314,9 +314,9 @@ def screen_process(
     try:
         image_bytes = _camera.capture_jpeg() if angle == "camera" else _capture_screenshot()
         t_cap = time.perf_counter() - t0
-        print(f"[Camera] 📷 Captured {len(image_bytes):,} bytes in {t_cap:.3f}s")
+        print(f"[Camera] [INFO] Captured {len(image_bytes):,} bytes in {t_cap:.3f}s")
     except Exception as e:
-        print(f"[Camera] ❌ Capture failed: {e}")
+        print(f"[Camera] [ERROR] Capture failed: {e}")
         return f"Camera capture failed, sir: {e}"
 
     # ── Analyze ───────────────────────────────────────────────────────────────
@@ -354,7 +354,7 @@ def screen_process(
     result = result or "Could not analyze the image, sir."
 
     total = time.perf_counter() - t0
-    print(f"[Camera] ✅ Total: {total:.3f}s | {result[:100]}")
+    print(f"[Camera] [OK] Total: {total:.3f}s | {result[:100]}")
 
     if player:
         player.write_log(f"[Camera] {result[:60]}")
@@ -375,7 +375,7 @@ def warmup_session(player=None):
 # ─── Standalone test ──────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
-    print("[TEST] screen_processor.py v9 — fast REST vision")
+    print("[TEST] screen_processor.py v9 - fast REST vision")
     print("=" * 50)
     mode   = input("screen / camera (default: camera): ").strip().lower() or "camera"
     action = input("analyze / ocr / objects (default: analyze): ").strip().lower() or "analyze"
@@ -384,5 +384,5 @@ if __name__ == "__main__":
     print(f"\nCapturing with angle={mode!r}, action={action!r}...\n")
     t0 = time.perf_counter()
     r  = screen_process({"angle": mode, "action": action, "text": q})
-    print(f"\n✅ Done in {time.perf_counter()-t0:.2f}s")
+    print(f"\n[OK] Done in {time.perf_counter()-t0:.2f}s")
     print(f"Result:\n{r}")

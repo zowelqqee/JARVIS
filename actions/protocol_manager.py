@@ -54,7 +54,7 @@ def _save(data: dict) -> None:
             encoding="utf-8"
         )
     except Exception as e:
-        print(f"[Protocol] ⚠️ Failed to save protocols: {e}")
+        print(f"[Protocol] [WARN] Failed to save protocols: {e}")
         raise
 
 
@@ -250,7 +250,7 @@ def run_protocol(
         try:
             from agent.task_queue import is_interrupted
             if is_interrupted():
-                print(f"[Protocol] 🛑 Interrupted at step {i}")
+                print(f"[Protocol] [WARN] Interrupted at step {i}")
                 return "Protocol interrupted."
         except ImportError:
             pass

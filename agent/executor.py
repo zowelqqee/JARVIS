@@ -109,7 +109,7 @@ def _run_generated_code(description: str, speak: Callable | None = None) -> str:
             f.write(code)
             tmp_path = f.name
 
-        print(f"[Executor] 🐍 Running generated code: {tmp_path}")
+        print(f"[Executor] [INFO] Running generated code: {tmp_path}")
 
         try:
             result = subprocess.run(
@@ -189,7 +189,7 @@ def _inject_context(params: dict, tool: str, step_results: dict, goal: str = "")
                 combined = "\n\n---\n\n".join(all_results)
                 translated = _translate_to_goal_language(combined, goal)
                 params["content"] = translated
-                print(f"[Executor] 💉 Injected + translated content")
+                print(f"[Executor] [INFO] Injected + translated content")
 
     return params
 def _detect_language(text: str) -> str:
@@ -217,7 +217,7 @@ def _translate_to_goal_language(content: str, goal: str) -> str:
         client = genai.Client(api_key=_get_api_key())
 
         target_lang = _detect_language(goal)
-        print(f"[Executor] 🌐 Translating to: {target_lang}")
+        print(f"[Executor] [INFO] Translating to: {target_lang}")
 
         response = client.models.generate_content(
             model="gemini-2.5-flash",
@@ -233,10 +233,10 @@ def _translate_to_goal_language(content: str, goal: str) -> str:
             )
         )
         translated = response.text.strip()
-        print(f"[Executor] ✅ Translation done ({target_lang})")
+        print(f"[Executor] [OK] Translation done ({target_lang})")
         return translated
     except Exception as e:
-        print(f"[Executor] ⚠️ Translation failed: {e}")
+        print(f"[Executor] [WARN] Translation failed: {e}")
         return content
 
 def _call_tool(tool: str, parameters: dict, speak: Callable | None) -> str:
@@ -329,7 +329,7 @@ class AgentExecutor:
         speak:       Callable | None        = None,
         cancel_flag: threading.Event | None = None,
     ) -> str:
-        print(f"\n[Executor] 🎯 Goal: {goal}")
+        print(f"\n[Executor] [INFO] Goal: {goal}")
         clear_interrupt()
 
         replan_attempts = 0
@@ -361,7 +361,7 @@ class AgentExecutor:
 
                 params = _inject_context(params, tool, step_results, goal=goal)
 
-                print(f"\n[Executor] ▶️ Step {step_num}: [{tool}] {desc}")
+                print(f"\n[Executor] [INFO] Step {step_num}: [{tool}] {desc}")
 
                 attempt = 1
                 step_ok = False
@@ -373,13 +373,13 @@ class AgentExecutor:
                         result = _call_tool(tool, params, speak)
                         step_results[step_num] = result 
                         completed_steps.append(step)
-                        print(f"[Executor] ✅ Step {step_num} done: {str(result)[:100]}")
+                        print(f"[Executor] [OK] Step {step_num} done: {str(result)[:100]}")
                         step_ok = True
                         break
 
                     except Exception as e:
                         error_msg = str(e)
-                        print(f"[Executor] ❌ Step {step_num} attempt {attempt} failed: {error_msg}")
+                        print(f"[Executor] [ERROR] Step {step_num} attempt {attempt} failed: {error_msg}")
 
                         recovery = analyze_error(step, error_msg, attempt=attempt)
                         decision = recovery["decision"]
@@ -394,7 +394,7 @@ class AgentExecutor:
                             continue
 
                         elif decision == ErrorDecision.SKIP:
-                            print(f"[Executor] ⏭️ Skipping step {step_num}")
+                            print(f"[Executor] [INFO] Skipping step {step_num}")
                             completed_steps.append(step)
                             step_ok = True
                             break
@@ -420,7 +420,7 @@ class AgentExecutor:
                                     step_ok = True
                                     break
                                 except Exception as fix_err:
-                                    print(f"[Executor] ⚠️ Fix failed: {fix_err}")
+                                    print(f"[Executor] [WARN] Fix failed: {fix_err}")
 
                             failed_step  = step
                             failed_error = error_msg

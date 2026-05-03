@@ -98,7 +98,7 @@ def _get_opera_executable() -> str | None:
                     # Strip quotes and args
                     exe  = val.strip().strip('"').split('"')[0].split(" --")[0].strip()
                     if exe and Path(exe).exists():
-                        print(f"[Browser] 🔍 Opera found via registry: {exe}")
+                        print(f"[Browser] [INFO] Opera found via registry: {exe}")
                         return exe
                 except Exception:
                     continue
@@ -141,7 +141,7 @@ def _find_browser_executable(prog_id: str) -> tuple:
         for binary in binaries:
             path = shutil.which(binary)
             if path:
-                print(f"[Browser] 🔍 Found {browser_name} at: {path}")
+                print(f"[Browser] [INFO] Found {browser_name} at: {path}")
                 return "chromium", path, None
 
     if "chrome" in prog_id or not prog_id:
@@ -221,10 +221,10 @@ class _BrowserThread:
                     )
                 )
                 self._page = await self._context.new_page()
-            print("[Browser] ✅ Connected to existing browser via CDP")
+            print("[Browser] [OK] Connected to existing browser via CDP")
             return
         except Exception as e:
-            print(f"[Browser] CDP not available ({e}) — launching fresh browser")
+            print(f"[Browser] CDP not available ({e}) - launching fresh browser")
 
         # ── 2. Launch fresh browser (with CDP port so next call reuses) ── #
         prog_id                        = _get_default_browser_id()
@@ -248,12 +248,12 @@ class _BrowserThread:
                 self._browser        = await engine.launch(**launch_kwargs)
                 self._launched_by_us = True
                 print(
-                    f"[Browser] ✅ Launched ({engine_name}"
+                    f"[Browser] [OK] Launched ({engine_name}"
                     f"{' / ' + channel if channel else ''}"
                     f"{' / ' + exe_path if exe_path else ''})"
                 )
         except Exception as e:
-            print(f"[Browser] ⚠️ Launch failed ({e}), falling back to built-in chromium")
+            print(f"[Browser] [WARN] Launch failed ({e}), falling back to built-in chromium")
             self._browser        = await self._playwright.chromium.launch(
                 headless=False,
                 args=["--start-maximized", f"--remote-debugging-port={_CDP_PORT}"],

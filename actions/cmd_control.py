@@ -181,7 +181,7 @@ def _run_visible(command: str) -> None:
                 except FileNotFoundError:
                     continue
     except Exception as e:
-        print(f"[CMD] ⚠️ Terminal open failed: {e}")
+        print(f"[CMD] [WARN] Terminal open failed: {e}")
 
 
 def cmd_control(
@@ -200,11 +200,11 @@ def cmd_control(
     if not command:
         command = _find_hardcoded(task)
         if command:
-            print(f"[CMD] ⚡ Hardcoded: {command[:80]}")
+            print(f"[CMD] [INFO] Hardcoded: {command[:80]}")
         else:
-            print(f"[CMD] 🤖 Gemini fallback for: {task}")
+            print(f"[CMD] [INFO] Gemini fallback for: {task}")
             command = _ask_gemini(task)
-            print(f"[CMD] ✅ Generated: {command[:80]}")
+            print(f"[CMD] [OK] Generated: {command[:80]}")
             if command == "UNSAFE":
                 return "I cannot generate a safe command for that request, sir."
             if command.startswith("ERROR:"):

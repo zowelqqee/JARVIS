@@ -97,11 +97,11 @@ def volume_set(value: int) -> bool:
             volume = device.EndpointVolume
             volume.SetMasterVolumeLevelScalar(value / 100.0, None)
 
-            print(f"[Settings] 🔊 Volume → {value}%")
+            print(f"[Settings] [AUDIO] Volume -> {value}%")
             return True
 
         except Exception as e:
-            print(f"[Settings] ⚠️ pycaw failed: {e}")
+            print(f"[Settings] [WARN] pycaw failed: {e}")
             return False
 
     elif _OS == "Darwin":
@@ -112,7 +112,7 @@ def volume_set(value: int) -> bool:
             )
             return True
         except Exception as e:
-            print(f"[Settings] ⚠️ macOS volume_set failed: {e}")
+            print(f"[Settings] [WARN] macOS volume_set failed: {e}")
             return False
 
     else:
@@ -123,7 +123,7 @@ def volume_set(value: int) -> bool:
             )
             return True
         except Exception as e:
-            print(f"[Settings] ⚠️ Linux volume_set failed: {e}")
+            print(f"[Settings] [WARN] Linux volume_set failed: {e}")
             return False
 
 def brightness_up():
@@ -1127,7 +1127,7 @@ def computer_settings(
     if not action:
         return "No action could be determined, sir."
 
-    print(f"[Settings] ⚙️ Action: {action}  Value: {value}")
+    print(f"[Settings] [INFO] Action: {action}  Value: {value}")
 
 
     if action == "volume_set":

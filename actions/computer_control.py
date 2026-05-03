@@ -441,7 +441,7 @@ def computer_control(
     if player:
         player.write_log(f"[Computer] {action}")
 
-    print(f"[ComputerControl] ▶️ Action: {action}  Params: {parameters}")
+    print(f"[ComputerControl] [INFO] Action: {action}  Params: {parameters}")
 
     try:
         if action == "type":
@@ -555,7 +555,7 @@ def computer_control(
         elif action == "random_data":
             data_type = parameters.get("type", "name")
             result    = generate_random_data(data_type)
-            print(f"[ComputerControl] 🎲 Random {data_type}: {result}")
+            print(f"[ComputerControl] [INFO] Random {data_type}: {result}")
             return result
 
         elif action == "user_data":
@@ -564,12 +564,12 @@ def computer_control(
             value   = profile.get(field, "")
             if not value:
                 value = generate_random_data(field)
-                print(f"[ComputerControl] ⚠️ No user {field} in memory, using random: {value}")
+                print(f"[ComputerControl] [WARN] No user {field} in memory, using random: {value}")
             return value
 
         else:
             return f"Unknown computer_control action: '{action}'"
 
     except Exception as e:
-        print(f"[ComputerControl] ❌ Error: {e}")
+        print(f"[ComputerControl] [ERROR] Error: {e}")
         return f"computer_control failed: {e}"

@@ -384,7 +384,7 @@ def desktop_control(
             if not actual_task:
                 return "Please describe what you want to do on the desktop, sir."
 
-            print(f"[Desktop] 🤖 Asking Gemini: {actual_task}")
+            print(f"[Desktop] [INFO] Asking Gemini: {actual_task}")
             if player:
                 player.write_log("[Desktop] Generating action...")
 
@@ -395,7 +395,7 @@ def desktop_control(
             elif code.startswith("ERROR:"):
                 result = f"Could not generate action: {code}"
             else:
-                print(f"[Desktop] ✅ Generated code:\n{code[:200]}")
+                print(f"[Desktop] [OK] Generated code:\n{code[:200]}")
                 result = _execute_generated_code(code)
 
         else:

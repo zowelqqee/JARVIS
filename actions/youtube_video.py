@@ -109,7 +109,7 @@ def find_video_thumbnails() -> list[tuple[int, int]]:
         return filtered
 
     except Exception as e:
-        print(f"[YouTube] ⚠️ Thumbnail detection failed: {e}")
+        print(f"[YouTube] [WARN] Thumbnail detection failed: {e}")
         return []
 
 
@@ -142,7 +142,7 @@ def _ask_for_url(prompt_text: str = "YouTube video URL:") -> str | None:
         )
         return url.strip() if url else None
     except Exception as e:
-        print(f"[YouTube] ⚠️ URL dialog failed: {e}")
+        print(f"[YouTube] [WARN] URL dialog failed: {e}")
         return None
 
 
@@ -152,7 +152,7 @@ def _is_valid_youtube_url(url: str) -> bool:
 def _get_transcript(video_id: str) -> str | None:
 
     if not _TRANSCRIPT_OK:
-        print("[YouTube] ⚠️ youtube-transcript-api not installed.")
+        print("[YouTube] [WARN] youtube-transcript-api not installed.")
         return None
 
     try:
@@ -181,11 +181,11 @@ def _get_transcript(video_id: str) -> str | None:
 
         fetched = transcript.fetch()
         text    = " ".join(entry["text"] for entry in fetched)
-        print(f"[YouTube] 📝 Transcript: {len(text)} chars")
+        print(f"[YouTube] [LOG] Transcript: {len(text)} chars")
         return text
 
     except Exception as e:
-        print(f"[YouTube] ⚠️ Transcript fetch failed: {e}")
+        print(f"[YouTube] [WARN] Transcript fetch failed: {e}")
         return None
 
 def _summarize_with_gemini(transcript: str, video_url: str) -> str:
@@ -232,7 +232,7 @@ def _save_to_notepad(content: str, video_url: str) -> str:
     )
 
     filepath.write_text(header + content, encoding="utf-8")
-    print(f"[YouTube] 💾 Summary saved: {filepath}")
+    print(f"[YouTube] [INFO] Summary saved: {filepath}")
 
     system  = platform.system()
     open_fn = {
@@ -283,7 +283,7 @@ def _scrape_video_info(video_id: str) -> dict:
         return info
 
     except Exception as e:
-        print(f"[YouTube] ⚠️ Info scrape failed: {e}")
+        print(f"[YouTube] [WARN] Info scrape failed: {e}")
         return {}
 
 def _scrape_trending(region: str = "TR", max_results: int = 8) -> list[dict]:
@@ -313,7 +313,7 @@ def _scrape_trending(region: str = "TR", max_results: int = 8) -> list[dict]:
         return results
 
     except Exception as e:
-        print(f"[YouTube] ⚠️ Trending scrape failed: {e}")
+        print(f"[YouTube] [WARN] Trending scrape failed: {e}")
         return []
 
 def _handle_play(parameters: dict, player) -> str:
@@ -339,18 +339,18 @@ def _handle_play(parameters: dict, player) -> str:
 
     if len(thumbnails) >= 2:
         x, y = thumbnails[1]
-        print(f"[YouTube] 🎯 Clicking 2nd thumbnail at ({x}, {y})")
+        print(f"[YouTube] [INFO] Clicking 2nd thumbnail at ({x}, {y})")
         pyautogui.click(x, y)
         return f"Playing YouTube video for: {query}"
 
     elif len(thumbnails) == 1:
         x, y = thumbnails[0]
-        print(f"[YouTube] ⚠️ One thumbnail found, clicking at ({x}, {y})")
+        print(f"[YouTube] [WARN] One thumbnail found, clicking at ({x}, {y})")
         pyautogui.click(x, y)
         return f"Playing YouTube video for: {query}"
 
     else:
-        print("[YouTube] ⚠️ No thumbnails found, using fallback position")
+        print("[YouTube] [WARN] No thumbnails found, using fallback position")
         screen_w, screen_h = pyautogui.size()
         pyautogui.click(screen_w // 2, int(screen_h * 0.45))
         return f"Attempted to play YouTube video for: {query}"
@@ -502,7 +502,7 @@ def youtube_video(
     if player:
         player.write_log(f"[YouTube] Action: {action}")
 
-    print(f"[YouTube] ▶️ Action: {action}  Params: {params}")
+    print(f"[YouTube] [INFO] Action: {action}  Params: {params}")
 
     handler = _ACTION_MAP.get(action)
     if handler is None:
@@ -514,5 +514,5 @@ def youtube_video(
         return handler(params, player, speak) or "Done."
 
     except Exception as e:
-        print(f"[YouTube] ❌ Error in {action}: {e}")
+        print(f"[YouTube] [ERROR] Error in {action}: {e}")
         return f"YouTube {action} failed, sir: {e}"

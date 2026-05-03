@@ -185,7 +185,7 @@ Code for {file_path}:"""
         full_path.parent.mkdir(parents=True, exist_ok=True)
         full_path.write_text(code, encoding="utf-8")
 
-        print(f"[DevAgent] ✅ Written: {file_path}")
+        print(f"[DevAgent] [OK] Written: {file_path}")
         return code
 
     except Exception as e:
@@ -198,7 +198,7 @@ def _install_dependencies(dependencies: list[str], project_dir: Path) -> str:
     if not dependencies:
         return "No dependencies to install."
 
-    print(f"[DevAgent] 📦 Installing: {dependencies}")
+    print(f"[DevAgent] [INFO] Installing: {dependencies}")
 
     try:
         result = subprocess.run(
@@ -232,17 +232,17 @@ def _open_vscode(project_dir: Path) -> bool:
                 shell=True  
             )
             time.sleep(2)
-            print(f"[DevAgent] 💻 VSCode opened: {project_dir}")
+            print(f"[DevAgent] [INFO] VSCode opened: {project_dir}")
             return True
         except Exception:
             continue
-    print("[DevAgent] ⚠️ VSCode not found.")
+    print("[DevAgent] [WARN] VSCode not found.")
     return False
 
 
 def _run_project(run_command: str, project_dir: Path, timeout: int = 30) -> str:
     """Run the project entry point, return output."""
-    print(f"[DevAgent] 🚀 Running: {run_command}")
+    print(f"[DevAgent] [INFO] Running: {run_command}")
 
     try:
         parts = run_command.split()
@@ -311,7 +311,7 @@ Fixed code:"""
         full_path = project_dir / file_path
         full_path.write_text(fixed, encoding="utf-8")
 
-        print(f"[DevAgent] 🔧 Fixed: {file_path}")
+        print(f"[DevAgent] [INFO] Fixed: {file_path}")
         return fixed
 
     except Exception as e:

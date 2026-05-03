@@ -42,9 +42,9 @@ def _gemini_search(query: str) -> str:
     except Exception as e:
         err = str(e).lower()
         if any(k in err for k in ("location", "region", "not supported", "400", "permission")):
-            print(f"[WebSearch] Google Search grounding unavailable in this region — falling back to plain Gemini")
+            print(f"[WebSearch] Google Search grounding unavailable in this region - falling back to plain Gemini")
         else:
-            print(f"[WebSearch] Grounding failed ({e}) — falling back to plain Gemini")
+            print(f"[WebSearch] Grounding failed ({e}) - falling back to plain Gemini")
 
     # Fallback: plain Gemini without grounding (works everywhere)
     response = client.models.generate_content(
@@ -90,7 +90,7 @@ def _compare(items: list, aspect: str) -> str:
     try:
         return _gemini_search(query)
     except Exception as e:
-        print(f"[WebSearch] ⚠️ Gemini compare failed: {e}")
+        print(f"[WebSearch] [WARN] Gemini compare failed: {e}")
         all_results = {}
         for item in items:
             try:
@@ -127,27 +127,27 @@ def web_search(
     if player:
         player.write_log(f"[Search] {query or ', '.join(items)}")
 
-    print(f"[WebSearch] 🔍 Query: {query!r}  Mode: {mode}")
+    print(f"[WebSearch] [INFO] Query: {query!r}  Mode: {mode}")
 
     try:
         if mode == "compare" and items:
-            print(f"[WebSearch] 📊 Comparing: {items}")
+            print(f"[WebSearch] [INFO] Comparing: {items}")
             result = _compare(items, aspect)
-            print("[WebSearch] ✅ Compare done.")
+            print("[WebSearch] [OK] Compare done.")
             return result
 
-        print("[WebSearch] 🌐 Gemini search...")
+        print("[WebSearch] [INFO] Gemini search...")
         try:
             result = _gemini_search(query)
-            print("[WebSearch] ✅ Gemini OK.")
+            print("[WebSearch] [OK] Gemini OK.")
             return result
         except Exception as e:
-            print(f"[WebSearch] ⚠️ Gemini failed ({e}), trying DDG...")
+            print(f"[WebSearch] [WARN] Gemini failed ({e}), trying DDG...")
             results = _ddg_search(query)
             result  = _format_ddg(query, results)
-            print(f"[WebSearch] ✅ DDG: {len(results)} results.")
+            print(f"[WebSearch] [OK] DDG: {len(results)} results.")
             return result
 
     except Exception as e:
-        print(f"[WebSearch] ❌ Failed: {e}")
+        print(f"[WebSearch] [ERROR] Failed: {e}")
         return f"Search failed, sir: {e}"

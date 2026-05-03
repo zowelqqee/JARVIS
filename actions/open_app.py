@@ -249,7 +249,7 @@ def _focus_existing_window(app_name: str, show_cmd: int = SW_RESTORE) -> bool:
                 return True
 
         except Exception as e:
-            print(f"[open_app] ⚠️ focus existing window failed: {e}")
+            print(f"[open_app] [WARN] focus existing window failed: {e}")
 
         return False
 
@@ -267,7 +267,7 @@ def _focus_existing_window(app_name: str, show_cmd: int = SW_RESTORE) -> bool:
             )
             return result.returncode == 0
         except Exception as e:
-            print(f"[open_app] ⚠️ macOS focus failed: {e}")
+            print(f"[open_app] [WARN] macOS focus failed: {e}")
             return False
 
     if system == "Linux":
@@ -281,7 +281,7 @@ def _focus_existing_window(app_name: str, show_cmd: int = SW_RESTORE) -> bool:
                 )
                 return result.returncode == 0
         except Exception as e:
-            print(f"[open_app] ⚠️ Linux focus failed: {e}")
+            print(f"[open_app] [WARN] Linux focus failed: {e}")
 
         return False
 
@@ -332,7 +332,7 @@ def _launch_windows(app_name: str) -> bool:
             _maximize_later(app_name)
             return True
         except Exception as e:
-            print(f"[open_app] ⚠️ Terminal launch failed: {e}")
+            print(f"[open_app] [WARN] Terminal launch failed: {e}")
 
     # 1. Direct subprocess launch (works for .exe and PATH binaries like "code", "chrome")
     try:
@@ -348,7 +348,7 @@ def _launch_windows(app_name: str) -> bool:
     except (FileNotFoundError, OSError):
         pass
     except Exception as e:
-        print(f"[open_app] ⚠️ Direct launch failed: {e}")
+        print(f"[open_app] [WARN] Direct launch failed: {e}")
 
     # 2. shutil.which — find binary in PATH, then launch
     binary = shutil.which(app_name) or shutil.which(app_name.lower())
@@ -364,7 +364,7 @@ def _launch_windows(app_name: str) -> bool:
                 _maximize_later(app_name)
                 return True
         except Exception as e:
-            print(f"[open_app] ⚠️ which-path launch failed: {e}")
+            print(f"[open_app] [WARN] which-path launch failed: {e}")
 
     # 3. os.startfile — Windows native, works for ms-settings:, .exe, registered file types
     try:
@@ -376,7 +376,7 @@ def _launch_windows(app_name: str) -> bool:
     except (FileNotFoundError, OSError):
         pass
     except Exception as e:
-        print(f"[open_app] ⚠️ os.startfile failed: {e}")
+        print(f"[open_app] [WARN] os.startfile failed: {e}")
 
     # 4. PowerShell — find and launch Windows Store (AppX) app by name
     try:
@@ -398,9 +398,9 @@ def _launch_windows(app_name: str) -> bool:
             time.sleep(2.0)
             _maximize_later(app_name)
             return True
-        print(f"[open_app] ⚠️ AppX launch stderr: {result.stderr.decode(errors='ignore')[:100]}")
+        print(f"[open_app] [WARN] AppX launch stderr: {result.stderr.decode(errors='ignore')[:100]}")
     except Exception as e:
-        print(f"[open_app] ⚠️ AppX launch failed: {e}")
+        print(f"[open_app] [WARN] AppX launch failed: {e}")
 
     # 5. Windows "start" command via shell — works for some UWP/registered apps
     try:
@@ -415,7 +415,7 @@ def _launch_windows(app_name: str) -> bool:
             _maximize_later(app_name)
             return True
     except Exception as e:
-        print(f"[open_app] ⚠️ shell start failed: {e}")
+        print(f"[open_app] [WARN] shell start failed: {e}")
 
     # 6. Last resort: pyautogui Start Menu search (handles any installed app)
     try:
@@ -435,10 +435,10 @@ def _launch_windows(app_name: str) -> bool:
         if _is_running(app_name):
             _maximize_later(app_name)
             return True
-        print(f"[open_app] ⚠️ pyautogui Start Menu search done but {app_name!r} not detected running")
+        print(f"[open_app] [WARN] pyautogui Start Menu search done but {app_name!r} not detected running")
         return False
     except Exception as e:
-        print(f"[open_app] ⚠️ pyautogui fallback failed: {e}")
+        print(f"[open_app] [WARN] pyautogui fallback failed: {e}")
         return False
 
 def _launch_macos(app_name: str) -> bool:
@@ -475,7 +475,7 @@ def _launch_macos(app_name: str) -> bool:
         time.sleep(1.5)
         return True
     except Exception as e:
-        print(f"[open_app] ⚠️ macOS Spotlight failed: {e}")
+        print(f"[open_app] [WARN] macOS Spotlight failed: {e}")
         return False
 
 
@@ -535,7 +535,7 @@ def open_app(
         return f"Unsupported OS: {system}"
 
     normalized = _normalize(app_name)
-    print(f"[open_app] 🚀 Requested: {app_name} → {normalized} ({system})")
+    print(f"[open_app] [INFO] Requested: {app_name} -> {normalized} ({system})")
 
     if player:
         player.write_log(f"[open_app] {app_name}")
@@ -568,7 +568,7 @@ def open_app(
 
             # Process alive but no visible window found (e.g. app was closed but
             # background service still runs) — launch a fresh instance instead.
-            print(f"[open_app] ℹ️ {app_name} process alive but no window found — relaunching")
+            print(f"[open_app] [INFO] {app_name} process alive but no window found - relaunching")
             success = launcher(normalized) or (normalized != app_name and launcher(app_name))
             if success:
                 return f"Opened {app_name} successfully, sir."
@@ -591,5 +591,5 @@ def open_app(
         )
 
     except Exception as e:
-        print(f"[open_app] ❌ {e}")
+        print(f"[open_app] [ERROR] {e}")
         return f"Failed to open {app_name}, sir: {e}"

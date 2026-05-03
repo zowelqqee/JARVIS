@@ -83,7 +83,7 @@ def analyze_error(
 
     # If we've already retried enough, escalate to replan
     if attempt >= max_attempts:
-        print(f"[ErrorHandler] Max attempts reached for step {step.get('step')} — forcing replan")
+        print(f"[ErrorHandler] Max attempts reached for step {step.get('step')} - forcing replan")
         return {
             "decision":      ErrorDecision.REPLAN,
             "reason":        f"Failed {attempt} times: {error[:100]}",
@@ -131,11 +131,11 @@ Attempt number: {attempt}"""
             result["decision"]     = ErrorDecision.REPLAN
             result["user_message"] = "This step is critical — finding alternative approach, sir."
 
-        print(f"[ErrorHandler] Decision: {result['decision'].value} — {result.get('reason', '')}")
+        print(f"[ErrorHandler] Decision: {result['decision'].value} - {result.get('reason', '')}")
         return result
 
     except Exception as e:
-        print(f"[ErrorHandler] ⚠️ Analysis failed: {e} — defaulting to replan")
+        print(f"[ErrorHandler] [WARN] Analysis failed: {e} - defaulting to replan")
         return {
             "decision":       ErrorDecision.REPLAN,
             "reason":         str(e),
@@ -185,7 +185,7 @@ Return ONLY the Python code, no explanation."""
         ) as f:
             f.write(code)
             tmp_path = f.name
-        print(f"[ErrorHandler] 📝 Fix code written to: {tmp_path}")
+        print(f"[ErrorHandler] [LOG] Fix code written to: {tmp_path}")
 
         return {
             "step":        step.get("step"),
@@ -201,7 +201,7 @@ Return ONLY the Python code, no explanation."""
         }
 
     except Exception as e:
-        print(f"[ErrorHandler] ⚠️ Fix generation failed: {e}")
+        print(f"[ErrorHandler] [WARN] Fix generation failed: {e}")
         return {
             "step":        step.get("step"),
             "tool":        "generated_code",

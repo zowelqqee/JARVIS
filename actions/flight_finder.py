@@ -165,7 +165,7 @@ def _search_flights_browser(
         origin, destination, date, return_date, passengers, cabin
     )
 
-    print(f"[FlightFinder] 🌐 Opening: {url}")
+    print(f"[FlightFinder] [INFO] Opening: {url}")
     browser_control({"action": "go_to", "url": url})
     time.sleep(5)  
 
@@ -216,7 +216,7 @@ def _parse_flights_with_gemini(
         flights  = json.loads(text)
         return flights if isinstance(flights, list) else []
     except Exception as e:
-        print(f"[FlightFinder] ⚠️ Parse failed: {e}")
+        print(f"[FlightFinder] [WARN] Parse failed: {e}")
         return []
 
 
@@ -325,7 +325,7 @@ def _save_to_notepad(content: str, origin: str, destination: str) -> str:
     filepath = desktop / filename
 
     filepath.write_text(content, encoding="utf-8")
-    print(f"[FlightFinder] 💾 Saved: {filepath}")
+    print(f"[FlightFinder] [INFO] Saved: {filepath}")
 
     system  = platform.system()
     open_fn = {
@@ -388,7 +388,7 @@ def flight_finder(
     if speak:
         speak(f"Searching flights from {origin} to {destination} on {date}, sir.")
 
-    print(f"[FlightFinder] ▶️ {origin} → {destination} | {date} | {cabin} | {passengers} pax")
+    print(f"[FlightFinder] [INFO] {origin} -> {destination} | {date} | {cabin} | {passengers} pax")
 
     try:
    
@@ -420,5 +420,5 @@ def flight_finder(
         return result
 
     except Exception as e:
-        print(f"[FlightFinder] ❌ Error: {e}")
+        print(f"[FlightFinder] [ERROR] Error: {e}")
         return f"Flight search failed, sir: {e}"

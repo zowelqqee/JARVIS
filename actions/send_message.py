@@ -192,7 +192,7 @@ def send_message(
     if not message_text:
         return "Please specify what message to send, sir."
 
-    print(f"[SendMessage] 📨 {platform} → {receiver}: {message_text[:40]}")
+    print(f"[SendMessage] [INFO] {platform} -> {receiver}: {message_text[:40]}")
     if player:
         player.write_log(f"[msg] Sending to {receiver} via {platform}...")
 
@@ -208,7 +208,7 @@ def send_message(
     else:
         result = _send_generic(platform, receiver, message_text)
 
-    print(f"[SendMessage] ✅ {result}")
+    print(f"[SendMessage] [OK] {result}")
     if player:
         player.write_log(f"[msg] {result}")
 

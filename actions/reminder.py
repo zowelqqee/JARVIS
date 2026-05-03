@@ -137,7 +137,7 @@ except Exception:
 
         if result.returncode != 0:
             err = result.stderr.strip() or result.stdout.strip()
-            print(f"[Reminder] ❌ schtasks failed: {err}")
+            print(f"[Reminder] [ERROR] schtasks failed: {err}")
             try:
                 os.remove(notify_script)
             except Exception:

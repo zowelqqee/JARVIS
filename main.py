@@ -141,13 +141,13 @@ def _update_memory_async(user_text: str, vector_text: str) -> None:
         data = json.loads(raw)
         if data:
             update_memory(data)
-            print(f"[Memory] ✅ Updated: {list(data.keys())}")
+            print(f"[Memory] [OK] Updated: {list(data.keys())}")
 
     except json.JSONDecodeError:
         pass
     except Exception as e:
         if "429" not in str(e):
-            print(f"[Memory] ⚠️ {e}")
+            print(f"[Memory] [WARN] {e}")
 
 
 class VectorLive:
@@ -244,7 +244,7 @@ class VectorLive:
         name = fc.name
         args = dict(fc.args or {})
 
-        print(f"[VECTOR] 🔧 TOOL: {name}  ARGS: {args}")
+        print(f"[VECTOR] [INFO] TOOL: {name}  ARGS: {args}")
 
         # Clear stale interrupt before any new command (stop_execution sets it, not clears it)
         if name != "stop_execution":
@@ -255,7 +255,7 @@ class VectorLive:
                 pass
 
         self.tool_call_in_progress = True
-        print("[VECTOR] ⏸️  Audio sending paused (tool_call_in_progress=True)")
+        print("[VECTOR] [INFO]  Audio sending paused (tool_call_in_progress=True)")
 
         if hasattr(self.ui, 'set_executing'):
             self.ui.set_executing(name, args)
@@ -276,7 +276,7 @@ class VectorLive:
                     f"Unknown tool: '{name}'. "
                     f"Available: {', '.join(sorted(TOOL_REGISTRY.keys()))}"
                 )
-                print(f"[VECTOR] ⚠️  {result}")
+                print(f"[VECTOR] [WARN]  {result}")
             else:
                 try:
                     result = await loop.run_in_executor(
@@ -288,12 +288,12 @@ class VectorLive:
                     traceback.print_exc()
         finally:
             self.tool_call_in_progress = False
-            print("[VECTOR] ▶️  Audio sending resumed (tool_call_in_progress=False)")
+            print("[VECTOR] [INFO]  Audio sending resumed (tool_call_in_progress=False)")
 
         if hasattr(self.ui, 'set_idle'):
             self.ui.set_idle()
 
-        print(f"[VECTOR] 📤 {name} → {str(result)[:80]}")
+        print(f"[VECTOR] [INFO] {name} -> {str(result)[:80]}")
 
         return types.FunctionResponse(
             id=fc.id,
@@ -311,7 +311,7 @@ class VectorLive:
             await self.session.send_realtime_input(media=msg)
 
     async def _listen_audio(self):
-        print("[VECTOR] 🎤 Mic started")
+        print("[VECTOR] [MIC] Mic started")
         stream = await asyncio.to_thread(
             pya.open,
             format=FORMAT,
@@ -327,13 +327,13 @@ class VectorLive:
                 )
                 await self.out_queue.put({"data": data, "mime_type": "audio/pcm"})
         except Exception as e:
-            print(f"[VECTOR] ❌ Mic error: {e}")
+            print(f"[VECTOR] [ERROR] Mic error: {e}")
             raise
         finally:
             stream.close()
 
     async def _receive_audio(self):
-        print("[VECTOR] 👂 Recv started")
+        print("[VECTOR] [INFO] Recv started")
         out_buf = []
         in_buf  = []
 
@@ -409,7 +409,7 @@ class VectorLive:
                         fn_responses = []
                         for fc in response.tool_call.function_calls:
                             print(
-                                f"[VECTOR] 📞 Tool call: {fc.name}  "
+                                f"[VECTOR] [INFO] Tool call: {fc.name}  "
                                 f"ARGS: {dict(fc.args or {})}"
                             )
                             fr = await self._execute_tool(fc)
@@ -419,7 +419,7 @@ class VectorLive:
                                 function_responses=fn_responses
                             )
                         except Exception as e:
-                            print(f"[VECTOR] ⚠️  send_tool_response failed: {e}")
+                            print(f"[VECTOR] [WARN]  send_tool_response failed: {e}")
                             raise
 
         except asyncio.CancelledError:
@@ -439,17 +439,17 @@ class VectorLive:
                 # ExceptionGroup whose str() does not contain "1011", breaking
                 # the outer reconnect check.
                 self._session_failed = True
-                print(f"[VECTOR] 🔌 Session closed (code 1011 / connection lost): {e}")
+                print(f"[VECTOR] [CONNECT] Session closed (code 1011 / connection lost): {e}")
                 for t in self._session_tasks:
                     if not t.done():
                         t.cancel()
                 return
-            print(f"[VECTOR] ❌ Recv error: {e}")
+            print(f"[VECTOR] [ERROR] Recv error: {e}")
             traceback.print_exc()
             raise
 
     async def _play_audio(self):
-        print("[VECTOR] 🔊 Play started")
+        print("[VECTOR] [AUDIO] Play started")
         stream = await asyncio.to_thread(
             pya.open,
             format=FORMAT,
@@ -462,7 +462,7 @@ class VectorLive:
                 chunk = await self.audio_in_queue.get()
                 await asyncio.to_thread(stream.write, chunk)
         except Exception as e:
-            print(f"[VECTOR] ❌ Play error: {e}")
+            print(f"[VECTOR] [ERROR] Play error: {e}")
             raise
         finally:
             stream.close()
@@ -482,7 +482,7 @@ class VectorLive:
         while True:
             try:
                 print(
-                    f"[VECTOR] 🔌 Connecting..."
+                    f"[VECTOR] [CONNECT] Connecting..."
                     + (f" (attempt {_reconnect_count + 1})" if _reconnect_count else "")
                 )
                 if hasattr(self.ui, 'set_connecting'):
@@ -501,7 +501,7 @@ class VectorLive:
                     self.tool_call_in_progress = False
                     self._session_failed = False
 
-                    print("[VECTOR] ✅ Connected.")
+                    print("[VECTOR] [OK] Connected.")
                     self.ui.write_log("V.E.C.T.O.R. online.")
                     _reconnect_count = 0  # reset on successful connection
 
@@ -529,12 +529,12 @@ class VectorLive:
                 _reconnect_count += 1
                 backoff = min(2 ** (_reconnect_count - 1), _MAX_BACKOFF)
                 print(
-                    f"[VECTOR] 🔄 Connection lost — "
+                    f"[VECTOR] [RELOAD] Connection lost - "
                     f"reconnect attempt {_reconnect_count} in {backoff:.0f}s"
                 )
                 if hasattr(self.ui, 'set_failed'):
                     self.ui.set_failed("Connection lost, reconnecting...")
-                print(f"[VECTOR] 🔄 Reconnecting in {backoff:.0f}s...")
+                print(f"[VECTOR] [RELOAD] Reconnecting in {backoff:.0f}s...")
                 await asyncio.sleep(backoff)
 
             except (KeyboardInterrupt, SystemExit):
@@ -552,18 +552,18 @@ class VectorLive:
                 if _is_1011:
                     backoff = min(2 ** (_reconnect_count - 1), _MAX_BACKOFF)
                     print(
-                        f"[VECTOR] 🔄 Connection lost (1011) — "
+                        f"[VECTOR] [RELOAD] Connection lost (1011) - "
                         f"reconnect attempt {_reconnect_count} in {backoff:.0f}s"
                     )
                 else:
                     backoff = 3.0
-                    print(f"[VECTOR] ⚠️  Error: {e}")
+                    print(f"[VECTOR] [WARN]  Error: {e}")
                     traceback.print_exc()
 
                 if hasattr(self.ui, 'set_failed'):
                     self.ui.set_failed(str(e)[:120])
 
-                print(f"[VECTOR] 🔄 Reconnecting in {backoff:.0f}s...")
+                print(f"[VECTOR] [RELOAD] Reconnecting in {backoff:.0f}s...")
                 await asyncio.sleep(backoff)
 
 
@@ -581,7 +581,7 @@ def main():
     try:
         asyncio.run(_async_main())
     except (KeyboardInterrupt, SystemExit):
-        print("\n🔴 Shutting down...")
+        print("\nShutting down...")
 
 
 if __name__ == "__main__":
