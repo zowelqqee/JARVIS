@@ -3,9 +3,16 @@ import threading
 import json
 import re
 import sys
+import io
 import traceback
 import os
 from pathlib import Path
+
+if hasattr(sys.stdout, 'buffer'):
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
+if hasattr(sys.stderr, 'buffer'):
+    sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8', errors='replace')
+
 from typing import Callable
 
 from dotenv import load_dotenv

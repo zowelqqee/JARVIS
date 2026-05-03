@@ -83,7 +83,7 @@ a = Analysis(
     ],
     hookspath=[],
     hooksconfig={},
-    runtime_hooks=[],
+    runtime_hooks=[str(ROOT / 'hook_utf8.py')],
     excludes=['tkinter', 'matplotlib', 'scipy', 'test'],
     win_no_prefer_redirects=False,
     win_private_assemblies=False,
