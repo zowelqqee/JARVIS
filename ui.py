@@ -16,8 +16,8 @@ BASE_DIR   = get_base_dir()
 CONFIG_DIR = BASE_DIR / "config"
 API_FILE   = CONFIG_DIR / "api_keys.json"
 
-SYSTEM_NAME = "V.E.C.T.O.R"
-MODEL_BADGE = "V.E.C.T.O.R."
+SYSTEM_NAME = "JARVIS"
+MODEL_BADGE = "JARVIS"
 
 C_BG     = "#000000"
 C_PRI    = "#00d4ff"
@@ -35,7 +35,7 @@ C_RED    = "#ff3333"
 class VectorUI:
     def __init__(self, face_path, size=None):
         self.root = tk.Tk()
-        self.root.title("V.E.C.T.O.R.")
+        self.root.title("JARVIS")
         self.root.resizable(False, False)
 
         sw = self.root.winfo_screenwidth()
@@ -289,7 +289,7 @@ class VectorUI:
         c.create_rectangle(0, H - 28, W, H, fill="#00080d", outline="")
         c.create_line(0, H - 28, W, H - 28, fill=C_DIM, width=1)
         c.create_text(W // 2, H - 14, fill=C_DIM, font=("Courier", 8),
-                      text="FatihMakes Industries  ·  CLASSIFIED  ·  V.E.C.T.O.R.")
+                      text="FatihMakes Industries  ·  CLASSIFIED  ·  JARVIS")
 
     def write_log(self, text: str):
         self.typing_queue.append(text)
@@ -349,7 +349,7 @@ class VectorUI:
         return API_FILE.exists()
 
     def wait_for_api_key(self):
-        """Block until API key is saved (called from main thread before starting V.E.C.T.O.R.)."""
+        """Block until API key is saved (called from main thread before starting JARVIS)."""
         while not self._api_key_ready:
             time.sleep(0.1)
 
@@ -363,7 +363,7 @@ class VectorUI:
         tk.Label(self.setup_frame, text="◈  INITIALISATION REQUIRED",
                  fg=C_PRI, bg="#00080d", font=("Courier", 13, "bold")).pack(pady=(18, 4))
         tk.Label(self.setup_frame,
-                 text="Enter your Gemini API key to boot V.E.C.T.O.R.",
+                 text="Enter your Gemini API key to boot JARVIS.",
                  fg=C_MID, bg="#00080d", font=("Courier", 9)).pack(pady=(0, 10))
 
         tk.Label(self.setup_frame, text="GEMINI API KEY",
@@ -391,4 +391,4 @@ class VectorUI:
         self.setup_frame.destroy()
         self._api_key_ready = True
         self.status_text = "ONLINE"
-        self.write_log("SYS: Systems initialised. V.E.C.T.O.R. online.")
+        self.write_log("SYS: Systems initialised. JARVIS online.")

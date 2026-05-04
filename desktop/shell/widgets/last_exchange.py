@@ -3,7 +3,7 @@ Section 5 — Last Exchange Strip (always visible).
 
 Fixed 2-row display:
   ▸ {last user input}     (truncated, dimmed)
-  ▸ {last V.E.C.T.O.R. reply}   (truncated, dimmed)
+  ▸ {last JARVIS reply}   (truncated, dimmed)
 
 If no exchange yet: single dimmed "No previous exchange." line.
 Content never overflows — each line elides with … at max_width.
@@ -84,6 +84,6 @@ class LastExchangeWidget(QWidget):
         self._user_label.setText(user_text)
 
         if last_vector:
-            self._jarvis_label.setText(f"▸ V.E.C.T.O.R.: {_elide(last_vector)}")
+            self._jarvis_label.setText(f"▸ JARVIS: {_elide(last_vector)}")
         else:
-            self._jarvis_label.setText("▸ V.E.C.T.O.R.: …")
+            self._jarvis_label.setText("▸ JARVIS: …")

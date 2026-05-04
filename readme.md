@@ -1,4 +1,4 @@
-# 🤖 V.E.C.T.O.R.
+# 🤖 JARVIS
 
 ### Next-Generation Personal AI Assistant — By FatihMakes
 
@@ -8,7 +8,7 @@ Built for intelligent automation.
 
 ## ✨ Overview
 
-**V.E.C.T.O.R.** is an advanced voice-driven AI assistant designed to turn your computer into an interactive intelligent system.
+**JARVIS (Just A Rather Very Intellegent System)** is an advanced voice-driven AI assistant designed to turn your computer into an interactive intelligent system.
 
 Speak naturally — it listens, understands context, responds with a human-like voice, and executes tasks across your system automatically.
 
@@ -48,5 +48,5 @@ If you got some problems or questions to ask or just want to support;
 
 ## ⚠️ License
 
-Engineered by a 17-year-old building a real V.E.C.T.O.R.-style assistant.
+Engineered by a 17-year-old building a real JARVIS-style assistant.
 ⭐ Star the repository to support the project.

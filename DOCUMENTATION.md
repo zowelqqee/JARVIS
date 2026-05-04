@@ -1,8 +1,8 @@
-# V.E.C.T.O.R. — Technical Documentation
+# JARVIS — Technical Documentation
 
 ## Overview
 
-V.E.C.T.O.R. (Voice-Enabled Cognitive Tool and Operations Runtime) is a local AI assistant that uses Google's Gemini Live Native Audio API for real-time voice interaction. It runs primarily on Windows but has partial macOS support. The system listens to microphone input, processes speech through Gemini's multimodal live session, executes tool calls on the host machine, and responds with synthesized voice.
+JARVIS (Just A Rather Very Intellegent System) is a local AI assistant that uses Google's Gemini Live Native Audio API for real-time voice interaction. It runs primarily on Windows but has partial macOS support. The system listens to microphone input, processes speech through Gemini's multimodal live session, executes tool calls on the host machine, and responds with synthesized voice.
 
 The assistant supports a large action surface: web search, browser automation, file management, application control, desktop automation, system settings, reminders, messaging, multi-step agent tasks, and more. An optional ARIA gateway extends the system to a Raspberry Pi running OLED glasses (Pi ARIA).
 
@@ -266,7 +266,7 @@ Authentication: HTTP header `Authorization: Bearer <aria_secret>`.
 
 #### Output Adapter (`aria/output_adapter.py`)
 
-`ARIAOutputAdapter` — Registers two callbacks on the `VectorLive` instance: `on_text(text)` and `on_status(status)`. When V.E.C.T.O.R. speaks or changes state, the adapter broadcasts a JSON message to all `/ws/display` WebSocket clients using `asyncio.run_coroutine_threadsafe`.
+`ARIAOutputAdapter` — Registers two callbacks on the `VectorLive` instance: `on_text(text)` and `on_status(status)`. When JARVIS speaks or changes state, the adapter broadcasts a JSON message to all `/ws/display` WebSocket clients using `asyncio.run_coroutine_threadsafe`.
 
 #### OLED Formatter (`aria/oled_formatter.py`)
 

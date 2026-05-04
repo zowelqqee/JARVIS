@@ -141,7 +141,7 @@ fn spawn_python_backend(app: &AppHandle) {
     let mut cmd = match app.shell().sidecar("vector-backend") {
         Ok(c) => c,
         Err(e) => {
-            eprintln!("[VECTOR] Sidecar 'vector-backend' not found: {}", e);
+            eprintln!("[JARVIS] Sidecar 'vector-backend' not found: {}", e);
             let _ = app.emit("backend-error", "sidecar not found".to_string());
             return;
         }
@@ -155,13 +155,13 @@ fn spawn_python_backend(app: &AppHandle) {
     let (mut rx, child) = match cmd.spawn() {
         Ok(pair) => pair,
         Err(e) => {
-            eprintln!("[VECTOR] Failed to spawn sidecar: {}", e);
+            eprintln!("[JARVIS] Failed to spawn sidecar: {}", e);
             let _ = app.emit("backend-error", e.to_string());
             return;
         }
     };
 
-    eprintln!("[VECTOR] Sidecar started (PID {})", child.pid());
+    eprintln!("[JARVIS] Sidecar started (PID {})", child.pid());
     *app.state::<BackendProcess>().0.lock().unwrap() = Some(child);
 
     // Pipe sidecar stdout/stderr to the log file.

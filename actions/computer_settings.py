@@ -1,5 +1,5 @@
 # actions/computer_settings.py
-# V.E.C.T.O.R. — Computer Settings & UI Controls
+# JARVIS — Computer Settings & UI Controls
 #
 # Kullanıcı "sesi aç", "uygulamayı kapat", "tam ekran yap", "şunu yaz" gibi
 # bilgisayar kontrol komutları verdiğinde bu dosya devreye girer.
@@ -184,7 +184,7 @@ def _close_window_by_name(app_name: str) -> int:
 
 def _close_all_windows() -> str:
     """
-    Closes all visible app windows except system processes, VS Code, and V.E.C.T.O.R./Python.
+    Closes all visible app windows except system processes, VS Code, and JARVIS/Python.
     Also minimizes VS Code instead of closing it.
     """
     if _OS == "Windows":

@@ -1,6 +1,6 @@
 """
 Stub native/platform-specific modules so tests run on macOS without a full
-V.E.C.T.O.R. install (the real app targets Windows).
+JARVIS install (the real app targets Windows).
 """
 import sys
 import types

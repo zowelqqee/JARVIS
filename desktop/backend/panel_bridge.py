@@ -153,7 +153,7 @@ class PanelBridge(QObject):
         t     = text.strip()
         lower = t.lower()
 
-        print(f"[VECTOR] {t}")
+        print(f"[JARVIS] {t}")
 
         if not _QT_AVAILABLE:
             return
@@ -168,8 +168,8 @@ class PanelBridge(QObject):
                 s.mode               = "VOICE"
                 s.current_action_text = "Processing…"
 
-            elif lower.startswith("v.e.c.t.o.r.:"):
-                jarvis_text = t[13:].strip()
+            elif lower.startswith("jarvis:"):
+                jarvis_text = t[7:].strip()
                 s.last_vector        = jarvis_text
                 s.runtime_state      = "answering"
                 s.mode               = "VOICE"
@@ -333,13 +333,13 @@ class PanelBridge(QObject):
 
 class HeadlessUI:
     """
-    Drop-in replacement for VectorUI when running V.E.C.T.O.R. without any GUI.
+    Drop-in replacement for VectorUI when running JARVIS without any GUI.
     All methods are safe to call; output goes to stdout.
     """
 
     def write_log(self, text: str) -> None:
         if text:
-            print(f"[V.E.C.T.O.R.] {text.strip()}")
+            print(f"[JARVIS] {text.strip()}")
 
     def wait_for_api_key(self) -> None:
         import time
@@ -348,13 +348,13 @@ class HeadlessUI:
             time.sleep(0.2)
 
     def set_connecting(self) -> None:
-        print("[V.E.C.T.O.R.] Connecting…")
+        print("[JARVIS] Connecting…")
 
     def set_executing(self, tool_name: str | None = None, args: dict | None = None) -> None:
-        print(f"[V.E.C.T.O.R.] Executing: {tool_name}")
+        print(f"[JARVIS] Executing: {tool_name}")
 
     def set_idle(self) -> None:
         pass
 
     def set_failed(self, message: str | None = None) -> None:
-        print(f"[V.E.C.T.O.R.] Failed: {message}")
+        print(f"[JARVIS] Failed: {message}")

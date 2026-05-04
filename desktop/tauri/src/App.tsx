@@ -353,7 +353,7 @@ function SetupScreen({ onDone }: { onDone: () => void }) {
   return (
     <div className="setup-overlay">
       <div className="setup-card">
-        <div className="setup-logo">V.E.C.T.O.R.</div>
+        <div className="setup-logo">JARVIS</div>
         <h1 className="setup-title">FIRST-TIME SETUP</h1>
         <p className="setup-subtitle">
           A Google Gemini API key is required to run the AI core.
@@ -562,7 +562,7 @@ function MainApp() {
       <div className="scanlines" aria-hidden="true" />
 
       <header className="top-bar">
-        <div className="logo">V.E.C.T.O.R.</div>
+        <div className="logo">JARVIS</div>
         <div className={`status-pill status-pill--${statusClass}`}>
           <span className="status-pill__label">◉ STATUS</span>
           <span className="status-pill__value">{STATUS_LABEL[status]}</span>
@@ -588,7 +588,7 @@ function MainApp() {
                     style={{ opacity: fade }}
                   >
                     <span className="msg__sender">
-                      {entry.sender === "You" ? "YOU" : "V.E.C.T.O.R."}
+                      {entry.sender === "You" ? "YOU" : "JARVIS"}
                     </span>
                     <span className="msg__text">{entry.text}</span>
                   </article>
@@ -626,7 +626,7 @@ function MainApp() {
             </div>
 
             <div className="core-readout core-readout--lower-right">
-              <span className="core-readout__label">VECTOR CORE</span>
+              <span className="core-readout__label">JARVIS CORE</span>
               <span className="core-readout__value">EMISSIVE CYAN</span>
             </div>
 

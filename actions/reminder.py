@@ -37,7 +37,7 @@ def reminder(
         if target_dt <= datetime.now():
             return "That time is already in the past."
 
-        task_name    = f"VECTOR_Reminder_{target_dt.strftime('%Y%m%d_%H%M')}"
+        task_name    = f"JARVIS_Reminder_{target_dt.strftime('%Y%m%d_%H%M')}"
         safe_message = message.replace('"', '').replace("'", "").strip()[:200]
 
         python_exe = sys.executable
@@ -66,7 +66,7 @@ except Exception:
 try:
     from win10toast import ToastNotifier
     ToastNotifier().show_toast(
-        "V.E.C.T.O.R. Reminder",
+        "JARVIS Reminder",
         "{safe_message}",
         duration=15,
         threaded=False

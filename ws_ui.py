@@ -74,8 +74,8 @@ class WebSocketUI:
         lower = t.lower()
         if lower.startswith("you:"):
             sender, content = "You", t[4:].strip()
-        elif lower.startswith("v.e.c.t.o.r.:"):
-            sender, content = "V.E.C.T.O.R.", t[13:].strip()
+        elif lower.startswith("jarvis:"):
+            sender, content = "JARVIS", t[7:].strip()
         else:
             sender, content = "SYS", t
         print(f"[{sender}] {content}")
@@ -98,7 +98,7 @@ class WebSocketUI:
         self._broadcast({"type": "status", "value": "LISTENING"})
 
     def set_failed(self, message: str | None = None) -> None:
-        print(f"[V.E.C.T.O.R.] Error: {message}")
+        print(f"[JARVIS] Error: {message}")
         if self._current_tool:
             self._broadcast({"type": "tool", "name": self._current_tool, "state": "end"})
             self._current_tool = None

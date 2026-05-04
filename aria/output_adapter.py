@@ -1,5 +1,5 @@
 """
-ARIAOutputAdapter — broadcasts V.E.C.T.O.R. output to all connected /ws/display WebSocket clients.
+ARIAOutputAdapter — broadcasts JARVIS output to all connected /ws/display WebSocket clients.
 Registered as on_text_response and on_status_change callbacks on VectorLive.
 """
 from __future__ import annotations
@@ -44,7 +44,7 @@ class ARIAOutputAdapter:
         vector.on_status_change = self.on_status
 
     # ------------------------------------------------------------------
-    # Callback methods (called from V.E.C.T.O.R. asyncio thread)
+    # Callback methods (called from JARVIS asyncio thread)
     # ------------------------------------------------------------------
 
     def on_text(self, text: str) -> None:

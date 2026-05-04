@@ -1,7 +1,7 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/schema/acl/capability.schema.json",
   "identifier": "default",
-  "description": "Default capabilities for V.E.C.T.O.R. UI",
+  "description": "Default capabilities for JARVIS UI",
   "windows": ["main"],
   "permissions": [
     "core:default",

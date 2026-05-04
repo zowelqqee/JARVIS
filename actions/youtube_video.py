@@ -1,5 +1,5 @@
 # actions/youtube_video.py
-# V.E.C.T.O.R. — YouTube Controller
+# JARVIS — YouTube Controller
 #
 # Features:
 #   - play      : Search and play a YouTube video (original feature, preserved)
@@ -202,7 +202,7 @@ def _summarize_with_gemini(transcript: str, video_url: str) -> str:
         contents=f"Please summarize this YouTube video transcript:\n\n{truncated}",
         config=genai_types.GenerateContentConfig(
             system_instruction=(
-                "You are V.E.C.T.O.R., Tony Stark's AI assistant. "
+                "You are JARVIS, Tony Stark's AI assistant. "
                 "Summarize YouTube video transcripts clearly and concisely. "
                 "Structure: 1-sentence overview, then 3-5 key points. "
                 "Be direct. Address the user as 'sir'. "
@@ -224,7 +224,7 @@ def _save_to_notepad(content: str, video_url: str) -> str:
     filepath = desktop / filename
 
     header = (
-        f"V.E.C.T.O.R. — YouTube Summary\n"
+        f"JARVIS — YouTube Summary\n"
         f"{'─' * 50}\n"
         f"URL    : {video_url}\n"
         f"Date   : {datetime.now().strftime('%Y-%m-%d %H:%M')}\n"

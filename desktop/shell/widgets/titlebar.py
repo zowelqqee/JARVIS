@@ -1,7 +1,7 @@
 """
 Section 1 — Titlebar (always visible, 32px fixed height).
 
-Layout:  [●] V.E.C.T.O.R.         [–] [×]
+Layout:  [●] JARVIS         [–] [×]
 
 The ● dot colour reflects runtime_state.
 Drag region: the full titlebar width (left of the buttons).
@@ -48,7 +48,7 @@ class TitlebarWidget(QWidget):
         layout.addWidget(self._dot)
 
         # Title
-        title = QLabel("V.E.C.T.O.R.")
+        title = QLabel("JARVIS")
         title_font = QFont()
         title_font.setPointSize(11)
         title_font.setBold(True)

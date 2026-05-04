@@ -67,7 +67,7 @@ def _load_system_prompt() -> str:
         return PROMPT_PATH.read_text(encoding="utf-8")
     except Exception:
         return (
-            "You are V.E.C.T.O.R., a personal AI assistant. "
+            "You are JARVIS (Just A Rather Very Intellegent System), a personal AI assistant. "
             "Be concise, direct, and always use the provided tools to complete tasks. "
             "Never simulate or guess results — always call the appropriate tool."
         )
@@ -244,7 +244,7 @@ class VectorLive:
         name = fc.name
         args = dict(fc.args or {})
 
-        print(f"[VECTOR] [INFO] TOOL: {name}  ARGS: {args}")
+        print(f"[JARVIS] [INFO] TOOL: {name}  ARGS: {args}")
 
         # Clear stale interrupt before any new command (stop_execution sets it, not clears it)
         if name != "stop_execution":
@@ -255,7 +255,7 @@ class VectorLive:
                 pass
 
         self.tool_call_in_progress = True
-        print("[VECTOR] [INFO]  Audio sending paused (tool_call_in_progress=True)")
+        print("[JARVIS] [INFO]  Audio sending paused (tool_call_in_progress=True)")
 
         if hasattr(self.ui, 'set_executing'):
             self.ui.set_executing(name, args)
@@ -276,7 +276,7 @@ class VectorLive:
                     f"Unknown tool: '{name}'. "
                     f"Available: {', '.join(sorted(TOOL_REGISTRY.keys()))}"
                 )
-                print(f"[VECTOR] [WARN]  {result}")
+                print(f"[JARVIS] [WARN]  {result}")
             else:
                 try:
                     result = await loop.run_in_executor(
@@ -288,12 +288,12 @@ class VectorLive:
                     traceback.print_exc()
         finally:
             self.tool_call_in_progress = False
-            print("[VECTOR] [INFO]  Audio sending resumed (tool_call_in_progress=False)")
+            print("[JARVIS] [INFO]  Audio sending resumed (tool_call_in_progress=False)")
 
         if hasattr(self.ui, 'set_idle'):
             self.ui.set_idle()
 
-        print(f"[VECTOR] [INFO] {name} -> {str(result)[:80]}")
+        print(f"[JARVIS] [INFO] {name} -> {str(result)[:80]}")
 
         return types.FunctionResponse(
             id=fc.id,
@@ -311,7 +311,7 @@ class VectorLive:
             await self.session.send_realtime_input(media=msg)
 
     async def _listen_audio(self):
-        print("[VECTOR] [MIC] Mic started")
+        print("[JARVIS] [MIC] Mic started")
         stream = await asyncio.to_thread(
             pya.open,
             format=FORMAT,
@@ -327,13 +327,13 @@ class VectorLive:
                 )
                 await self.out_queue.put({"data": data, "mime_type": "audio/pcm"})
         except Exception as e:
-            print(f"[VECTOR] [ERROR] Mic error: {e}")
+            print(f"[JARVIS] [ERROR] Mic error: {e}")
             raise
         finally:
             stream.close()
 
     async def _receive_audio(self):
-        print("[VECTOR] [INFO] Recv started")
+        print("[JARVIS] [INFO] Recv started")
         out_buf = []
         in_buf  = []
 
@@ -388,7 +388,7 @@ class VectorLive:
                             if out_buf:
                                 full_out = " ".join(out_buf).strip()
                                 if full_out:
-                                    self.ui.write_log(f"V.E.C.T.O.R.: {full_out}")
+                                    self.ui.write_log(f"JARVIS: {full_out}")
                             out_buf = []
 
                             self.ui.set_idle()
@@ -409,7 +409,7 @@ class VectorLive:
                         fn_responses = []
                         for fc in response.tool_call.function_calls:
                             print(
-                                f"[VECTOR] [INFO] Tool call: {fc.name}  "
+                                f"[JARVIS] [INFO] Tool call: {fc.name}  "
                                 f"ARGS: {dict(fc.args or {})}"
                             )
                             fr = await self._execute_tool(fc)
@@ -419,7 +419,7 @@ class VectorLive:
                                 function_responses=fn_responses
                             )
                         except Exception as e:
-                            print(f"[VECTOR] [WARN]  send_tool_response failed: {e}")
+                            print(f"[JARVIS] [WARN]  send_tool_response failed: {e}")
                             raise
 
         except asyncio.CancelledError:
@@ -439,17 +439,17 @@ class VectorLive:
                 # ExceptionGroup whose str() does not contain "1011", breaking
                 # the outer reconnect check.
                 self._session_failed = True
-                print(f"[VECTOR] [CONNECT] Session closed (code 1011 / connection lost): {e}")
+                print(f"[JARVIS] [CONNECT] Session closed (code 1011 / connection lost): {e}")
                 for t in self._session_tasks:
                     if not t.done():
                         t.cancel()
                 return
-            print(f"[VECTOR] [ERROR] Recv error: {e}")
+            print(f"[JARVIS] [ERROR] Recv error: {e}")
             traceback.print_exc()
             raise
 
     async def _play_audio(self):
-        print("[VECTOR] [AUDIO] Play started")
+        print("[JARVIS] [AUDIO] Play started")
         stream = await asyncio.to_thread(
             pya.open,
             format=FORMAT,
@@ -462,7 +462,7 @@ class VectorLive:
                 chunk = await self.audio_in_queue.get()
                 await asyncio.to_thread(stream.write, chunk)
         except Exception as e:
-            print(f"[VECTOR] [ERROR] Play error: {e}")
+            print(f"[JARVIS] [ERROR] Play error: {e}")
             raise
         finally:
             stream.close()
@@ -482,7 +482,7 @@ class VectorLive:
         while True:
             try:
                 print(
-                    f"[VECTOR] [CONNECT] Connecting..."
+                    f"[JARVIS] [CONNECT] Connecting..."
                     + (f" (attempt {_reconnect_count + 1})" if _reconnect_count else "")
                 )
                 if hasattr(self.ui, 'set_connecting'):
@@ -501,8 +501,8 @@ class VectorLive:
                     self.tool_call_in_progress = False
                     self._session_failed = False
 
-                    print("[VECTOR] [OK] Connected.")
-                    self.ui.write_log("V.E.C.T.O.R. online.")
+                    print("[JARVIS] [OK] Connected.")
+                    self.ui.write_log("JARVIS online.")
                     _reconnect_count = 0  # reset on successful connection
 
                     if self.on_status_change:
@@ -529,12 +529,12 @@ class VectorLive:
                 _reconnect_count += 1
                 backoff = min(2 ** (_reconnect_count - 1), _MAX_BACKOFF)
                 print(
-                    f"[VECTOR] [RELOAD] Connection lost - "
+                    f"[JARVIS] [RELOAD] Connection lost - "
                     f"reconnect attempt {_reconnect_count} in {backoff:.0f}s"
                 )
                 if hasattr(self.ui, 'set_failed'):
                     self.ui.set_failed("Connection lost, reconnecting...")
-                print(f"[VECTOR] [RELOAD] Reconnecting in {backoff:.0f}s...")
+                print(f"[JARVIS] [RELOAD] Reconnecting in {backoff:.0f}s...")
                 await asyncio.sleep(backoff)
 
             except (KeyboardInterrupt, SystemExit):
@@ -552,18 +552,18 @@ class VectorLive:
                 if _is_1011:
                     backoff = min(2 ** (_reconnect_count - 1), _MAX_BACKOFF)
                     print(
-                        f"[VECTOR] [RELOAD] Connection lost (1011) - "
+                        f"[JARVIS] [RELOAD] Connection lost (1011) - "
                         f"reconnect attempt {_reconnect_count} in {backoff:.0f}s"
                     )
                 else:
                     backoff = 3.0
-                    print(f"[VECTOR] [WARN]  Error: {e}")
+                    print(f"[JARVIS] [WARN]  Error: {e}")
                     traceback.print_exc()
 
                 if hasattr(self.ui, 'set_failed'):
                     self.ui.set_failed(str(e)[:120])
 
-                print(f"[VECTOR] [RELOAD] Reconnecting in {backoff:.0f}s...")
+                print(f"[JARVIS] [RELOAD] Reconnecting in {backoff:.0f}s...")
                 await asyncio.sleep(backoff)
 
 

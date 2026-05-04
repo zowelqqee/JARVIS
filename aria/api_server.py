@@ -3,7 +3,7 @@ ARIA FastAPI server.
 
 Endpoints:
   WS  /ws/audio   — Pi sends PCM audio chunks (16 kHz mono int16) → Gemini
-  WS  /ws/display — Pi receives status/response JSON from V.E.C.T.O.R.
+  WS  /ws/display — Pi receives status/response JSON from JARVIS.
   POST /tool/{name} — call any tool directly without Gemini
   GET  /tools       — list available tools
   GET  /status      — {"vector_running": bool, "aria_connected": bool}
@@ -102,7 +102,7 @@ async def ws_audio(websocket: WebSocket):
 
 
 # ---------------------------------------------------------------------------
-# WebSocket /ws/display — V.E.C.T.O.R. → Pi OLED
+# WebSocket /ws/display — JARVIS → Pi OLED
 # ---------------------------------------------------------------------------
 
 @app.websocket("/ws/display")

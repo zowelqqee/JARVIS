@@ -1,5 +1,5 @@
 # actions/open_app.py
-# V.E.C.T.O.R. — Cross-Platform App Launcher
+# JARVIS — Cross-Platform App Launcher
 
 import re
 import time

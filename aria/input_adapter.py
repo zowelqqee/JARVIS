@@ -21,7 +21,7 @@ class ARIAInputAdapter:
 
     def feed_chunk(self, pcm_bytes: bytes) -> None:
         """
-        Thread-safe: schedule PCM chunk delivery into the V.E.C.T.O.R. event loop.
+        Thread-safe: schedule PCM chunk delivery into the JARVIS event loop.
         pcm_bytes must be 16 kHz mono int16 PCM.
         """
         loop = self._vector.vector_loop
