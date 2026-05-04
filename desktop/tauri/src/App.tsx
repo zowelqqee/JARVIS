@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
+import { invoke } from "@tauri-apps/api/core";
 import "./App.css";
 
 type Status = "LISTENING" | "THINKING" | "EXECUTING" | "CONNECTING" | "OFFLINE" | "BACKEND_ERROR";
@@ -321,7 +322,138 @@ function CoreSVG({ status }: { status: Status }) {
   );
 }
 
+// ---------------------------------------------------------------------------
+// Setup screen — shown on first launch when no API key is saved
+// ---------------------------------------------------------------------------
+
+function SetupScreen({ onDone }: { onDone: () => void }) {
+  const [key, setKey] = useState("");
+  const [show, setShow] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+
+  async function handleSave() {
+    const trimmed = key.trim();
+    if (!trimmed) return;
+    setSaving(true);
+    setError("");
+    try {
+      await invoke("save_api_key", { key: trimmed });
+      onDone();
+    } catch (e) {
+      setError(String(e));
+      setSaving(false);
+    }
+  }
+
+  function handleKeyDown(e: React.KeyboardEvent) {
+    if (e.key === "Enter") handleSave();
+  }
+
+  return (
+    <div className="setup-overlay">
+      <div className="setup-card">
+        <div className="setup-logo">V.E.C.T.O.R.</div>
+        <h1 className="setup-title">FIRST-TIME SETUP</h1>
+        <p className="setup-subtitle">
+          A Google Gemini API key is required to run the AI core.
+        </p>
+
+        <div className="setup-steps">
+          <div className="setup-step">
+            <span className="setup-step__num">01</span>
+            <span className="setup-step__text">
+              Open{" "}
+              <a
+                className="setup-link"
+                href="https://aistudio.google.com/app/apikey"
+                target="_blank"
+                rel="noreferrer"
+                onClick={(e) => {
+                  e.preventDefault();
+                  window.open("https://aistudio.google.com/app/apikey", "_blank");
+                }}
+              >
+                aistudio.google.com
+              </a>{" "}
+              → Get API key
+            </span>
+          </div>
+          <div className="setup-step">
+            <span className="setup-step__num">02</span>
+            <span className="setup-step__text">Paste the key below</span>
+          </div>
+        </div>
+
+        <div className="setup-input-row">
+          <input
+            className="setup-input"
+            type={show ? "text" : "password"}
+            placeholder="AIza..."
+            value={key}
+            onChange={(e) => setKey(e.target.value)}
+            onKeyDown={handleKeyDown}
+            autoFocus
+            spellCheck={false}
+          />
+          <button
+            className="setup-toggle"
+            onClick={() => setShow((s) => !s)}
+            tabIndex={-1}
+          >
+            {show ? "HIDE" : "SHOW"}
+          </button>
+        </div>
+
+        {error && <div className="setup-error">⚠ {error}</div>}
+
+        <div className="setup-hint">
+          Stored locally in %APPDATA%\JARVIS\config.json — never transmitted by this app.
+        </div>
+
+        <button
+          className="setup-btn"
+          disabled={!key.trim() || saving}
+          onClick={handleSave}
+        >
+          {saving ? "SAVING..." : "SAVE KEY AND LAUNCH"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Main app
+// ---------------------------------------------------------------------------
+
 export default function App() {
+  const [ready, setReady] = useState<boolean | null>(null);
+
+  function launch() {
+    invoke("start_backend").catch(() => {});
+    setReady(true);
+  }
+
+  useEffect(() => {
+    invoke<boolean>("has_api_key")
+      .then((ok) => {
+        if (ok) {
+          launch();
+        } else {
+          setReady(false);
+        }
+      })
+      .catch(() => launch()); // on invoke error assume key exists
+  }, []);
+
+  if (ready === null) return null; // brief splash while checking
+  if (!ready) return <SetupScreen onDone={launch} />;
+
+  return <MainApp />;
+}
+
+function MainApp() {
   const [status, setStatus] = useState<Status>("OFFLINE");
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [activeTools, setActiveTools] = useState<string[]>([]);
@@ -333,6 +465,18 @@ export default function App() {
   const currentTask = activeTools[activeTools.length - 1] ?? "";
   // BACKEND_ERROR reuses the "offline" visual style (red/inactive state).
   const statusClass = status === "BACKEND_ERROR" ? "offline" : status.toLowerCase();
+  const footerText =
+    status === "EXECUTING" && currentTask
+      ? `CURRENT TASK // ${currentTask}`
+      : status === "THINKING"
+        ? "PROCESSING..."
+        : "SYSTEM NOMINAL";
+  const footerClass =
+    status === "THINKING"
+      ? "task-text task-text--thinking"
+      : status === "EXECUTING" && currentTask
+        ? "task-text task-text--active"
+        : "task-text task-text--idle";
 
   // Listen for backend-error events emitted by the Rust layer.
   useEffect(() => {
@@ -509,11 +653,7 @@ export default function App() {
 
       <footer className="bottom-bar">
         <div className="bottom-bar__scan" aria-hidden="true" />
-        {status === "EXECUTING" && currentTask ? (
-          <div className="task-text">CURRENT TASK // {currentTask}</div>
-        ) : status === "THINKING" ? (
-          <div className="task-text task-text--thinking">PROCESSING...</div>
-        ) : null}
+        <div className={footerClass}>{footerText}</div>
       </footer>
     </div>
   );

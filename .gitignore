@@ -4,3 +4,4 @@ tmp/runtime/piper/
 tmp/runtime/jarvis_tts.env
 config/api_keys.json
 .env
+.claude/
