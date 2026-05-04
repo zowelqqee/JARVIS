@@ -22,7 +22,7 @@ class ErrorDecision(Enum):
     ABORT       = "abort"    
 
 
-ERROR_ANALYST_PROMPT = """You are the error recovery module of JARVIS AI assistant.
+ERROR_ANALYST_PROMPT = """You are the error recovery module of VECTOR XXV AI assistant.
 
 A task step has failed. Analyze the error and decide what to do.
 
@@ -78,12 +78,10 @@ def analyze_error(
             "user_message": str
         }
     """
-    from google import genai
-    from google.genai import types
+    import google.generativeai as genai
 
-    # If we've already retried enough, escalate to replan
     if attempt >= max_attempts:
-        print(f"[ErrorHandler] Max attempts reached for step {step.get('step')} - forcing replan")
+        print(f"[ErrorHandler] ⚠️ Max attempts reached for step {step.get('step')} — forcing replan")
         return {
             "decision":      ErrorDecision.REPLAN,
             "reason":        f"Failed {attempt} times: {error[:100]}",
@@ -92,7 +90,11 @@ def analyze_error(
             "user_message":  "Trying a different approach, sir."
         }
 
-    client = genai.Client(api_key=_get_api_key())
+    genai.configure(api_key=_get_api_key())
+    model = genai.GenerativeModel(
+        model_name="gemini-2.5-flash-lite",
+        system_instruction=ERROR_ANALYST_PROMPT
+    )
 
     prompt = f"""Failed step:
 Tool: {step.get('tool')}
@@ -106,13 +108,7 @@ Error:
 Attempt number: {attempt}"""
 
     try:
-        response = client.models.generate_content(
-            model="gemini-2.5-flash-lite",
-            contents=prompt,
-            config=types.GenerateContentConfig(
-                system_instruction=ERROR_ANALYST_PROMPT,
-            )
-        )
+        response = model.generate_content(prompt)
         text     = response.text.strip()
         text     = re.sub(r"```(?:json)?", "", text).strip().rstrip("`").strip()
 
@@ -131,11 +127,11 @@ Attempt number: {attempt}"""
             result["decision"]     = ErrorDecision.REPLAN
             result["user_message"] = "This step is critical — finding alternative approach, sir."
 
-        print(f"[ErrorHandler] Decision: {result['decision'].value} - {result.get('reason', '')}")
+        print(f"[ErrorHandler] Decision: {result['decision'].value} — {result.get('reason', '')}")
         return result
 
     except Exception as e:
-        print(f"[ErrorHandler] [WARN] Analysis failed: {e} - defaulting to replan")
+        print(f"[ErrorHandler] ⚠️ Analysis failed: {e} — defaulting to replan")
         return {
             "decision":       ErrorDecision.REPLAN,
             "reason":         str(e),
@@ -148,13 +144,14 @@ Attempt number: {attempt}"""
 def generate_fix(step: dict, error: str, fix_suggestion: str) -> dict:
     """
     When decision is REPLAN and a fix suggestion exists,
-    generates a replacement step using code_helper as fallback.
+    generates a replacement step using generated_code as fallback.
 
     Returns a modified step dict.
     """
-    from google import genai
+    import google.generativeai as genai
 
-    client = genai.Client(api_key=_get_api_key())
+    genai.configure(api_key=_get_api_key())
+    model = genai.GenerativeModel(model_name="gemini-2.0-flash")
 
     prompt = f"""A task step failed. Generate a replacement step.
 
@@ -170,38 +167,26 @@ Write a Python script that accomplishes the same goal differently.
 Return ONLY the Python code, no explanation."""
 
     try:
-        response = client.models.generate_content(
-            model="gemini-2.5-flash",
-            contents=prompt
-        )
+        response = model.generate_content(prompt)
         code = response.text.strip()
         code = re.sub(r"```(?:python)?", "", code).strip().rstrip("`").strip()
-
-        # code_helper's "run" action needs a file_path, not a raw code string.
-        # Write the generated code to a temp file and pass its path.
-        import tempfile, os
-        with tempfile.NamedTemporaryFile(
-            mode="w", suffix=".py", delete=False, encoding="utf-8"
-        ) as f:
-            f.write(code)
-            tmp_path = f.name
-        print(f"[ErrorHandler] [LOG] Fix code written to: {tmp_path}")
 
         return {
             "step":        step.get("step"),
             "tool":        "code_helper",
             "description": f"Auto-fix for: {step.get('description')}",
             "parameters": {
-                "action":    "run",
-                "file_path": tmp_path,
-                "language":  "python"
+                "action":      "run",
+                "description": fix_suggestion,
+                "code":        code,
+                "language":    "python"
             },
             "depends_on": step.get("depends_on", []),
             "critical":   step.get("critical", False)
         }
 
     except Exception as e:
-        print(f"[ErrorHandler] [WARN] Fix generation failed: {e}")
+        print(f"[ErrorHandler] ⚠️ Fix generation failed: {e}")
         return {
             "step":        step.get("step"),
             "tool":        "generated_code",

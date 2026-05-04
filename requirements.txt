@@ -1,35 +1,24 @@
-pyaudio
+﻿sounddevice
 google-genai
 google-generativeai
 pillow
 requests
 beautifulsoup4
-playwright
+duckduckgo-search
+playwright          
 pyautogui
 pyperclip
+pygetwindow       
 opencv-python
 numpy
 mss
+Pillow
 psutil
-send2trash
 comtypes
-pycaw
-win10toast
-duckduckgo-search
+pycaw               
+win10toast          
+send2trash
 youtube-transcript-api
-python-dotenv
-
-# ARIA — Raspberry Pi glasses integration
-fastapi
-uvicorn[standard]
-websockets
-
-# Vector memory backend (Qdrant embedded, no server needed)
-qdrant-client
-sentence-transformers
-
-# Optional — local OCR (requires Tesseract binary: https://github.com/UB-Mannheim/tesseract/wiki)
-# pytesseract
-
-# Optional — local object detection via YOLOv8 nano (~6 MB model, ~100ms on CPU)
-# ultralytics
+pywinauto
+python-pptx
+pyqt6

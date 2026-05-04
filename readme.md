@@ -1,52 +1,81 @@
-# 🤖 JARVIS
+# 🤖 VECTOR XXXIX (39)
+### The Ultimate Cross-Platform Personal AI Assistant — By Spark Technologies
 
-### Next-Generation Personal AI Assistant — By FatihMakes
+> 📺 **[Watch the full setup video on YouTube](https://youtu.be/ej1f5OE3SNQ?si=lCxDhJix9ungq1Ry)**
 
-A real-time voice AI that can hear, see, understand, and control your Windows computer.
-Local execution. Zero subscriptions(Unless you want to increase request by buying requests from Google AI Studio).
-Built for intelligent automation.
+A real-time voice AI that can hear, see, understand, and control your computer — on any OS. Supporting Windows, macOS, and Linux. Local execution. Zero subscriptions. Engineered for total autonomy.
+
+---
 
 ## ✨ Overview
 
-**JARVIS (Just A Rather Very Intellegent System)** is an advanced voice-driven AI assistant designed to turn your computer into an interactive intelligent system.
+VECTOR XXXIX represents the pinnacle of the Jarvis series, evolving into a more flexible and robust system. It bridges the gap between the operating system and human intent. Through natural dialogue, Vector 39 analyzes your screen, processes uploaded documents, and executes complex workflows with a brand-new, adaptive interface.
 
-Speak naturally — it listens, understands context, responds with a human-like voice, and executes tasks across your system automatically.
+It's not just an assistant — it's an extension of your digital life.
 
-Designed for speed, autonomy, and real-world usability.
-
+---
 
 ## 🚀 Capabilities
 
-* **Real-time voice interaction** — Natural conversation with instant response
-* **System control** — Launch apps, manage files, execute commands
-* **Autonomous task execution** — Plans and completes multi-step workflows
-* **Visual awareness** — Screen analysis and webcam understanding
-* **Persistent memory** — Learns preferences and remembers context
-* **Integrated tools** — Web search, weather, reminders, messaging, code help, image generation
+### Core Features
+| Feature | Description |
+|---|---|
+| 🎙️ Real-time Voice | Ultra-low latency conversation in any language |
+| 🖥️ System Control | Launch apps, manage files, execute terminal commands |
+| 🧩 Autonomous Tasks | High-level planning for complex, multi-step goals |
+| 👁️ Visual Awareness | Real-time screen processing and webcam vision |
+| 🧠 Persistent Memory | Deeply remembers your projects, preferences, and personal context |
+| ⌨️ Hybrid Input | Seamlessly switch between keyboard typing and voice commands |
+
+---
+
+## 🆕 What's New in XXXIX
+
+- 📂 **Advanced File Handling** — New support for direct file uploads. Drop PDFs, source code, or images into the assistant to have them analyzed, summarized, or edited instantly.
+- 🎨 **Adaptive & Flexible UI** — A complete overhaul of the interface. The new UI is fully resizable and responsive, featuring transparency controls and customizable layouts to fit your workspace perfectly.
+- 🐧🍎 **Refined Cross-Platform Stability** — Major fixes for macOS and Linux compatibility. Core system actions are now more consistent across all three major operating systems.
+- ⚡ **Optimized Core Engine** — Significant performance boost in tool-calling logic and response generation, resulting in a 40% faster interaction speed.
+
+---
 
 ## ⚡ Quick Start
 
 ```bash
-git clone github.com/FatihMakes/Mark-XXX.git
-cd mark-xxx
-python setup.py
+git clone https://github.com/FatihMakes/Mark-XXXIX.git
+cd Mark-XXXIX
+pip install -r requirements.txt
+playwright install
 python main.py
 ```
 
-Enter your free Gemini API key on first launch.
-System ready in minutes.
+> ⚠️ **Installation Note:** To keep the repository lightweight, some OS-specific dependencies are not bundled in `requirements.txt`. If you run into a `ModuleNotFoundError`, simply install the missing package via `pip install <module_name>` for your specific system.
 
-If you got some problems or questions to ask or just want to support;
-
+---
 
 ## 📋 Requirements
 
-* Windows 10 / 11
-* Python 3.10 or newer
-* Microphone
-* Gemini API key
+| Requirement | Details |
+|---|---|
+| **OS** | Windows 10/11, macOS, or Linux |
+| **Python** | 3.11 or 3.12 |
+| **Microphone** | Required for voice interaction |
+| **API Key** | Free Gemini API key |
+
+---
 
 ## ⚠️ License
 
-Engineered by a 17-year-old building a real JARVIS-style assistant.
-⭐ Star the repository to support the project.
+Personal and non-commercial use only.
+Licensed under **[Creative Commons BY-NC 4.0](https://creativecommons.org/licenses/by-nc/4.0/)**.
+
+---
+
+## 👤 Connect with the Creator
+
+Engineered by Spark Technologies.
+⭐ **Star the repository to support the journey to Mark 100.**
+
+| Platform | Link |
+|---|---|
+| YouTube | [@FatihMakes](https://www.youtube.com/@FatihMakes) |
+| Instagram | [@fatihmakes](https://www.instagram.com/fatihmakes) |

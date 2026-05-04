@@ -1,35 +1,9 @@
-import concurrent.futures
 import threading
 import time
 import uuid
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Callable, Any
-
-_TASK_TIMEOUT = 300  # seconds before a stuck task is forcibly timed out
-
-# ── Global interrupt ─────────────────────────────────────────────────────────
-# Set by stop_execution tool; checked by executor + protocol_manager between steps.
-_global_interrupt = threading.Event()
-
-
-def cancel_all() -> None:
-    """Interrupt all running/pending tasks immediately."""
-    _global_interrupt.set()
-    with _queue._lock:
-        for task in _queue._tasks.values():
-            if task.status in (TaskStatus.PENDING, TaskStatus.RUNNING):
-                task.cancel_flag.set()
-    print("[TaskQueue] [INFO] Global interrupt set - all tasks cancelled")
-
-
-def clear_interrupt() -> None:
-    """Reset interrupt before a new command begins."""
-    _global_interrupt.clear()
-
-
-def is_interrupted() -> bool:
-    return _global_interrupt.is_set()
 
 
 class TaskStatus(Enum):
@@ -88,13 +62,13 @@ class TaskQueue:
             name="AgentTaskQueue"
         )
         self._worker_thread.start()
-        print("[TaskQueue] [OK] Started")
+        print("[TaskQueue] ✅ Started")
 
     def stop(self) -> None:
         self._running = False
         with self._condition:
             self._condition.notify_all()
-        print("[TaskQueue] [INFO] Stopped")
+        print("[TaskQueue] 🔴 Stopped")
 
     def submit(
         self,
@@ -120,7 +94,7 @@ class TaskQueue:
             self._tasks[task_id] = task
             self._condition.notify()
 
-        print(f"[TaskQueue] [INFO] Task queued: [{task_id}] {goal[:60]}")
+        print(f"[TaskQueue] 📥 Task queued: [{task_id}] {goal[:60]}")
         return task_id
 
     def cancel(self, task_id: str) -> bool:
@@ -134,7 +108,7 @@ class TaskQueue:
 
             task.cancel_flag.set()
             task.status = TaskStatus.CANCELLED
-            print(f"[TaskQueue] [INFO] Task cancelled: [{task_id}]")
+            print(f"[TaskQueue] 🚫 Task cancelled: [{task_id}]")
             return True
 
     def get_status(self, task_id: str) -> dict | None:
@@ -198,23 +172,14 @@ class TaskQueue:
         return None
 
     def _run_task(self, task: Task) -> None:
-        print(f"[TaskQueue] [INFO] Running: [{task.task_id}] {task.goal[:60]}")
+        print(f"[TaskQueue] ▶️ Running: [{task.task_id}] {task.goal[:60]}")
         try:
             executor = self._get_executor()
-
-            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
-                future = pool.submit(
-                    executor.execute,
-                    goal        = task.goal,
-                    speak       = task.speak,
-                    cancel_flag = task.cancel_flag,
-                )
-                try:
-                    result = future.result(timeout=_TASK_TIMEOUT)
-                except concurrent.futures.TimeoutError:
-                    task.cancel_flag.set()
-                    print(f"[TaskQueue] [INFO] Task timed out after {_TASK_TIMEOUT}s: [{task.task_id}]")
-                    raise TimeoutError(f"Task exceeded {_TASK_TIMEOUT}s time limit")
+            result   = executor.execute(
+                goal        = task.goal,
+                speak       = task.speak,
+                cancel_flag = task.cancel_flag,
+            )
 
             with self._lock:
                 if task.cancel_flag.is_set():
@@ -228,16 +193,16 @@ class TaskQueue:
                 try:
                     task.on_complete(task.task_id, result)
                 except Exception as e:
-                    print(f"[TaskQueue] [WARN] on_complete callback error: {e}")
+                    print(f"[TaskQueue] ⚠️ on_complete callback error: {e}")
 
-            print(f"[TaskQueue] [OK] Completed: [{task.task_id}]")
+            print(f"[TaskQueue] ✅ Completed: [{task.task_id}]")
 
         except Exception as e:
             with self._lock:
                 task.status = TaskStatus.FAILED
                 task.error  = str(e)
                 self._active_count -= 1
-            print(f"[TaskQueue] [ERROR] Failed: [{task.task_id}] {e}")
+            print(f"[TaskQueue] ❌ Failed: [{task.task_id}] {e}")
 
         with self._condition:
             self._condition.notify()

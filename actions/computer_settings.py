@@ -1,16 +1,9 @@
-# actions/computer_settings.py
-# JARVIS — Computer Settings & UI Controls
-#
-# Kullanıcı "sesi aç", "uygulamayı kapat", "tam ekran yap", "şunu yaz" gibi
-# bilgisayar kontrol komutları verdiğinde bu dosya devreye girer.
-#
-# - Intent detection: Gemini ile (multi-language, hardcoded keyword yok)
-# - Cross-platform: Windows / macOS / Linux
-# - pyautogui + platform-specific API'ler
-
+#computer_settings.py
+import json
+import re
+import sys
 import time
 import subprocess
-import sys
 import platform
 from pathlib import Path
 
@@ -28,602 +21,211 @@ try:
 except ImportError:
     _PYPERCLIP = False
 
-_OS = platform.system() 
-SW_RESTORE = 9
-SW_SHOWMAXIMIZED = 3
+_OS = platform.system()  # "Windows" | "Darwin" | "Linux"
 
-def get_base_dir() -> Path:
+
+def _get_base_dir() -> Path:
     if getattr(sys, "frozen", False):
         return Path(sys.executable).parent
     return Path(__file__).resolve().parent.parent
 
-BASE_DIR        = get_base_dir()
-API_CONFIG_PATH = BASE_DIR / "config" / "api_keys.json"
-
-import json
 def _get_api_key() -> str:
-    with open(API_CONFIG_PATH, "r", encoding="utf-8") as f:
+    path = _get_base_dir() / "config" / "api_keys.json"
+    with open(path, "r", encoding="utf-8") as f:
         return json.load(f)["gemini_api_key"]
 
-
-_PYCAW = False
-if _OS == "Windows":
+def _get_macos_wifi_interface() -> str:
     try:
-        from ctypes import POINTER, cast
-        from comtypes import CLSCTX_ALL
-        from pycaw.pycaw import AudioUtilities, IAudioEndpointVolume
-        _PYCAW = True
-    except ImportError:
+        result = subprocess.run(
+            ["networksetup", "-listallhardwareports"],
+            capture_output=True, text=True, timeout=5
+        )
+        lines = result.stdout.splitlines()
+        for i, line in enumerate(lines):
+            if "Wi-Fi" in line or "AirPort" in line:
+                for j in range(i, min(i + 4, len(lines))):
+                    if lines[j].startswith("Device:"):
+                        return lines[j].split(":", 1)[1].strip()
+    except Exception:
         pass
+    return "en0" 
 
+def volume_up():
+    if _OS == "Windows":
+        for _ in range(5): pyautogui.press("volumeup")
+    elif _OS == "Darwin":
+        subprocess.run(["osascript", "-e",
+            "set volume output volume (output volume of (get volume settings) + 10)"],
+            capture_output=True)
+    else:
+        subprocess.run(["pactl", "set-sink-volume", "@DEFAULT_SINK@", "+10%"],
+            capture_output=True)
 
-def _get_volume_interface():
-    if not _PYCAW:
-        raise RuntimeError("pycaw is not available on this platform.")
-    devices = AudioUtilities.GetSpeakers()
-    interface = devices.Activate(
-        IAudioEndpointVolume._iid_,
-        CLSCTX_ALL,
-        None
-    )
-    return cast(interface, POINTER(IAudioEndpointVolume))
-
-
-def volume_up(step=0.05):
-    volume = _get_volume_interface()
-    current = volume.GetMasterVolumeLevelScalar()
-    volume.SetMasterVolumeLevelScalar(min(1.0, current + step), None)
-
-
-def volume_down(step=0.05):
-    volume = _get_volume_interface()
-    current = volume.GetMasterVolumeLevelScalar()
-    volume.SetMasterVolumeLevelScalar(max(0.0, current - step), None)
-
+def volume_down():
+    if _OS == "Windows":
+        for _ in range(5): pyautogui.press("volumedown")
+    elif _OS == "Darwin":
+        subprocess.run(["osascript", "-e",
+            "set volume output volume (output volume of (get volume settings) - 10)"],
+            capture_output=True)
+    else:
+        subprocess.run(["pactl", "set-sink-volume", "@DEFAULT_SINK@", "-10%"],
+            capture_output=True)
 
 def volume_mute():
-    volume = _get_volume_interface()
-    is_muted = volume.GetMute()
-    volume.SetMute(0 if is_muted else 1, None)
-    
-def volume_set(value: int) -> bool:
+    if _OS == "Windows":
+        pyautogui.press("volumemute")
+    elif _OS == "Darwin":
+        subprocess.run(["osascript", "-e", "set volume with output muted"],
+            capture_output=True)
+    else:
+        subprocess.run(["pactl", "set-sink-mute", "@DEFAULT_SINK@", "toggle"],
+            capture_output=True)
+
+def volume_set(value: int):
     value = max(0, min(100, int(value)))
-
     if _OS == "Windows":
         try:
-            from pycaw.pycaw import AudioUtilities
-
-            device = AudioUtilities.GetSpeakers()
-            volume = device.EndpointVolume
-            volume.SetMasterVolumeLevelScalar(value / 100.0, None)
-
-            print(f"[Settings] [AUDIO] Volume -> {value}%")
-            return True
-
+            import math
+            from ctypes import cast, POINTER
+            from comtypes import CLSCTX_ALL
+            from pycaw.pycaw import AudioUtilities, IAudioEndpointVolume
+            devices   = AudioUtilities.GetSpeakers()
+            interface = devices.Activate(IAudioEndpointVolume._iid_, CLSCTX_ALL, None)
+            vol       = cast(interface, POINTER(IAudioEndpointVolume))
+            vol_db    = -65.25 if value == 0 else max(-65.25, 20 * math.log10(value / 100))
+            vol.SetMasterVolumeLevel(vol_db, None)
+            return
         except Exception as e:
-            print(f"[Settings] [WARN] pycaw failed: {e}")
-            return False
-
+            print(f"[Settings] pycaw failed, using keypress fallback: {e}")
+            pyautogui.press("volumemute")
+            pyautogui.press("volumemute")
     elif _OS == "Darwin":
-        try:
-            subprocess.run(
-                ["osascript", "-e", f"set volume output volume {value}"],
-                check=True
-            )
-            return True
-        except Exception as e:
-            print(f"[Settings] [WARN] macOS volume_set failed: {e}")
-            return False
-
+        subprocess.run(["osascript", "-e", f"set volume output volume {value}"],
+            capture_output=True)
+        return
     else:
-        try:
-            subprocess.run(
-                ["pactl", "set-sink-volume", "@DEFAULT_SINK@", f"{value}%"],
-                check=True
-            )
-            return True
-        except Exception as e:
-            print(f"[Settings] [WARN] Linux volume_set failed: {e}")
-            return False
-
-def brightness_up():
-    if _OS == "Windows":
-        pyautogui.hotkey("win", "a")
-        time.sleep(0.3)
-    elif _OS == "Darwin":
-        subprocess.run(["osascript", "-e", "tell application \"System Events\" to key code 144"])
-    else:
-        subprocess.run(["brightnessctl", "set", "+10%"])
-
-def brightness_down():
-    if _OS == "Windows":
-        pyautogui.hotkey("win", "a")
-        time.sleep(0.3)
-    elif _OS == "Darwin":
-        subprocess.run(["osascript", "-e", "tell application \"System Events\" to key code 145"])
-    else:
-        subprocess.run(["brightnessctl", "set", "10%-"])
-
-
-def _close_window_by_name(app_name: str) -> int:
-    """
-    Closes all visible windows whose title contains app_name.
-    Sends WM_CLOSE to every match. Returns number of windows closed.
-    Windows only.
-    """
-    if _OS != "Windows":
-        return 0
-    try:
-        import ctypes
-        user32   = ctypes.windll.user32
-        WM_CLOSE = 0x0010
-        closed   = [0]
-        name_lower = app_name.lower().strip()
-
-        def _cb(hwnd, _):
-            if not user32.IsWindowVisible(hwnd):
-                return True
-            length = user32.GetWindowTextLengthW(hwnd)
-            if length == 0:
-                return True
-            buf = ctypes.create_unicode_buffer(length + 1)
-            user32.GetWindowTextW(hwnd, buf, length + 1)
-            if name_lower in buf.value.lower():
-                user32.PostMessageW(hwnd, WM_CLOSE, 0, 0)
-                closed[0] += 1
-            return True  # continue enumeration — close ALL matches
-
-        WNDENUMPROC = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_void_p, ctypes.c_void_p)
-        user32.EnumWindows(WNDENUMPROC(_cb), 0)
-        print(f"[Settings] Closed {closed[0]} window(s) matching '{app_name}'")
-        return closed[0]
-    except Exception as e:
-        print(f"[Settings] _close_window_by_name failed: {e}")
-        return 0
-
-
-def _close_all_windows() -> str:
-    """
-    Closes all visible app windows except system processes, VS Code, and JARVIS/Python.
-    Also minimizes VS Code instead of closing it.
-    """
-    if _OS == "Windows":
-        import sys as _sys
-        current_exe = Path(_sys.executable).stem.lower()
-        # Minimize VS Code first (don't close it)
-        try:
-            import ctypes as _ct
-            u32 = _ct.windll.user32
-            SW_MINIMIZE = 6
-
-            def _min_cb(hwnd, _):
-                if not u32.IsWindowVisible(hwnd):
-                    return True
-                length = u32.GetWindowTextLengthW(hwnd)
-                if length == 0:
-                    return True
-                buf = _ct.create_unicode_buffer(length + 1)
-                u32.GetWindowTextW(hwnd, buf, length + 1)
-                title = buf.value.lower()
-                if "visual studio code" in title or "- vscode" in title:
-                    u32.ShowWindow(hwnd, SW_MINIMIZE)
-                return True
-            _WFUNC = _ct.WINFUNCTYPE(_ct.c_bool, _ct.c_void_p, _ct.c_void_p)
-            u32.EnumWindows(_WFUNC(_min_cb), 0)
-        except Exception as e:
-            print(f"[Settings] VS Code minimize failed: {e}")
-
-        script = rf"""
-$keep = @('explorer','python','pythonw','py','python3','{current_exe}',
-          'powershell','pwsh','code','code - insiders',
-          'windowsterminal','cmd','conhost','dwm','winlogon','csrss',
-          'wininit','services','lsass','smss','svchost','system','idle',
-          'registry','taskhostw','sihost','runtimebroker',
-          'startmenuexperiencehost','searchui','shellexperiencehost',
-          'searchhost','ctfmon','fontdrvhost','spoolsv')
-Get-Process | Where-Object {{
-    $_.MainWindowHandle -ne 0 -and
-    $keep -notcontains $_.Name.ToLower()
-}} | ForEach-Object {{
-    try {{ $_.CloseMainWindow() | Out-Null }} catch {{}}
-}}
-"""
-        try:
-            subprocess.run(
-                ["powershell", "-NoProfile", "-Command", script.strip()],
-                capture_output=True,
-                timeout=15
-            )
-            return "All windows closed (VS Code minimized, system processes kept)."
-        except Exception as e:
-            return f"close_all_windows failed: {e}"
-
-    elif _OS == "Darwin":
-        keep_apps = {
-            "code", "visual studio code", "terminal", "iterm2", "iterm",
-            "finder", "python", "python3", "jarvis", "dock",
-            "system preferences", "system settings", "windowserver",
-        }
-        get_apps = (
-            'tell application "System Events" to get name of every application process '
-            'whose background only is false'
-        )
-        try:
-            res  = subprocess.run(["osascript", "-e", get_apps],
-                                  capture_output=True, text=True, timeout=10)
-            apps = [a.strip() for a in res.stdout.strip().split(",") if a.strip()]
-            for app in apps:
-                if app.lower() in keep_apps:
-                    continue
-                subprocess.run(["osascript", "-e", f'tell application "{app}" to quit'],
-                               capture_output=True, timeout=5)
-            return "All non-work windows closed."
-        except Exception as e:
-            return f"close_all_windows (macOS) failed: {e}"
-
-    return "close_all_windows: unsupported OS."
-
-
-def _kill_process_by_name(app_name: str) -> bool:
-    """
-    Forcefully terminate a Windows process by name via taskkill.
-    Covers apps minimized to tray that have no visible window.
-    """
-    if _OS != "Windows":
-        return False
-    name = app_name.lower().strip().replace(".exe", "")
-    # Try the exact name first, then with .exe suffix
-    for candidate in [name + ".exe", name]:
-        try:
-            result = subprocess.run(
-                ["taskkill", "/f", "/im", candidate],
-                capture_output=True,
-                timeout=8,
-            )
-            if result.returncode == 0:
-                print(f"[Settings] taskkill /im {candidate} succeeded")
-                return True
-        except Exception as e:
-            print(f"[Settings] taskkill failed for {candidate}: {e}")
-    return False
-
-
-def close_app(app_name: str = None):
-    if app_name and _OS == "Windows":
-        n = _close_window_by_name(app_name)
-        if n == 0:
-            # _close_window_by_name found no visible window (app may be in tray).
-            # Fall back to taskkill so apps like Spotify, Discord, etc. still close.
-            _kill_process_by_name(app_name)
-    elif _OS == "Darwin":
-        pyautogui.hotkey("command", "q")
-    else:
-        pyautogui.hotkey("alt", "f4")
-
-def close_window(app_name: str = None):
-    if app_name and _OS == "Windows":
-        _close_window_by_name(app_name)
-    elif _OS == "Darwin":
-        pyautogui.hotkey("command", "w")
-    else:
-        pyautogui.hotkey("ctrl", "w")
-
-def full_screen():
-    if _OS == "Darwin":
-        pyautogui.hotkey("ctrl", "command", "f")
-    else:
-        pyautogui.press("f11")
-
-def minimize_window():
-    if _OS == "Darwin":
-        pyautogui.hotkey("command", "m")
-    else:
-        pyautogui.hotkey("win", "down")
-        time.sleep(0.1)
-        pyautogui.hotkey("win", "down")
-
-def _set_foreground_window(hwnd) -> bool:
-    if _OS != "Windows" or not hwnd:
-        return False
-    try:
-        import ctypes
-        user32 = ctypes.windll.user32
-        user32.BringWindowToTop(hwnd)
-        try:
-            fg_hwnd = user32.GetForegroundWindow()
-            fg_tid  = user32.GetWindowThreadProcessId(fg_hwnd, None)
-            tgt_tid = user32.GetWindowThreadProcessId(hwnd, None)
-            if fg_tid and fg_tid != tgt_tid:
-                user32.AttachThreadInput(fg_tid, tgt_tid, True)
-                user32.SetForegroundWindow(hwnd)
-                user32.AttachThreadInput(fg_tid, tgt_tid, False)
-            else:
-                user32.SetForegroundWindow(hwnd)
-        except Exception:
-            user32.SetForegroundWindow(hwnd)
-        return True
-    except Exception as e:
-        print(f"[Settings] _set_foreground_window failed: {e}")
-        return False
-
-
-def _show_window(hwnd, show_cmd: int) -> bool:
-    if _OS != "Windows" or not hwnd:
-        return False
-    try:
-        import ctypes
-        user32 = ctypes.windll.user32
-        if show_cmd == SW_SHOWMAXIMIZED:
-            user32.ShowWindow(hwnd, SW_RESTORE)
-            time.sleep(0.05)
-        user32.ShowWindow(hwnd, show_cmd)
-        _set_foreground_window(hwnd)
-        time.sleep(0.15)
-        return True
-    except Exception as e:
-        print(f"[Settings] _show_window failed: {e}")
-        return False
-
-
-def maximize_window(app_name: str | None = None):
-    if _OS == "Darwin":
-        subprocess.run(["osascript", "-e",
-            'tell application "System Events" to keystroke "f" using {control down, command down}'])
-        return True
-    if _OS == "Windows":
-        if app_name and _focus_window_by_name(app_name, SW_SHOWMAXIMIZED):
-            return True
-        try:
-            import ctypes
-            hwnd = ctypes.windll.user32.GetForegroundWindow()
-            if hwnd and _show_window(hwnd, SW_SHOWMAXIMIZED):
-                return True
-        except Exception as e:
-            print(f"[Settings] maximize_window WinAPI failed: {e}")
-        pyautogui.hotkey("win", "up")
-        return True
-    else:
-        pyautogui.hotkey("win", "up")
-        return True
-
-def minimize_all_windows():
-    if _OS == "Darwin":
-        pyautogui.hotkey("command", "option", "m")
-    elif _OS == "Windows":
-        pyautogui.hotkey("win", "d")
-
-def snap_left():
-    if _OS == "Windows": pyautogui.hotkey("win", "left")
-
-def snap_right():
-    if _OS == "Windows": pyautogui.hotkey("win", "right")
-
-def _focus_window_by_name(app_name: str, show_cmd: int = SW_RESTORE) -> bool:
-    """
-    Focus a visible window whose title contains app_name.
-    Uses ctypes (no extra packages needed). Windows only.
-    """
-    if _OS != "Windows":
-        return False
-    try:
-        import ctypes
-        user32 = ctypes.windll.user32
-        WNDENUMPROC = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_void_p, ctypes.c_void_p)
-        found = [None]
-
-        def _cb(hwnd, _):
-            if not user32.IsWindowVisible(hwnd):
-                return True
-            length = user32.GetWindowTextLengthW(hwnd)
-            if length < 1:
-                return True
-            buf = ctypes.create_unicode_buffer(length + 1)
-            user32.GetWindowTextW(hwnd, buf, length + 1)
-            if app_name.lower() in buf.value.lower():
-                found[0] = hwnd
-                return False   # stop enumeration
-            return True
-
-        user32.EnumWindows(WNDENUMPROC(_cb), 0)
-
-        if found[0]:
-            hwnd = found[0]
-            _show_window(hwnd, show_cmd)
-            print(f"[Settings] Focused window: {app_name}")
-            return True
-    except Exception as e:
-        print(f"[Settings] _focus_window_by_name failed: {e}")
-    return False
-
-def get_active_window() -> str:
-    """Returns the title of the currently focused window."""
-    if _OS == "Windows":
-        try:
-            import ctypes
-            user32 = ctypes.windll.user32
-            hwnd   = user32.GetForegroundWindow()
-            length = user32.GetWindowTextLengthW(hwnd)
-            if length == 0:
-                return "No active window."
-            buf = ctypes.create_unicode_buffer(length + 1)
-            user32.GetWindowTextW(hwnd, buf, length + 1)
-            return buf.value
-        except Exception as e:
-            return f"Could not get active window: {e}"
-    elif _OS == "Darwin":
-        try:
-            result = subprocess.run(
-                ["osascript", "-e",
-                 'tell application "System Events" to get name of first process whose frontmost is true'],
-                capture_output=True, text=True, timeout=3
-            )
-            return result.stdout.strip() or "Unknown"
-        except Exception as e:
-            return f"Could not get active window: {e}"
-    return "Active window detection not supported on this OS."
-
-
-_WIN_NOISE = {
-    "program manager", "default ime", "msctfime ui", "gdi+ window",
-    "nvidia overlay", "amdow", "shell_traywnd",
-}
-
-def list_open_windows() -> str:
-    """Returns titles of all visible top-level windows."""
-    if _OS == "Windows":
-        try:
-            import ctypes
-            user32      = ctypes.windll.user32
-            WNDENUMPROC = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_void_p, ctypes.c_void_p)
-            titles: list[str] = []
-
-            def _cb(hwnd, _):
-                if not user32.IsWindowVisible(hwnd):
-                    return True
-                length = user32.GetWindowTextLengthW(hwnd)
-                if length == 0:
-                    return True
-                buf = ctypes.create_unicode_buffer(length + 1)
-                user32.GetWindowTextW(hwnd, buf, length + 1)
-                title = buf.value.strip()
-                if title:
-                    titles.append(title)
-                return True
-
-            user32.EnumWindows(WNDENUMPROC(_cb), 0)
-
-            seen: set[str] = set()
-            clean: list[str] = []
-            for t in titles:
-                if any(n in t.lower() for n in _WIN_NOISE):
-                    continue
-                key = t.lower()[:50]
-                if key not in seen:
-                    seen.add(key)
-                    clean.append(t)
-
-            if not clean:
-                return "No visible windows found."
-            return "Open windows:\n" + "\n".join(f"  • {t}" for t in clean[:25])
-        except Exception as e:
-            return f"Could not list windows: {e}"
-    elif _OS == "Darwin":
-        try:
-            result = subprocess.run(
-                ["osascript", "-e",
-                 'tell application "System Events" to get name of every process whose visible is true'],
-                capture_output=True, text=True, timeout=3,
-            )
-            apps = [a.strip() for a in result.stdout.strip().split(",") if a.strip()]
-            return "Open apps:\n" + "\n".join(f"  • {a}" for a in apps)
-        except Exception as e:
-            return f"Could not list windows: {e}"
-    return "Window listing not supported on this OS."
-
-
-def get_desktop_context() -> str:
-    """Returns a compact snapshot: active window + open app names. Used for system prompt injection."""
-    active = get_active_window()
-    if _OS == "Windows":
-        try:
-            import ctypes
-            user32      = ctypes.windll.user32
-            WNDENUMPROC = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_void_p, ctypes.c_void_p)
-            app_names: list[str] = []
-
-            def _cb(hwnd, _):
-                if not user32.IsWindowVisible(hwnd):
-                    return True
-                length = user32.GetWindowTextLengthW(hwnd)
-                if length == 0:
-                    return True
-                buf = ctypes.create_unicode_buffer(length + 1)
-                user32.GetWindowTextW(hwnd, buf, length + 1)
-                title = buf.value.strip()
-                if title and not any(n in title.lower() for n in _WIN_NOISE):
-                    app_names.append(title)
-                return True
-
-            user32.EnumWindows(WNDENUMPROC(_cb), 0)
-
-            # Deduplicate and trim to app root name (before " - ")
-            seen: set[str] = set()
-            apps: list[str] = []
-            for t in app_names:
-                root = t.split(" — ")[0].split(" - ")[0].strip()
-                key  = root.lower()[:40]
-                if key and key not in seen:
-                    seen.add(key)
-                    apps.append(root)
-
-            open_str = ", ".join(apps[:15]) if apps else "none"
-            return f"Active window: {active}\nOpen apps: {open_str}"
-        except Exception:
-            return f"Active window: {active}"
-    elif _OS == "Darwin":
-        try:
-            result = subprocess.run(
-                ["osascript", "-e",
-                 'tell application "System Events" to get name of every process whose visible is true'],
-                capture_output=True, text=True, timeout=3,
-            )
-            apps = [a.strip() for a in result.stdout.strip().split(",") if a.strip()]
-            return f"Active window: {active}\nOpen apps: {', '.join(apps[:15])}"
-        except Exception:
-            return f"Active window: {active}"
-    return f"Active window: {active}"
-
-
-_WINDOW_TITLE_ALIASES: dict[str, list[str]] = {
-    "cmd":             ["cmd", "command prompt", "cmd.exe"],
-    "command prompt":  ["cmd", "command prompt", "cmd.exe"],
-    "visual studio code": ["visual studio code", "vscode"],
-    "vscode":          ["visual studio code", "vscode"],
-}
-
-def snap_app(app_name: str, direction: str = "left"):
-    """
-    Focus a window by app name then snap it left or right.
-    Falls back to PowerShell AppActivate if ctypes fails.
-    """
-    if _OS != "Windows":
+        subprocess.run(["pactl", "set-sink-volume", "@DEFAULT_SINK@", f"{value}%"],
+            capture_output=True)
         return
 
-    key = app_name.lower().strip()
-    search_terms = _WINDOW_TITLE_ALIASES.get(key, [key])
-
-    focused = any(_focus_window_by_name(term) for term in search_terms)
-
-    if not focused:
-        # Fallback: PowerShell AppActivate
-        try:
-            script = f'(New-Object -ComObject WScript.Shell).AppActivate("{app_name}")'
+def brightness_up():
+    if _OS == "Darwin":
+        subprocess.run(["osascript", "-e",
+            'tell application "System Events" to key code 144'],
+            capture_output=True)
+    elif _OS == "Linux":
+        if subprocess.run(["which", "brightnessctl"],
+                capture_output=True).returncode == 0:
+            subprocess.run(["brightnessctl", "set", "+10%"], capture_output=True)
+        else:
             subprocess.run(
-                ["powershell", "-NoProfile", "-Command", script],
+                'xrandr --output $(xrandr | grep " connected" | head -1 | cut -d " " -f1)'
+                ' --brightness $(python3 -c "import subprocess; '
+                'b=float(subprocess.check_output([\"xrandr\",\"--verbose\"]).decode()'
+                '.split(\"Brightness:\")[1].split()[0]); print(min(1.0,b+0.1))")',
+                shell=True, capture_output=True
+            )
+    else:
+        try:
+            subprocess.run(
+                ["powershell", "-Command",
+                 "(Get-WmiObject -Namespace root/wmi -Class WmiMonitorBrightnessMethods)"
+                 ".WmiSetBrightness(1, [math]::Min(100, "
+                 "(Get-WmiObject -Namespace root/wmi -Class WmiMonitorBrightness).CurrentBrightness + 10))"],
                 capture_output=True, timeout=5
             )
-            time.sleep(0.5)
         except Exception as e:
-            print(f"[Settings] AppActivate fallback failed: {e}")
+            print(f"[Settings] Brightness up failed on Windows: {e}")
 
-    if direction == "right":
-        snap_right()
+def brightness_down():
+    if _OS == "Darwin":
+        subprocess.run(["osascript", "-e",
+            'tell application "System Events" to key code 145'],
+            capture_output=True)
+    elif _OS == "Linux":
+        if subprocess.run(["which", "brightnessctl"],
+                capture_output=True).returncode == 0:
+            subprocess.run(["brightnessctl", "set", "10%-"], capture_output=True)
+        else:
+            subprocess.run(
+                'xrandr --output $(xrandr | grep " connected" | head -1 | cut -d " " -f1)'
+                ' --brightness $(python3 -c "import subprocess; '
+                'b=float(subprocess.check_output([\"xrandr\",\"--verbose\"]).decode()'
+                '.split(\"Brightness:\")[1].split()[0]); print(max(0.1,b-0.1))")',
+                shell=True, capture_output=True
+            )
     else:
-        snap_left()
+        try:
+            subprocess.run(
+                ["powershell", "-Command",
+                 "(Get-WmiObject -Namespace root/wmi -Class WmiMonitorBrightnessMethods)"
+                 ".WmiSetBrightness(1, [math]::Max(0, "
+                 "(Get-WmiObject -Namespace root/wmi -Class WmiMonitorBrightness).CurrentBrightness - 10))"],
+                capture_output=True, timeout=5
+            )
+        except Exception as e:
+            print(f"[Settings] Brightness down failed on Windows: {e}")
+
+def close_app():
+    if _OS == "Darwin": pyautogui.hotkey("command", "q")
+    else:               pyautogui.hotkey("alt", "f4")
+
+def close_window():
+    if _OS == "Darwin": pyautogui.hotkey("command", "w")
+    else:               pyautogui.hotkey("ctrl", "w")
+
+def full_screen():
+    if _OS == "Darwin": pyautogui.hotkey("ctrl", "command", "f")
+    else:               pyautogui.press("f11")
+
+def minimize_window():
+    if _OS == "Darwin": pyautogui.hotkey("command", "m")
+    else:               pyautogui.hotkey("win", "down")
+
+def maximize_window():
+    if _OS == "Darwin":
+        subprocess.run(["osascript", "-e",
+            'tell application "System Events" to keystroke "f" '
+            'using {control down, command down}'],
+            capture_output=True)
+    elif _OS == "Windows":
+        pyautogui.hotkey("win", "up")
+    else:
+        try:
+            subprocess.run(["wmctrl", "-r", ":ACTIVE:", "-b", "add,maximized_vert,maximized_horz"],
+                capture_output=True)
+        except Exception:
+            pyautogui.hotkey("super", "up")
+
+def snap_left():
+    if _OS == "Windows":
+        pyautogui.hotkey("win", "left")
+    elif _OS == "Linux":
+        try:
+            subprocess.run(["wmctrl", "-r", ":ACTIVE:", "-e", "0,0,0,960,1080"],
+                capture_output=True)
+        except Exception:
+            pass
+
+def snap_right():
+    if _OS == "Windows":
+        pyautogui.hotkey("win", "right")
+    elif _OS == "Linux":
+        try:
+            subprocess.run(["wmctrl", "-r", ":ACTIVE:", "-e", "0,960,0,960,1080"],
+                capture_output=True)
+        except Exception:
+            pass
 
 def switch_window():
-    if _OS == "Darwin":
-        pyautogui.hotkey("command", "tab")
-    else:
-        pyautogui.hotkey("alt", "tab")
+    if _OS == "Darwin": pyautogui.hotkey("command", "tab")
+    else:               pyautogui.hotkey("alt", "tab")
 
 def show_desktop():
-    if _OS == "Darwin":
-        pyautogui.hotkey("fn", "f11")
-    elif _OS == "Windows":
-        pyautogui.hotkey("win", "d")
-    else:
-        pyautogui.hotkey("super", "d")
+    if _OS == "Darwin":   pyautogui.hotkey("fn", "f11")
+    elif _OS == "Windows": pyautogui.hotkey("win", "d")
+    else:                  pyautogui.hotkey("super", "d")
 
 def open_task_manager():
     if _OS == "Windows":
@@ -631,11 +233,10 @@ def open_task_manager():
     elif _OS == "Darwin":
         subprocess.Popen(["open", "-a", "Activity Monitor"])
     else:
-        subprocess.Popen(["gnome-system-monitor"])
-
-def open_task_view():
-    if _OS == "Windows":
-        pyautogui.hotkey("win", "tab")
+        for cmd in [["gnome-system-monitor"], ["xfce4-taskmanager"], ["htop"]]:
+            if subprocess.run(["which", cmd[0]], capture_output=True).returncode == 0:
+                subprocess.Popen(cmd)
+                break
 
 
 def focus_search():
@@ -643,6 +244,7 @@ def focus_search():
     else:               pyautogui.hotkey("ctrl", "l")
 
 def pause_video():      pyautogui.press("space")
+
 def refresh_page():
     if _OS == "Darwin": pyautogui.hotkey("command", "r")
     else:               pyautogui.press("f5")
@@ -688,17 +290,24 @@ def find_on_page():
     else:               pyautogui.hotkey("ctrl", "f")
 
 def reload_page_n(n: int):
-    for _ in range(n):
+    for _ in range(max(1, n)):
         refresh_page()
         time.sleep(0.8)
 
 
-def scroll_up(amount: int = 500):   pyautogui.scroll(amount)
-def scroll_down(amount: int = 500): pyautogui.scroll(-amount)
-def scroll_top():    pyautogui.hotkey("ctrl", "home") if _OS != "Darwin" else pyautogui.hotkey("command", "up")
-def scroll_bottom(): pyautogui.hotkey("ctrl", "end")  if _OS != "Darwin" else pyautogui.hotkey("command", "down")
-def page_up():       pyautogui.press("pageup")
-def page_down():     pyautogui.press("pagedown")
+def scroll_up(amount: int = 500):    pyautogui.scroll(amount)
+def scroll_down(amount: int = 500):  pyautogui.scroll(-amount)
+
+def scroll_top():
+    if _OS == "Darwin": pyautogui.hotkey("command", "up")
+    else:               pyautogui.hotkey("ctrl", "home")
+
+def scroll_bottom():
+    if _OS == "Darwin": pyautogui.hotkey("command", "down")
+    else:               pyautogui.hotkey("ctrl", "end")
+
+def page_up():   pyautogui.press("pageup")
+def page_down(): pyautogui.press("pagedown")
 
 
 def copy():
@@ -729,16 +338,16 @@ def save_file():
     if _OS == "Darwin": pyautogui.hotkey("command", "s")
     else:               pyautogui.hotkey("ctrl", "s")
 
-def press_enter():  pyautogui.press("enter")
-def press_escape(): pyautogui.press("escape")
+def press_enter():   pyautogui.press("enter")
+def press_escape():  pyautogui.press("escape")
 def press_key(key: str): pyautogui.press(key)
 
 def type_text(text: str, press_enter_after: bool = False):
     if not text:
         return
     if _PYPERCLIP:
-        pyperclip.copy(text)
-        time.sleep(0.1)
+        pyperclip.copy(str(text))
+        time.sleep(0.15)
         paste()
     else:
         pyautogui.write(str(text), interval=0.03)
@@ -746,24 +355,32 @@ def type_text(text: str, press_enter_after: bool = False):
         time.sleep(0.1)
         pyautogui.press("enter")
 
-def write_on_screen(text: str):
-    type_text(text)
-
 def take_screenshot():
     if _OS == "Windows":
         pyautogui.hotkey("win", "shift", "s")
     elif _OS == "Darwin":
         pyautogui.hotkey("command", "shift", "3")
     else:
+        for cmd in [["scrot"], ["gnome-screenshot"], ["import", "-window", "root", "screenshot.png"]]:
+            if subprocess.run(["which", cmd[0]], capture_output=True).returncode == 0:
+                subprocess.Popen(cmd)
+                return
         pyautogui.hotkey("ctrl", "print_screen")
 
 def lock_screen():
     if _OS == "Windows":
         pyautogui.hotkey("win", "l")
     elif _OS == "Darwin":
-        subprocess.run(["pmset", "displaysleepnow"])
+        subprocess.run(["pmset", "displaysleepnow"], capture_output=True)
     else:
-        subprocess.run(["gnome-screensaver-command", "-l"])
+        for cmd in [
+            ["gnome-screensaver-command", "-l"],
+            ["xdg-screensaver", "lock"],
+            ["loginctl", "lock-session"],
+        ]:
+            if subprocess.run(["which", cmd[0]], capture_output=True).returncode == 0:
+                subprocess.run(cmd, capture_output=True)
+                return
 
 def open_system_settings():
     if _OS == "Windows":
@@ -771,343 +388,227 @@ def open_system_settings():
     elif _OS == "Darwin":
         subprocess.Popen(["open", "-a", "System Preferences"])
     else:
-        subprocess.Popen(["gnome-control-center"])
+        for cmd in [["gnome-control-center"], ["xfce4-settings-manager"], ["kcmshell5"]]:
+            if subprocess.run(["which", cmd[0]], capture_output=True).returncode == 0:
+                subprocess.Popen(cmd)
+                return
 
 def open_file_explorer():
     if _OS == "Windows":
         pyautogui.hotkey("win", "e")
     elif _OS == "Darwin":
-        subprocess.Popen(["open", Path.home()])
+        subprocess.Popen(["open", str(Path.home())])
     else:
-        subprocess.Popen(["xdg-open", Path.home()])
-
-def open_run():
-    if _OS == "Windows":
-        pyautogui.hotkey("win", "r")
+        for cmd in [["nautilus"], ["thunar"], ["dolphin"], ["nemo"]]:
+            if subprocess.run(["which", cmd[0]], capture_output=True).returncode == 0:
+                subprocess.Popen(cmd)
+                return
+        subprocess.Popen(["xdg-open", str(Path.home())])
 
 def sleep_display():
     if _OS == "Windows":
         try:
             import ctypes
             ctypes.windll.user32.SendMessageW(0xFFFF, 0x0112, 0xF170, 2)
-        except Exception:
-            pass
+        except Exception as e:
+            print(f"[Settings] sleep_display failed: {e}")
     elif _OS == "Darwin":
-        subprocess.run(["pmset", "displaysleepnow"])
+        subprocess.run(["pmset", "displaysleepnow"], capture_output=True)
     else:
-        subprocess.run(["xset", "dpms", "force", "off"])
+        subprocess.run(["xset", "dpms", "force", "off"], capture_output=True)
+
+def open_run():
+    if _OS == "Windows":
+        pyautogui.hotkey("win", "r")
+
+def dark_mode():
+    if _OS == "Darwin":
+        subprocess.run(["osascript", "-e",
+            'tell app "System Events" to tell appearance preferences '
+            'to set dark mode to not dark mode'],
+            capture_output=True)
+    elif _OS == "Windows":
+        try:
+            import winreg
+            key_path = r"SOFTWARE\Microsoft\Windows\CurrentVersion\Themes\Personalize"
+            key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, key_path, 0, winreg.KEY_ALL_ACCESS)
+            current, _ = winreg.QueryValueEx(key, "AppsUseLightTheme")
+            winreg.SetValueEx(key, "AppsUseLightTheme", 0, winreg.REG_DWORD, 1 - current)
+            winreg.SetValueEx(key, "SystemUsesLightTheme", 0, winreg.REG_DWORD, 1 - current)
+            winreg.CloseKey(key)
+        except Exception as e:
+            print(f"[Settings] dark_mode registry failed: {e}")
+    else:
+        try:
+            result = subprocess.run(
+                ["gsettings", "get", "org.gnome.desktop.interface", "color-scheme"],
+                capture_output=True, text=True
+            )
+            current = result.stdout.strip()
+            new_scheme = "'default'" if "dark" in current else "'prefer-dark'"
+            subprocess.run(
+                ["gsettings", "set", "org.gnome.desktop.interface", "color-scheme", new_scheme],
+                capture_output=True
+            )
+        except Exception as e:
+            print(f"[Settings] dark_mode Linux failed: {e}")
+
+def toggle_wifi():
+    if _OS == "Darwin":
+        iface = _get_macos_wifi_interface()
+        result = subprocess.run(
+            ["networksetup", "-getairportpower", iface],
+            capture_output=True, text=True
+        )
+        state = "off" if "On" in result.stdout else "on"
+        subprocess.run(["networksetup", "-setairportpower", iface, state],
+            capture_output=True)
+    elif _OS == "Windows":
+        try:
+            subprocess.run(
+                ["powershell", "-Command",
+                 "$adapter = Get-NetAdapter | Where-Object {$_.PhysicalMediaType -eq 'Native 802.11'};"
+                 "if ($adapter.Status -eq 'Up') { Disable-NetAdapter -Name $adapter.Name -Confirm:$false }"
+                 "else { Enable-NetAdapter -Name $adapter.Name -Confirm:$false }"],
+                capture_output=True, timeout=10
+            )
+        except Exception as e:
+            print(f"[Settings] toggle_wifi Windows failed: {e}")
+    else:
+        try:
+            result = subprocess.run(["nmcli", "radio", "wifi"], capture_output=True, text=True)
+            state  = "off" if "enabled" in result.stdout else "on"
+            subprocess.run(["nmcli", "radio", "wifi", state], capture_output=True)
+        except Exception as e:
+            print(f"[Settings] toggle_wifi Linux failed: {e}")
 
 def restart_computer():
     if _OS == "Windows":
-        subprocess.run(["shutdown", "/r", "/t", "5"])
+        subprocess.run(["shutdown", "/r", "/t", "10"], capture_output=True)
     elif _OS == "Darwin":
-        subprocess.run(["osascript", "-e", 'tell application "System Events" to restart'])
+        subprocess.run(["osascript", "-e",
+            'tell application "System Events" to restart'],
+            capture_output=True)
     else:
-        subprocess.run(["sudo", "reboot"])
+        subprocess.run(["systemctl", "reboot"], capture_output=True)
 
 def shutdown_computer():
     if _OS == "Windows":
-        subprocess.run(["shutdown", "/s", "/t", "5"])
-    elif _OS == "Darwin":
-        subprocess.run(["osascript", "-e", 'tell application "System Events" to shut down'])
-    else:
-        subprocess.run(["sudo", "shutdown", "-h", "now"])
-
-def dark_mode():
-    if _OS == "Windows":
-        pyautogui.hotkey("win", "a")
-        time.sleep(0.3)
+        subprocess.run(["shutdown", "/s", "/t", "10"], capture_output=True)
     elif _OS == "Darwin":
         subprocess.run(["osascript", "-e",
-            'tell app "System Events" to tell appearance preferences to set dark mode to not dark mode'])
-
-def toggle_wifi():
-    if _OS == "Windows":
-        pyautogui.hotkey("win", "a")
-        time.sleep(0.3)
-    elif _OS == "Darwin":
-        subprocess.run(["networksetup", "-setairportpower", "en0", "toggle"])
+            'tell application "System Events" to shut down'],
+            capture_output=True)
     else:
-        subprocess.run(["nmcli", "radio", "wifi"])
+        subprocess.run(["systemctl", "poweroff"], capture_output=True)
 
-ACTION_MAP = {
-    "volume_up":               volume_up,
-    "volume_down":             volume_down,
-    "mute":                    volume_mute,
-    "unmute":                  volume_mute,
-    "volume_increase":         volume_up,
-    "volume_decrease":         volume_down,
-    "increase_volume":         volume_up,
-    "decrease_volume":         volume_down,
-    "turn_up_volume":          volume_up,
-    "turn_down_volume":        volume_down,
-    "louder":                  volume_up,
-    "quieter":                 volume_down,
-    "silence":                 volume_mute,
-    "toggle_mute":             volume_mute,
-    "brightness_up":           brightness_up,
-    "brightness_down":         brightness_down,
-    "increase_brightness":     brightness_up,
-    "decrease_brightness":     brightness_down,
-    "brighter":                brightness_up,
-    "dimmer":                  brightness_down,
-    "dim_screen":              brightness_down,
-    "brighten_screen":         brightness_up,
-    "sleep_display":           sleep_display,
-    "turn_off_screen":         sleep_display,
-    "screen_off":              sleep_display,
-    "display_off":             sleep_display,
-    "change_screen":           sleep_display,
-    "screen_sleep":            sleep_display,
-    "monitor_off":             sleep_display,
-    "turn_off_monitor":        sleep_display,
-    "pause_video":             pause_video,
-    "play_video":              pause_video,
-    "pause":                   pause_video,
-    "play":                    pause_video,
-    "toggle_play":             pause_video,
-    "stop_video":              pause_video,
-    "resume_video":            pause_video,
-    "active_window":           get_active_window,
-    "get_active_window":       get_active_window,
-    "current_window":          get_active_window,
-    "what_is_open":            get_active_window,
-    "list_windows":            list_open_windows,
-    "list_open_windows":       list_open_windows,
-    "open_windows":            list_open_windows,
-    "show_windows":            list_open_windows,
-    "close_app":               close_app,
-    "close_window":            close_window,
-    "quit_app":                close_app,
-    "exit_app":                close_app,
-    "kill_app":                close_app,
-    "close_all_windows":       _close_all_windows,
-    "close_all":               _close_all_windows,
-    "close_everything":        _close_all_windows,
-    "full_screen":             full_screen,
-    "fullscreen":              full_screen,
-    "toggle_fullscreen":       full_screen,
-    "minimize":                minimize_window,
-    "minimize_window":         minimize_window,
-    "minimize_all_windows":    minimize_all_windows,
-    "maximize":                maximize_window,
-    "maximize_window":         maximize_window,
-    "restore_window":          maximize_window,
-    "snap_left":               snap_left,
-    "snap_right":              snap_right,
-    "window_left":             snap_left,
-    "window_right":            snap_right,
-    "snap_app_left":           lambda: None,   # handled specially below
-    "snap_app_right":          lambda: None,   # handled specially below
-    "switch_window":           switch_window,
-    "alt_tab":                 switch_window,
-    "next_window":             switch_window,
-    "show_desktop":            show_desktop,
-    "desktop":                 show_desktop,
-    "hide_windows":            show_desktop,
-    "task_manager":            open_task_manager,
-    "open_task_manager":       open_task_manager,
-    "task_view":               open_task_view,
-    "screenshot":              take_screenshot,
-    "take_screenshot":         take_screenshot,
-    "capture_screen":          take_screenshot,
-    "lock_screen":             lock_screen,
-    "lock":                    lock_screen,
-    "open_settings":           open_system_settings,
-    "system_settings":         open_system_settings,
-    "settings":                open_system_settings,
-    "preferences":             open_system_settings,
-    "file_explorer":           open_file_explorer,
-    "open_explorer":           open_file_explorer,
-    "explorer":                open_file_explorer,
-    "open_files":              open_file_explorer,
-    "run":                     open_run,
-    "open_run":                open_run,
-    "restart":                 restart_computer,
-    "restart_computer":        restart_computer,
-    "reboot":                  restart_computer,
-    "reboot_computer":         restart_computer,
-    "shutdown":                shutdown_computer,
-    "shut_down":               shutdown_computer,
-    "power_off":               shutdown_computer,
-    "turn_off_computer":       shutdown_computer,
-    "dark_mode":               dark_mode,
-    "toggle_dark_mode":        dark_mode,
-    "night_mode":              dark_mode,
-    "toggle_wifi":             toggle_wifi,
-    "wifi":                    toggle_wifi,
-    "wifi_toggle":             toggle_wifi,
-    "focus_search":            focus_search,
-    "address_bar":             focus_search,
-    "url_bar":                 focus_search,
-    "refresh_page":            refresh_page,
-    "reload_page":             refresh_page,
-    "reload":                  refresh_page,
-    "refresh":                 refresh_page,
-    "close_tab":               close_tab,
-    "new_tab":                 new_tab,
-    "open_tab":                new_tab,
-    "next_tab":                next_tab,
-    "prev_tab":                prev_tab,
-    "previous_tab":            prev_tab,
-    "go_back":                 go_back,
-    "back":                    go_back,
-    "go_forward":              go_forward,
-    "forward":                 go_forward,
-    "zoom_in":                 zoom_in,
-    "zoom_out":                zoom_out,
-    "zoom_reset":              zoom_reset,
-    "reset_zoom":              zoom_reset,
-    "find_on_page":            find_on_page,
-    "search_page":             find_on_page,
-    "scroll_up":               scroll_up,
-    "scroll_down":             scroll_down,
-    "scroll_top":              scroll_top,
-    "scroll_bottom":           scroll_bottom,
-    "top_of_page":             scroll_top,
-    "bottom_of_page":          scroll_bottom,
-    "page_up":                 page_up,
-    "page_down":               page_down,
-    "copy":                    copy,
-    "paste":                   paste,
-    "cut":                     cut,
-    "undo":                    undo,
-    "redo":                    redo,
-    "select_all":              select_all,
-    "save":                    save_file,
-    "save_file":               save_file,
-    "enter":                   press_enter,
-    "press_enter":             press_enter,
-    "escape":                  press_escape,
-    "press_escape":            press_escape,
-    "cancel":                  press_escape,
+ACTION_MAP: dict[str, callable] = {
+    "volume_up":           volume_up,
+    "volume_down":         volume_down,
+    "mute":                volume_mute,
+    "unmute":              volume_mute,
+    "toggle_mute":         volume_mute,
+    "brightness_up":       brightness_up,
+    "brightness_down":     brightness_down,
+    "sleep_display":       sleep_display,
+    "screen_off":          sleep_display,
+    "pause_video":         pause_video,
+    "play_pause":          pause_video,
+    "close_app":           close_app,
+    "close_window":        close_window,
+    "full_screen":         full_screen,
+    "fullscreen":          full_screen,
+    "minimize":            minimize_window,
+    "maximize":            maximize_window,
+    "snap_left":           snap_left,
+    "snap_right":          snap_right,
+    "switch_window":       switch_window,
+    "show_desktop":        show_desktop,
+    "task_manager":        open_task_manager,
+    "focus_search":        focus_search,
+    "refresh_page":        refresh_page,
+    "reload":              refresh_page,
+    "close_tab":           close_tab,
+    "new_tab":             new_tab,
+    "next_tab":            next_tab,
+    "prev_tab":            prev_tab,
+    "go_back":             go_back,
+    "go_forward":          go_forward,
+    "zoom_in":             zoom_in,
+    "zoom_out":            zoom_out,
+    "zoom_reset":          zoom_reset,
+    "find_on_page":        find_on_page,
+    "scroll_up":           scroll_up,
+    "scroll_down":         scroll_down,
+    "scroll_top":          scroll_top,
+    "scroll_bottom":       scroll_bottom,
+    "page_up":             page_up,
+    "page_down":           page_down,
+    "copy":                copy,
+    "paste":               paste,
+    "cut":                 cut,
+    "undo":                undo,
+    "redo":                redo,
+    "select_all":          select_all,
+    "save":                save_file,
+    "enter":               press_enter,
+    "escape":              press_escape,
+    "screenshot":          take_screenshot,
+    "lock_screen":         lock_screen,
+    "open_settings":       open_system_settings,
+    "file_explorer":       open_file_explorer,
+    "open_run":            open_run,
+    "dark_mode":           dark_mode,
+    "toggle_wifi":         toggle_wifi,
+    "restart":             restart_computer,
+    "shutdown":            shutdown_computer,
 }
 
+_DANGEROUS_ACTIONS = {"restart", "shutdown"}
+
+
+
 def _detect_action(description: str) -> dict:
-    """
-    Gemini ile kullanıcının ne yapmak istediğini anlar.
-    Herhangi bir dilde çalışır.
-    Döner: {"action": str, "value": optional}
-    """
-    from google import genai as _genai
-    _client = _genai.Client(api_key=_get_api_key())
 
-    available = ", ".join(sorted(ACTION_MAP.keys())) + ", volume_set, type_text, write_on_screen, reload_n, press_key, snap_app_left, snap_app_right, active_window, list_windows"
+    import google.generativeai as genai
+    genai.configure(api_key=_get_api_key())
+    model = genai.GenerativeModel("gemini-2.5-flash-lite")
 
-    prompt = f"""The user wants to control their computer. Detect their intent.
+    available = ", ".join(sorted(ACTION_MAP.keys())) + \
+                ", volume_set, type_text, press_key, reload_n"
 
-User said (in any language): "{description}"
+    prompt = f"""You are an intent detector for a computer control assistant.
+
+The user issued a command (possibly in any language): "{description}"
 
 Available actions: {available}
 
-Return ONLY valid JSON:
+Return ONLY a valid JSON object:
 {{"action": "action_name", "value": null_or_value}}
 
-Examples:
-- "turn up the volume" → {{"action": "volume_up", "value": null}}
-- "set volume to 60" → {{"action": "volume_set", "value": 60}}
-- "sesi 80 yap" → {{"action": "volume_set", "value": 80}}
-- "close the app" → {{"action": "close_app", "value": null}}
-- "uygulamayı kapat" → {{"action": "close_app", "value": null}}
-- "close Chrome" → {{"action": "close_app", "value": "Chrome"}}
-- "close Spotify" → {{"action": "close_app", "value": "Spotify"}}
-- "закрой хром" → {{"action": "close_app", "value": "Chrome"}}
-- "закрой телеграм" → {{"action": "close_app", "value": "Telegram"}}
-- "close all windows" → {{"action": "close_all_windows", "value": null}}
-- "close everything" → {{"action": "close_all_windows", "value": null}}
-- "закрой все окна" → {{"action": "close_all_windows", "value": null}}
-- "закрой всё" → {{"action": "close_all_windows", "value": null}}
-- "все окна закрой" → {{"action": "close_all_windows", "value": null}}
-- "tüm pencereleri kapat" → {{"action": "close_all_windows", "value": null}}
-- "type hello world" → {{"action": "type_text", "value": "hello world"}}
-- "write good morning on screen" → {{"action": "write_on_screen", "value": "good morning"}}
-- "reload page 3 times" → {{"action": "reload_n", "value": 3}}
-- "tam ekran yap" → {{"action": "full_screen", "value": null}}
-- "sesi kıs" → {{"action": "volume_down", "value": null}}
-- "sesi aç" → {{"action": "volume_up", "value": null}}
-- "sustur" → {{"action": "mute", "value": null}}
-- "monte le son" → {{"action": "volume_up", "value": null}}
-- "ekranı kapat" → {{"action": "sleep_display", "value": null}}
-- "monitörü kapat" → {{"action": "sleep_display", "value": null}}
-- "turn off screen" → {{"action": "sleep_display", "value": null}}
-- "turn off monitor" → {{"action": "sleep_display", "value": null}}
-- "bilgisayarı yeniden başlat" → {{"action": "restart", "value": null}}
-- "restart the computer" → {{"action": "restart", "value": null}}
-- "bilgisayarı kapat" → {{"action": "shutdown", "value": null}}
-- "shut down" → {{"action": "shutdown", "value": null}}
-- "ekranı kilitle" → {{"action": "lock_screen", "value": null}}
-- "lock the screen" → {{"action": "lock_screen", "value": null}}
-- "küçült" → {{"action": "minimize", "value": null}}
-- "minimize the window" → {{"action": "minimize", "value": null}}
-- "büyüt" → {{"action": "maximize", "value": null}}
-- "parlaklığı artır" → {{"action": "brightness_up", "value": null}}
-- "parlaklığı azalt" → {{"action": "brightness_down", "value": null}}
-- "increase brightness" → {{"action": "brightness_up", "value": null}}
-- "wifi'yi aç" → {{"action": "toggle_wifi", "value": null}}
-- "toggle wifi" → {{"action": "toggle_wifi", "value": null}}
-- "masaüstünü göster" → {{"action": "show_desktop", "value": null}}
-- "show desktop" → {{"action": "show_desktop", "value": null}}
-- "yeni sekme aç" → {{"action": "new_tab", "value": null}}
-- "sekmeyi kapat" → {{"action": "close_tab", "value": null}}
-- "geri git" → {{"action": "go_back", "value": null}}
-- "ileri git" → {{"action": "go_forward", "value": null}}
-- "sayfayı yenile" → {{"action": "refresh_page", "value": null}}
-- "yakınlaştır" → {{"action": "zoom_in", "value": null}}
-- "uzaklaştır" → {{"action": "zoom_out", "value": null}}
-- "kaydet" → {{"action": "save", "value": null}}
-- "geri al" → {{"action": "undo", "value": null}}
-- "screenshot al" → {{"action": "screenshot", "value": null}}
-- "ekran görüntüsü al" → {{"action": "screenshot", "value": null}}
-- "aşağı kaydır" → {{"action": "scroll_down", "value": null}}
-- "yukarı kaydır" → {{"action": "scroll_up", "value": null}}
-- "karanlık mod" → {{"action": "dark_mode", "value": null}}
-- "press f5" → {{"action": "press_key", "value": "f5"}}
-- "enter'a bas" → {{"action": "enter", "value": null}}
-- "escape'e bas" → {{"action": "escape", "value": null}}
-- "snap Chrome to the left" → {{"action": "snap_app_left", "value": "Chrome"}}
-- "snap VSCode to right" → {{"action": "snap_app_right", "value": "Visual Studio Code"}}
-- "put Chrome on the left side" → {{"action": "snap_app_left", "value": "Chrome"}}
-- "what window is open" → {{"action": "active_window", "value": null}}
-- "what's in focus" → {{"action": "active_window", "value": null}}
-- "какое окно активно" → {{"action": "active_window", "value": null}}
-- "что сейчас открыто" → {{"action": "list_windows", "value": null}}
-- "list all open windows" → {{"action": "list_windows", "value": null}}
-- "show all open apps" → {{"action": "list_windows", "value": null}}
-- "какие окна открыты" → {{"action": "list_windows", "value": null}}
-
-IMPORTANT:
-- Always return one of the available actions listed above.
-- If the user's intent is clear but uses different wording, map it to the closest action.
-- For "snap [AppName] left/right", use snap_app_left or snap_app_right with value = app name.
-- Never invent new action names not in the available list.
-- Return ONLY the JSON object, no explanation, no markdown."""
+Rules:
+- Pick the single best matching action from the available list.
+- For volume_set: value is an integer 0-100.
+- For type_text: value is the exact text to type.
+- For press_key: value is the key name (e.g. "f5", "tab", "enter").
+- For reload_n: value is an integer (number of times to reload).
+- If no clear match, pick the closest action.
+- Return ONLY the JSON, no explanation, no markdown."""
 
     try:
-        response = _client.models.generate_content(
-            model="gemini-2.5-flash-lite",
-            contents=prompt
-        )
-        text = response.text.strip()
-        text = __import__("re").sub(r"```(?:json)?", "", text).strip().rstrip("`").strip()
+        resp = model.generate_content(prompt)
+        text = re.sub(r"```(?:json)?", "", resp.text).strip().rstrip("`").strip()
         return json.loads(text)
     except Exception as e:
         print(f"[Settings] Intent detection failed: {e}")
         return {"action": description.lower().replace(" ", "_"), "value": None}
 
 def computer_settings(
-    parameters: dict,
+    parameters: dict = None,
     response=None,
     player=None,
     session_memory=None,
 ) -> str:
-    """
-    Bilgisayar ayarları ve UI kontrolleri.
-
-    parameters:
-        action      : İşlem adı (verilmezse description'dan Gemini ile tespit edilir)
-        description : Kullanıcının doğal dil komutu (herhangi bir dilde)
-        value       : İşleme özgü değer (ses seviyesi, yazılacak metin, tekrar sayısı vb.)
-    """
     if not _PYAUTOGUI:
         return "pyautogui is not installed. Run: pip install pyautogui"
 
@@ -1125,10 +626,19 @@ def computer_settings(
     action = raw_action.lower().strip().replace(" ", "_").replace("-", "_")
 
     if not action:
-        return "No action could be determined, sir."
+        return "No action could be determined."
 
-    print(f"[Settings] [INFO] Action: {action}  Value: {value}")
+    print(f"[Settings] Action: {action}  Value: {value}  OS: {_OS}")
+    if player:
+        player.write_log(f"[Settings] {action}")
 
+    if action in _DANGEROUS_ACTIONS:
+        confirmed = str(params.get("confirmed", "")).lower()
+        if confirmed not in ("yes", "true", "1", "confirm"):
+            return (
+                f"This will {action} the computer. "
+                f"Please confirm by calling again with confirmed=yes."
+            )
 
     if action == "volume_set":
         try:
@@ -1138,97 +648,42 @@ def computer_settings(
             return f"Could not set volume: {e}"
 
     if action in ("type_text", "write_on_screen", "type", "write"):
-        text = str(value or params.get("text", ""))
+        text = str(value or params.get("text", "")).strip()
         if not text:
-            return "No text provided to type, sir."
-        enter_after = bool(params.get("press_enter", False))
+            return "No text provided to type."
+        enter_after = str(params.get("press_enter", "false")).lower() in ("true", "1", "yes")
         type_text(text, press_enter_after=enter_after)
-        return f"Typed: {text[:60]}"
+        return f"Typed: {text[:80]}"
 
     if action == "press_key":
-        key = str(value or params.get("key", ""))
+        key = str(value or params.get("key", "")).strip()
         if not key:
-            return "No key specified, sir."
+            return "No key specified."
         press_key(key)
         return f"Pressed: {key}"
 
     if action in ("reload_n", "refresh_n", "reload_page_n"):
         try:
-            n = int(value or 1)
-            reload_page_n(n)
-            return f"Reloaded page {n} time{'s' if n > 1 else ''}."
+            reload_page_n(int(value or 1))
+            return f"Reloaded {value or 1} time(s)."
         except Exception as e:
-            return f"Could not reload: {e}"
+            return f"Reload failed: {e}"
 
-    if action in ("active_window", "get_active_window", "current_window", "what_is_open"):
-        result = get_active_window()
-        print(f"[Settings] Active window: {result}")
-        return result
+    if action == "scroll_up":
+        scroll_up(int(value or 500))
+        return "Scrolled up."
 
-    if action in ("list_windows", "list_open_windows", "open_windows", "show_windows"):
-        result = list_open_windows()
-        print(f"[Settings] {result[:80]}")
-        return result
-
-    if action in ("snap_app_left", "snap_app_right"):
-        app = str(value or params.get("app", "")).strip()
-        if not app:
-            return "Please specify the app name to snap, sir."
-        direction = "right" if action == "snap_app_right" else "left"
-        try:
-            snap_app(app, direction)
-            return f"Snapped {app} to {direction}."
-        except Exception as e:
-            return f"Could not snap {app}: {e}"
-
-    if action in ("maximize", "maximize_window", "restore_window"):
-        app_name = str(value or params.get("app", "")).strip() or None
-        try:
-            maximize_window(app_name)
-            return f"Maximized {app_name}." if app_name else "Window maximized."
-        except Exception as e:
-            return f"Could not maximize window: {e}"
-
-    # ── Close actions — must pass app_name from value ─────────────────────────
-    if action in ("close_app", "quit_app", "exit_app", "kill_app", "close"):
-        app_name = str(value).strip() if value else None
-        close_app(app_name)
-        return f"Closed {app_name}." if app_name else "Window closed."
-
-    if action == "close_window":
-        app_name = str(value).strip() if value else None
-        close_window(app_name)
-        return f"Closed {app_name}." if app_name else "Window closed."
-
-    if action in ("close_all_windows", "close_all", "close_everything"):
-        return _close_all_windows()
-    # ──────────────────────────────────────────────────────────────────────────
-
-    if action in ("scroll_up", "scroll_down", "scroll"):
-        try:
-            if action == "scroll":
-                direction = "down"
-                if isinstance(value, str) and value.lower() == "up":
-                    direction = "up"
-                amount_val = 500
-                if isinstance(value, (int, float)):
-                    amount_val = int(value)
-                elif isinstance(value, str) and value.lstrip("-").isdigit():
-                    amount_val = abs(int(value))
-            else:
-                direction = "up" if action == "scroll_up" else "down"
-                amount_val = int(value or 500)
-            scroll_up(amount_val) if direction == "up" else scroll_down(amount_val)
-            return f"Scrolled {direction}."
-        except Exception as e:
-            return f"Scroll failed: {e}"
+    if action == "scroll_down":
+        scroll_down(int(value or 500))
+        return "Scrolled down."
 
     func = ACTION_MAP.get(action)
     if not func:
-        return f"Unknown action: '{raw_action}', sir."
+        return f"Unknown action: '{raw_action}'."
 
     try:
         func()
         return f"Done: {action}."
     except Exception as e:
+        print(f"[Settings] Action failed ({action}): {e}")
         return f"Action failed ({action}): {e}"

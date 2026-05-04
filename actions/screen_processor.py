@@ -1,388 +1,442 @@
-"""
-actions/screen_processor.py — Fast Vision Module v9
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-v9 Changes (replaces v8 Live-API approach):
-  - Gemini 2.0 Flash Lite REST API instead of Live WebSocket → ~0.5–1s vs 5–20s
-  - Persistent singleton camera — opens once, reuses across calls
-  - Local OCR via pytesseract (optional, ~100ms) with Gemini fallback
-  - Local object detection via YOLO nano (optional, ~100ms) with Gemini fallback
-  - Returns text → main Gemini session speaks it (no separate audio session)
-  - action parameter: "analyze" | "ocr" | "objects"
-"""
+from __future__ import annotations
 
+import asyncio
+import base64
 import io
 import json
+import re
 import sys
-import time
 import threading
-import cv2
-import mss
-import mss.tools
+import time
 from pathlib import Path
+from typing import Optional
+
+import numpy as np
+import sounddevice as sd
+
+try:
+    import cv2
+    _CV2 = True
+except ImportError:
+    _CV2 = False
+
+try:
+    import mss
+    import mss.tools
+    _MSS = True
+except ImportError:
+    _MSS = False
 
 try:
     import PIL.Image
-    _PIL_OK = True
+    _PIL = True
 except ImportError:
-    _PIL_OK = False
-
-try:
-    import pytesseract
-    _TESSERACT = True
-except ImportError:
-    _TESSERACT = False
-
-try:
-    from ultralytics import YOLO as _YOLO_CLS
-    _YOLO_OK = True
-except ImportError:
-    _YOLO_OK = False
+    _PIL = False
 
 from google import genai
-from google.genai import types
+from google.genai import types as gtypes
 
-IMG_MAX_W = 640
-IMG_MAX_H = 480
-JPEG_Q    = 72
-
-VISION_PROMPT = (
-    "You are JARVIS from Iron Man. Analyze the image with technical precision. "
-    "Be concise — 1 to 3 sentences. Address the user as 'sir'."
-)
-
-
-def get_base_dir():
+def _base_dir() -> Path:
     if getattr(sys, "frozen", False):
         return Path(sys.executable).parent
     return Path(__file__).resolve().parent.parent
 
 
-BASE_DIR        = get_base_dir()
-API_CONFIG_PATH = BASE_DIR / "config" / "api_keys.json"
+_BASE        = _base_dir()
+_CONFIG_PATH = _BASE / "config" / "api_keys.json"
+
+
+def _load_config() -> dict:
+    try:
+        return json.loads(_CONFIG_PATH.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+
+
+def _save_config_key(key: str, value) -> None:
+    try:
+        cfg = _load_config()
+        cfg[key] = value
+        _CONFIG_PATH.write_text(json.dumps(cfg, indent=4), encoding="utf-8")
+    except Exception as e:
+        print(f"[Vision] ⚠️  Could not save config key '{key}': {e}")
 
 
 def _get_api_key() -> str:
-    with open(API_CONFIG_PATH, "r", encoding="utf-8") as f:
-        return json.load(f)["gemini_api_key"]
+    key = _load_config().get("gemini_api_key", "")
+    if not key:
+        raise RuntimeError("gemini_api_key not found in config.")
+    return key
 
 
-# ─── Singleton Camera ──────────────────────────────────────────────────────────
+def _get_os() -> str:
+    return _load_config().get("os_system", "windows").lower()
 
-class _CameraManager:
-    """
-    Keeps a single cv2.VideoCapture open across calls.
-    On module import, opens the camera in a background thread so it's
-    warm and ready by the time the user first asks for it.
-    Thread-safe via a lock.
-    """
+_LIVE_MODEL         = "models/gemini-2.5-flash-native-audio-preview-12-2025"
+_CHANNELS           = 1
+_RECEIVE_SAMPLE_RATE = 24_000
+_CHUNK_SIZE         = 1_024
 
-    def __init__(self):
-        self._cap   = None
-        self._lock  = threading.Lock()
-        self._index = None
-        self.ready  = False
+_IMG_MAX_W = 640
+_IMG_MAX_H = 360
+_JPEG_Q    = 60
 
-    # ── Index resolution ──────────────────────────────────────────────────────
-
-    def _cfg_index(self) -> int | None:
-        try:
-            with open(API_CONFIG_PATH, "r") as f:
-                cfg = json.load(f)
-            return int(cfg["camera_index"]) if "camera_index" in cfg else None
-        except Exception:
-            return None
-
-    def _detect_index(self) -> int:
-        _backend = cv2.CAP_DSHOW if sys.platform == "win32" else cv2.CAP_ANY
-        for idx in range(6):
-            cap = cv2.VideoCapture(idx, _backend)
-            if not cap.isOpened():
-                cap.release()
-                continue
-            for _ in range(3):
-                cap.read()
-            ret, frame = cap.read()
-            cap.release()
-            if ret and frame is not None and frame.mean() > 5:
-                print(f"[Camera] [OK] Auto-detected index {idx}")
-                try:
-                    cfg = {}
-                    if API_CONFIG_PATH.exists():
-                        with open(API_CONFIG_PATH, "r") as f:
-                            cfg = json.load(f)
-                    cfg["camera_index"] = idx
-                    with open(API_CONFIG_PATH, "w") as f:
-                        json.dump(cfg, f, indent=4)
-                except Exception:
-                    pass
-                return idx
-        return 0
-
-    # ── Open / close ──────────────────────────────────────────────────────────
-
-    def _open(self, idx: int):
-        _backend = cv2.CAP_DSHOW if sys.platform == "win32" else cv2.CAP_ANY
-        self._cap = cv2.VideoCapture(idx, _backend)
-        if self._cap.isOpened():
-            # Flush stale frames from the buffer
-            for _ in range(3):
-                self._cap.read()
-            self.ready = True
-            print(f"[Camera] [OK] Singleton open (index {idx})")
-        else:
-            print(f"[Camera] [WARN] Could not open index {idx}")
-
-    def warmup(self):
-        """Open camera in background — call at import time."""
-        def _bg():
-            idx = self._cfg_index()
-            if idx is None:
-                idx = self._detect_index()
-            self._index = idx
-            with self._lock:
-                self._open(idx)
-
-        threading.Thread(target=_bg, daemon=True, name="CameraWarmup").start()
-
-    # ── Frame capture ─────────────────────────────────────────────────────────
-
-    def capture_jpeg(self) -> bytes:
-        with self._lock:
-            # Re-open if camera was closed or never opened
-            if self._cap is None or not self._cap.isOpened():
-                idx = self._index or self._cfg_index() or self._detect_index()
-                self._index = idx
-                self._open(idx)
-
-            if not (self._cap and self._cap.isOpened()):
-                raise RuntimeError(f"Camera unavailable at index {self._index}")
-
-            ret, frame = self._cap.read()
-
-        if not ret or frame is None:
-            raise RuntimeError("Camera returned empty frame.")
-
-        return self._to_jpeg(frame)
-
-    @staticmethod
-    def _to_jpeg(frame) -> bytes:
-        if _PIL_OK:
-            rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-            img = PIL.Image.fromarray(rgb)
-            img.thumbnail([IMG_MAX_W, IMG_MAX_H], PIL.Image.BILINEAR)
-            buf = io.BytesIO()
-            img.save(buf, format="JPEG", quality=JPEG_Q, optimize=False)
-            return buf.getvalue()
-        _, enc = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, JPEG_Q])
-        return enc.tobytes()
+_SYSTEM_PROMPT = (
+    "You are JARVIS, an advanced AI assistant. "
+    "Analyze the provided image with precision and intelligence. "
+    "Be concise and direct — maximum two sentences unless the user's question "
+    "requires more detail. "
+    "Address the user respectfully. "
+    "Always call the appropriate tool; never simulate results."
+)
 
 
-_camera = _CameraManager()
-_camera.warmup()  # background warmup on import — camera is ready before user asks
+def _compress(img_bytes: bytes, source_format: str = "PNG") -> tuple[bytes, str]:
+    if not _PIL:
+        return img_bytes, f"image/{source_format.lower()}"
 
-
-# ─── Screen Capture ────────────────────────────────────────────────────────────
-
-def _capture_screenshot() -> bytes:
-    with mss.mss() as sct:
-        shot = sct.grab(sct.monitors[1])
-        png  = mss.tools.to_png(shot.rgb, shot.size)
-    if _PIL_OK:
-        img = PIL.Image.open(io.BytesIO(png)).convert("RGB")
-        img.thumbnail([IMG_MAX_W, IMG_MAX_H], PIL.Image.BILINEAR)
+    try:
+        img = PIL.Image.open(io.BytesIO(img_bytes)).convert("RGB")
+        img.thumbnail((_IMG_MAX_W, _IMG_MAX_H), PIL.Image.BILINEAR)
         buf = io.BytesIO()
-        img.save(buf, format="JPEG", quality=JPEG_Q, optimize=False)
-        return buf.getvalue()
-    return png
-
-
-# ─── Local OCR (pytesseract) ───────────────────────────────────────────────────
-
-def _local_ocr(image_bytes: bytes) -> str | None:
-    """Extract text locally via Tesseract. Returns None if unavailable."""
-    if not _TESSERACT or not _PIL_OK:
-        return None
-    try:
-        img  = PIL.Image.open(io.BytesIO(image_bytes))
-        text = pytesseract.image_to_string(img, config="--psm 6").strip()
-        return text or None
+        img.save(buf, format="JPEG", quality=_JPEG_Q, optimize=False)
+        return buf.getvalue(), "image/jpeg"
     except Exception as e:
-        print(f"[Camera] Tesseract error: {e}")
-        return None
+        print(f"[Vision] ⚠️  Image compress failed: {e}")
+        return img_bytes, f"image/{source_format.lower()}"
+
+def _capture_screen() -> tuple[bytes, str]:
+
+    if not _MSS:
+        raise RuntimeError("mss is not installed. Run: pip install mss")
+
+    with mss.mss() as sct:
+        monitors = sct.monitors          # [0] = all combined, [1..n] = real screens
+        target   = monitors[1] if len(monitors) > 1 else monitors[0]
+        shot     = sct.grab(target)
+        png      = mss.tools.to_png(shot.rgb, shot.size)
+
+    return _compress(png, "PNG")
 
 
-# ─── Local Object Detection (YOLO nano) ────────────────────────────────────────
+def _cv2_backend() -> int:
+    """Return the best OpenCV camera backend for the current OS."""
+    if not _CV2:
+        return 0
+    os_name = _get_os()
+    if os_name == "windows":
+        return cv2.CAP_DSHOW    
+    if os_name == "mac":
+        return cv2.CAP_AVFOUNDATION  
+    return cv2.CAP_ANY
 
-_yolo_model     = None
-_yolo_load_lock = threading.Lock()
+
+def _probe_camera(index: int, backend: int, warmup: int = 5) -> bool:
+
+    if not _CV2:
+        return False
+    cap = cv2.VideoCapture(index, backend)
+    if not cap.isOpened():
+        cap.release()
+        return False
+    for _ in range(warmup):
+        cap.read()
+    ret, frame = cap.read()
+    cap.release()
+    if not ret or frame is None:
+        return False
+    return bool(np.mean(frame) > 8)
 
 
-def _get_yolo():
-    global _yolo_model
-    if not _YOLO_OK:
-        return None
-    with _yolo_load_lock:
-        if _yolo_model is None:
+def _detect_camera_index() -> int:
+
+    backend = _cv2_backend()
+    print("[Vision] 🔍 Auto-detecting camera...")
+    for idx in range(6):
+        if _probe_camera(idx, backend):
+            print(f"[Vision] ✅ Camera found at index {idx}")
+            _save_config_key("camera_index", idx)
+            return idx
+        print(f"[Vision] ⚠️  Camera index {idx}: no usable frame")
+
+    print("[Vision] ⚠️  No camera found — defaulting to index 0")
+    _save_config_key("camera_index", 0)
+    return 0
+
+
+def _get_camera_index() -> int:
+    cfg = _load_config()
+    if "camera_index" in cfg:
+        return int(cfg["camera_index"])
+    return _detect_camera_index()
+
+
+def _capture_camera() -> tuple[bytes, str]:
+    if not _CV2:
+        raise RuntimeError("OpenCV (cv2) is not installed. Run: pip install opencv-python")
+
+    index   = _get_camera_index()
+    backend = _cv2_backend()
+    cap     = cv2.VideoCapture(index, backend)
+
+    if not cap.isOpened():
+        raise RuntimeError(f"Camera index {index} could not be opened.")
+
+    for _ in range(10):
+        cap.read()
+
+    ret, frame = cap.read()
+    cap.release()
+
+    if not ret or frame is None:
+        raise RuntimeError("Camera returned no frame.")
+
+    if _PIL:
+        rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        img = PIL.Image.fromarray(rgb)
+        img.thumbnail((_IMG_MAX_W, _IMG_MAX_H), PIL.Image.BILINEAR)
+        buf = io.BytesIO()
+        img.save(buf, format="JPEG", quality=_JPEG_Q)
+        return buf.getvalue(), "image/jpeg"
+
+    _, buf = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, _JPEG_Q])
+    return buf.tobytes(), "image/jpeg"
+
+class _VisionSession:
+    def __init__(self):
+        self._loop:       Optional[asyncio.AbstractEventLoop] = None
+        self._thread:     Optional[threading.Thread]          = None
+        self._session                                          = None
+        self._out_queue:  Optional[asyncio.Queue]             = None
+        self._audio_in:   Optional[asyncio.Queue]             = None
+        self._ready_evt:  threading.Event                     = threading.Event()
+        self._player                                           = None
+        self._lock:       threading.Lock                       = threading.Lock()
+
+    def start(self, player=None, timeout: float = 25.0) -> None:
+        with self._lock:
+            if self._thread and self._thread.is_alive():
+                if player is not None:
+                    self._player = player
+                return
+            self._player = player
+            self._thread = threading.Thread(
+                target=self._run_event_loop,
+                daemon=True,
+                name="VisionSessionThread",
+            )
+            self._thread.start()
+
+        if not self._ready_evt.wait(timeout=timeout):
+            raise RuntimeError(f"Vision session did not connect within {timeout}s.")
+        print("[Vision] ✅ Session ready")
+
+    def analyze(self, image_bytes: bytes, mime_type: str, user_text: str) -> None:
+        if not self._loop or not self._out_queue:
+            print("[Vision] ⚠️  Session not started — dropping request")
+            return
+        asyncio.run_coroutine_threadsafe(
+            self._out_queue.put((image_bytes, mime_type, user_text)),
+            self._loop,
+        )
+
+    def is_ready(self) -> bool:
+        return self._session is not None
+
+    def _run_event_loop(self) -> None:
+        self._loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(self._loop)
+        self._loop.run_until_complete(self._session_loop())
+
+    async def _session_loop(self) -> None:
+        self._out_queue = asyncio.Queue(maxsize=30)
+        self._audio_in  = asyncio.Queue()
+
+        client = genai.Client(
+            api_key=_get_api_key(),
+            http_options={"api_version": "v1beta"},
+        )
+        config = gtypes.LiveConnectConfig(
+            response_modalities=["AUDIO"],
+            output_audio_transcription={},
+            system_instruction=_SYSTEM_PROMPT,
+            speech_config=gtypes.SpeechConfig(
+                voice_config=gtypes.VoiceConfig(
+                    prebuilt_voice_config=gtypes.PrebuiltVoiceConfig(
+                        voice_name="Charon"
+                    )
+                )
+            ),
+        )
+
+        backoff = 2.0
+        while True:
             try:
-                _yolo_model = _YOLO_CLS("yolov8n.pt")
-                print("[Camera] [OK] YOLOv8 nano loaded")
+                print("[Vision] 🔌 Connecting...")
+                async with client.aio.live.connect(
+                    model=_LIVE_MODEL, config=config
+                ) as session:
+                    self._session = session
+                    self._ready_evt.set()
+                    backoff = 2.0  
+                    print("[Vision] ✅ Connected")
+
+                    async with asyncio.TaskGroup() as tg:
+                        tg.create_task(self._send_loop())
+                        tg.create_task(self._recv_loop())
+                        tg.create_task(self._play_loop())
+
+            except* Exception as eg:
+                for exc in eg.exceptions:
+                    print(f"[Vision] ⚠️  Session error: {exc}")
+            finally:
+                self._session = None
+                self._ready_evt.clear()
+
+            print(f"[Vision] 🔄 Reconnecting in {backoff:.0f}s...")
+            await asyncio.sleep(backoff)
+            backoff = min(backoff * 1.5, 30.0)
+            self._ready_evt.set()  
+
+    async def _send_loop(self) -> None:
+        while True:
+            image_bytes, mime_type, user_text = await self._out_queue.get()
+            if not self._session:
+                print("[Vision] ⚠️  No session — dropping image")
+                continue
+            try:
+                b64 = base64.b64encode(image_bytes).decode("ascii")
+                await self._session.send_client_content(
+                    turns={
+                        "parts": [
+                            {"inline_data": {"mime_type": mime_type, "data": b64}},
+                            {"text": user_text},
+                        ]
+                    },
+                    turn_complete=True,
+                )
+                print(f"[Vision] 📤 Sent {len(image_bytes):,} bytes — '{user_text[:60]}'")
             except Exception as e:
-                print(f"[Camera] YOLO load failed: {e}")
-    return _yolo_model
+                print(f"[Vision] ⚠️  Send error: {e}")
+
+    async def _recv_loop(self) -> None:
+        transcript: list[str] = []
+        try:
+            async for response in self._session.receive():
+                if response.data:
+                    await self._audio_in.put(response.data)
+
+                sc = response.server_content
+                if not sc:
+                    continue
+
+                if sc.output_transcription and sc.output_transcription.text:
+                    chunk = sc.output_transcription.text.strip()
+                    if chunk:
+                        transcript.append(chunk)
+
+                if sc.turn_complete:
+                    if transcript and self._player:
+                        full = re.sub(r"\s+", " ", " ".join(transcript)).strip()
+                        if full:
+                            self._player.write_log(f"Jarvis: {full}")
+                            print(f"[Vision] 💬 {full}")
+                    transcript = []
+
+        except Exception as e:
+            print(f"[Vision] ⚠️  Recv error: {e}")
+            raise  
+
+    async def _play_loop(self) -> None:
+        stream = sd.RawOutputStream(
+            samplerate=_RECEIVE_SAMPLE_RATE,
+            channels=_CHANNELS,
+            dtype="int16",
+            blocksize=_CHUNK_SIZE,
+        )
+        stream.start()
+        try:
+            while True:
+                chunk = await self._audio_in.get()
+                await asyncio.to_thread(stream.write, chunk)
+        except Exception as e:
+            print(f"[Vision] ❌ Play error: {e}")
+            raise
+        finally:
+            stream.stop()
+            stream.close()
+
+_session      = _VisionSession()
+_session_lock = threading.Lock()
+_session_up   = False
 
 
-def _local_detect(image_bytes: bytes) -> str | None:
-    """Detect objects locally via YOLOv8 nano. Returns None if unavailable."""
-    model = _get_yolo()
-    if model is None:
-        return None
-    try:
-        import numpy as np
-        buf     = np.frombuffer(image_bytes, dtype=np.uint8)
-        frame   = cv2.imdecode(buf, cv2.IMREAD_COLOR)
-        results = model(frame, verbose=False)[0]
-        names   = results.names
-        counts: dict[str, int] = {}
-        for cls_id in results.boxes.cls.tolist():
-            label = names[int(cls_id)]
-            counts[label] = counts.get(label, 0) + 1
-        if not counts:
-            return "No objects detected."
-        parts = [f"{v}× {k}" if v > 1 else k for k, v in counts.items()]
-        return "Detected: " + ", ".join(parts) + "."
-    except Exception as e:
-        print(f"[Camera] YOLO detect error: {e}")
-        return None
+def _ensure_session(player=None) -> None:
+    global _session_up
+    with _session_lock:
+        if not _session_up:
+            _session.start(player=player)
+            _session_up = True
+        elif player is not None:
+            _session._player = player
 
-
-# ─── Gemini REST Analysis ──────────────────────────────────────────────────────
-
-def _gemini_analyze(image_bytes: bytes, question: str) -> str:
-    """
-    Analyze image via Gemini REST API.
-    Uses flash-lite for fast responses (~0.3–0.8s).
-    """
-    client = genai.Client(api_key=_get_api_key())
-    full_q = f"{VISION_PROMPT}\n\nUser: {question}"
-    resp   = client.models.generate_content(
-        model="gemini-2.5-flash-lite",
-        contents=[
-            types.Part.from_bytes(data=image_bytes, mime_type="image/jpeg"),
-            full_q,
-        ],
-    )
-    return resp.text.strip()
-
-
-# ─── Public Entry Point ────────────────────────────────────────────────────────
 
 def screen_process(
     parameters:     dict,
-    response:       str | None = None,
+    response=None,
     player=None,
     session_memory=None,
-    speak=None,
-) -> str:
-    """
-    Captures image and analyzes it. Returns text for main session to speak.
+) -> bool:
 
-    parameters:
-        text   : User question / instruction (required)
-        angle  : "camera" (default) | "screen"
-        action : "analyze" (default) | "ocr" | "objects"
-
-    Routing:
-        ocr     → pytesseract locally, then Gemini REST fallback
-        objects → YOLOv8 nano locally, then Gemini REST fallback
-        analyze → Gemini REST directly
-    """
     params    = parameters or {}
     user_text = (params.get("text") or params.get("user_text") or "").strip()
-    angle     = params.get("angle", "camera").lower().strip()
-    action    = params.get("action", "analyze").lower().strip()
+    angle     = params.get("angle", "screen").lower().strip()
 
     if not user_text:
-        user_text = "What do you see? Describe briefly."
+        print("[Vision] ⚠️  No question provided — aborting")
+        return False
 
-    print(f"[Camera] angle={angle!r}  action={action!r}  q={user_text!r}")
+    print(f"[Vision] ▶ angle={angle!r}  question='{user_text[:80]}'")
 
-    if player:
-        player.write_log("[Camera] Capturing...")
-
-    # ── Capture ───────────────────────────────────────────────────────────────
-    t0 = time.perf_counter()
     try:
-        image_bytes = _camera.capture_jpeg() if angle == "camera" else _capture_screenshot()
-        t_cap = time.perf_counter() - t0
-        print(f"[Camera] [INFO] Captured {len(image_bytes):,} bytes in {t_cap:.3f}s")
+        _ensure_session(player=player)
     except Exception as e:
-        print(f"[Camera] [ERROR] Capture failed: {e}")
-        return f"Camera capture failed, sir: {e}"
+        print(f"[Vision] ❌ Could not start session: {e}")
+        return False
 
-    # ── Analyze ───────────────────────────────────────────────────────────────
-    t1     = time.perf_counter()
-    result = None
-
-    if action == "ocr":
-        result = _local_ocr(image_bytes)
-        if result:
-            print(f"[Camera] OCR via Tesseract in {time.perf_counter()-t1:.3f}s")
+    try:
+        if angle == "camera":
+            image_bytes, mime_type = _capture_camera()
+            print(f"[Vision] 📷 Camera: {len(image_bytes):,} bytes")
         else:
-            result = _gemini_analyze(
-                image_bytes,
-                "Extract ALL text visible in this image exactly as it appears. "
-                "Return only the raw text with no explanation or formatting."
-            )
-            print(f"[Camera] OCR via Gemini in {time.perf_counter()-t1:.3f}s")
+            image_bytes, mime_type = _capture_screen()
+            print(f"[Vision] 🖥️  Screen: {len(image_bytes):,} bytes")
+    except Exception as e:
+        print(f"[Vision] ❌ Capture error: {e}")
+        return False
 
-    elif action == "objects":
-        result = _local_detect(image_bytes)
-        if result:
-            print(f"[Camera] Detection via YOLO in {time.perf_counter()-t1:.3f}s")
-        else:
-            result = _gemini_analyze(
-                image_bytes,
-                "List every distinct object, person, or item you can see. "
-                "Return as a brief comma-separated list."
-            )
-            print(f"[Camera] Detection via Gemini in {time.perf_counter()-t1:.3f}s")
-
-    else:  # analyze (default)
-        result = _gemini_analyze(image_bytes, user_text)
-        print(f"[Camera] Analysis via Gemini in {time.perf_counter()-t1:.3f}s")
-
-    result = result or "Could not analyze the image, sir."
-
-    total = time.perf_counter() - t0
-    print(f"[Camera] [OK] Total: {total:.3f}s | {result[:100]}")
-
-    if player:
-        player.write_log(f"[Camera] {result[:60]}")
-
-    if speak:
-        speak(result)
-
-    return result
+    _session.analyze(image_bytes, mime_type, user_text)
+    return True
 
 
-# ─── Legacy warmup stub (backward compat) ─────────────────────────────────────
-
-def warmup_session(player=None):
-    """No-op: camera warmup happens at import time now."""
-    pass
-
-
-# ─── Standalone test ──────────────────────────────────────────────────────────
+def warmup_session(player=None) -> None:
+    try:
+        _ensure_session(player=player)
+    except Exception as e:
+        print(f"[Vision] ⚠️  Warmup failed: {e}")
 
 if __name__ == "__main__":
-    print("[TEST] screen_processor.py v9 - fast REST vision")
-    print("=" * 50)
-    mode   = input("screen / camera (default: camera): ").strip().lower() or "camera"
-    action = input("analyze / ocr / objects (default: analyze): ").strip().lower() or "analyze"
-    q      = input("Question (Enter for default): ").strip() or "What do you see? Be brief."
+    print("[TEST] screen_processor.py")
+    print("=" * 52)
+    mode = input("angle — screen / camera (default: screen): ").strip().lower() or "screen"
+    q    = input("Question (Enter = default): ").strip() or "What do you see? Be brief."
 
-    print(f"\nCapturing with angle={mode!r}, action={action!r}...\n")
     t0 = time.perf_counter()
-    r  = screen_process({"angle": mode, "action": action, "text": q})
-    print(f"\n[OK] Done in {time.perf_counter()-t0:.2f}s")
-    print(f"Result:\n{r}")
+    warmup_session()
+    print(f"Session ready in {time.perf_counter()-t0:.2f}s\n")
+
+    t1 = time.perf_counter()
+    ok = screen_process({"angle": mode, "text": q})
+    print(f"Queued in {time.perf_counter()-t1:.3f}s — waiting for audio...")
+    time.sleep(10)
+    print("Done." if ok else "Failed.")
