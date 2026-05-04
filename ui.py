@@ -990,7 +990,7 @@ class MainWindow(QMainWindow):
 
     def __init__(self, face_path: str):
         super().__init__()
-        self.setWindowTitle("J.A.R.V.I.S — VECTOR XXXIX")
+        self.setWindowTitle("J.A.R.V.I.S")
         self.setMinimumSize(_MIN_W, _MIN_H)
         self.resize(_DEFAULT_W, _DEFAULT_H)
 
@@ -1135,7 +1135,7 @@ class MainWindow(QMainWindow):
             l.setStyleSheet(f"color: {color}; background: transparent;")
             return l
 
-        lay.addWidget(_badge("VECTOR XXXIX", C.PRI_DIM))
+        lay.addWidget(_badge("J.A.R.V.I.S", C.PRI_DIM))
         lay.addStretch()
 
         mid = QVBoxLayout(); mid.setSpacing(1)
@@ -1227,7 +1227,7 @@ class MainWindow(QMainWindow):
         for txt, col in [
             ("AI CORE\nACTIVE",     C.GREEN),
             ("SEC\nCLEARED",        C.PRI),
-            ("PROTOCOL\nXXXVIII",   C.TEXT_DIM),
+            ("SYSTEM\nREADY",       C.TEXT_DIM),
         ]:
             lbl = QLabel(txt)
             lbl.setFont(QFont("Courier New", 7, QFont.Weight.Bold))
@@ -1349,9 +1349,9 @@ class MainWindow(QMainWindow):
 
         lay.addWidget(_fl("[F4] Mute  ·  [F11] Fullscreen"))
         lay.addStretch()
-        lay.addWidget(_fl("Spark Technologies  ·  VECTOR XXXIX  ·  CLASSIFIED"))
+        lay.addWidget(_fl("zowel  ·  J.A.R.V.I.S  ·  CLASSIFIED"))
         lay.addStretch()
-        lay.addWidget(_fl("© SPARK TECHNOLOGIES", C.PRI_DIM))
+        lay.addWidget(_fl("© ZOWEL", C.PRI_DIM))
         return w
 
     def _on_file_selected(self, path: str):
@@ -1360,7 +1360,7 @@ class MainWindow(QMainWindow):
         cat  = _file_category(p)
         icon, _ = _FILE_ICONS.get(cat, _FILE_ICONS["unknown"])
         size = _fmt_size(p.stat().st_size)
-        self._file_hint.setText(f"{icon}  {p.name}  ·  {size}  ·  Tell JARVIS what to do with it")
+        self._file_hint.setText(f"{icon}  {p.name}  ·  {size}  ·  Tell J.A.R.V.I.S what to do with it")
         self._log.append_log(f"FILE: {p.name} ({size}) loaded")
         if self.on_text_command:
             msg = (
@@ -1445,7 +1445,7 @@ class MainWindow(QMainWindow):
             self._overlay.hide()
             self._overlay = None
         self._apply_state("LISTENING")
-        self._log.append_log(f"SYS: Initialised. OS={os_name.upper()}. JARVIS online.")
+        self._log.append_log(f"SYS: Initialised. OS={os_name.upper()}. J.A.R.V.I.S online.")
 
 class _RootShim:
     def __init__(self, app: QApplication):

@@ -22,7 +22,7 @@ class ErrorDecision(Enum):
     ABORT       = "abort"    
 
 
-ERROR_ANALYST_PROMPT = """You are the error recovery module of VECTOR XXV AI assistant.
+ERROR_ANALYST_PROMPT = """You are the error recovery module of J.A.R.V.I.S AI assistant.
 
 A task step has failed. Analyze the error and decide what to do.
 
