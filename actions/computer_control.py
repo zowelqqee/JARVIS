@@ -9,6 +9,8 @@ import time
 import random
 from pathlib import Path
 
+from config import get_os
+
 try:
     import pyautogui
     pyautogui.FAILSAFE = True
@@ -40,7 +42,7 @@ def _load_config() -> dict:
         return {}
 
 def _get_os() -> str:
-    return _load_config().get("os_system", "windows").lower()
+    return get_os()
 
 
 def _get_api_key() -> str:

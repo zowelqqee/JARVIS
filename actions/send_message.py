@@ -1,8 +1,11 @@
 import json
+import platform
 import subprocess
 import sys
 import time
 from pathlib import Path
+
+from actions.app_control import get_platform_key, launch_app
 
 try:
     import pyautogui
@@ -28,9 +31,12 @@ def _get_os() -> str:
         cfg = json.loads(
             (_base_dir() / "config" / "api_keys.json").read_text(encoding="utf-8")
         )
-        return cfg.get("os_system", "windows").lower()
+        configured = str(cfg.get("os_system", "")).lower().strip()
+        if configured in {"windows", "mac", "linux"}:
+            return configured
     except Exception:
-        return "windows"
+        pass
+    return get_platform_key()
 
 
 def _require_pyautogui():
@@ -65,10 +71,9 @@ def _clear_and_paste(text: str) -> None:
 
 def _open_app(app_name: str) -> bool:
     _require_pyautogui()
-    os_name = _get_os()
 
     try:
-        if os_name == "windows":
+        if platform.system() == "Windows":
             pyautogui.press("win")
             time.sleep(0.5)
             _paste_text(app_name)
@@ -76,38 +81,7 @@ def _open_app(app_name: str) -> bool:
             pyautogui.press("enter")
             time.sleep(2.5)
             return True
-
-        elif os_name == "mac":
-            result = subprocess.run(
-                ["open", "-a", app_name],
-                capture_output=True, text=True, timeout=10,
-            )
-            if result.returncode != 0:
-                result = subprocess.run(
-                    ["open", "-a", f"{app_name}.app"],
-                    capture_output=True, text=True, timeout=10,
-                )
-            time.sleep(2.5)
-            return result.returncode == 0
-
-        else: 
-            launched = False
-            for launcher in [
-                ["gtk-launch", app_name.lower()],
-                [app_name.lower()],
-            ]:
-                try:
-                    subprocess.Popen(
-                        launcher,
-                        stdout=subprocess.DEVNULL,
-                        stderr=subprocess.DEVNULL,
-                    )
-                    launched = True
-                    break
-                except FileNotFoundError:
-                    continue
-            time.sleep(2.5)
-            return launched
+        return launch_app(app_name)
 
     except Exception as e:
         print(f"[SendMessage] ⚠️ Could not open {app_name}: {e}")

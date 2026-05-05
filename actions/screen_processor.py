@@ -13,6 +13,7 @@ from typing import Optional
 
 import numpy as np
 import sounddevice as sd
+from config import get_os
 
 try:
     import cv2
@@ -70,7 +71,7 @@ def _get_api_key() -> str:
 
 
 def _get_os() -> str:
-    return _load_config().get("os_system", "windows").lower()
+    return get_os()
 
 _LIVE_MODEL         = "models/gemini-2.5-flash-native-audio-preview-12-2025"
 _CHANNELS           = 1

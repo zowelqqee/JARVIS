@@ -1,5 +1,6 @@
 # config/__init__.py
-import json, os
+import json
+import platform
 from pathlib import Path
 
 _CONFIG_PATH = Path(__file__).parent / "api_keys.json"
@@ -10,7 +11,19 @@ def get_config() -> dict:
 
 def get_os() -> str:
     """Returns: 'windows' | 'mac' | 'linux'"""
-    return get_config().get("os_system", "windows").lower()
+    runtime_os = {
+        "Windows": "windows",
+        "Darwin": "mac",
+        "Linux": "linux",
+    }.get(platform.system())
+    if runtime_os:
+        return runtime_os
+
+    try:
+        configured = get_config().get("os_system", "").lower()
+    except Exception:
+        configured = ""
+    return configured if configured in {"windows", "mac", "linux"} else "windows"
 
 def is_windows() -> bool: return get_os() == "windows"
 def is_mac()     -> bool: return get_os() == "mac"

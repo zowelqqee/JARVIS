@@ -7,6 +7,8 @@ import subprocess
 import platform
 from pathlib import Path
 
+from actions.app_control import close_app as close_named_app
+
 try:
     import pyautogui
     pyautogui.FAILSAFE = True
@@ -167,9 +169,8 @@ def brightness_down():
         except Exception as e:
             print(f"[Settings] Brightness down failed on Windows: {e}")
 
-def close_app():
-    if _OS == "Darwin": pyautogui.hotkey("command", "q")
-    else:               pyautogui.hotkey("alt", "f4")
+def close_app(app_name: str | None = None) -> str:
+    return close_named_app(app_name)
 
 def close_window():
     if _OS == "Darwin": pyautogui.hotkey("command", "w")
@@ -588,6 +589,7 @@ Return ONLY a valid JSON object:
 
 Rules:
 - Pick the single best matching action from the available list.
+- For close_app: if the user names a specific app or window, put that name into value.
 - For volume_set: value is an integer 0-100.
 - For type_text: value is the exact text to type.
 - For press_key: value is the key name (e.g. "f5", "tab", "enter").
@@ -646,6 +648,10 @@ def computer_settings(
             return f"Volume set to {value}%."
         except Exception as e:
             return f"Could not set volume: {e}"
+
+    if action == "close_app":
+        target = str(value or params.get("app_name", "")).strip()
+        return close_app(target or None)
 
     if action in ("type_text", "write_on_screen", "type", "write"):
         text = str(value or params.get("text", "")).strip()
