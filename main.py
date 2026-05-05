@@ -530,7 +530,12 @@ class JarvisLive:
 
     def _build_config(self) -> types.LiveConnectConfig:
         from datetime import datetime
-
+        WAKE_WORD_INSTRUCTION = """
+        [WAKE WORD RULE]
+        You MUST respond ONLY if the user's message begins with "Jarvis" or "Hey Jarvis" or "Okay Jarvis".
+        If the message does NOT start with one of these triggers — stay completely silent. 
+        Do not respond, do not acknowledge, do not make any sound.
+        """
         memory     = load_memory()
         mem_str    = format_memory_for_prompt(memory)
         sys_prompt = _load_system_prompt()
@@ -543,7 +548,7 @@ class JarvisLive:
             f"Use this to calculate exact times for reminders.\n\n"
         )
 
-        parts = [time_ctx]
+        parts = [time_ctx, WAKE_WORD_INSTRUCTION]
         if mem_str:
             parts.append(mem_str)
         parts.append(sys_prompt)
