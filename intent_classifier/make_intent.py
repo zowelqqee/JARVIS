@@ -3,8 +3,10 @@ from sklearn.linear_model import LogisticRegression
 from sklearn.pipeline import Pipeline
 from sklearn.model_selection import train_test_split
 import pandas as pd
+import mlflow
+import mlflow.sklearn
 
-df = pd.read_csv("intents.csv")
+df = pd.read_csv("intent_classifier/intents.csv")
 
 X = df["text"]
 y = df["intent"]
@@ -16,8 +18,17 @@ pipeline = Pipeline([
     ("clf", LogisticRegression(max_iter=1000))
 ])
 
-pipeline.fit(X_train, y_train)
-print(f"Accuracy: {pipeline.score(X_val, y_val) * 100:.2f}%")
+mlflow.set_experiment("jarvis_intent_classifier")
+with mlflow.start_run():
+    pipeline.fit(X_train, y_train)
+    accuracy = pipeline.score(X_val, y_val)
+    mlflow.log_param("model", "LogisticRegression")
+    mlflow.log_param("vectorizer", "TfidfVectorizer")
+    mlflow.log_metric("accuracy", accuracy)
+    mlflow.sklearn.log_model(pipeline, "model")
+
+    print(f"Accuracy: {accuracy * 100:.2f}%")
+    print("MLflow run logged")
 
 
 test_phrases = [
