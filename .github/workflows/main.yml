@@ -1,0 +1,28 @@
+name: Intent Classifier CI
+
+on:
+  push:
+    branches: [XL]
+  pull_request:
+    branches: [XL]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install dependencies
+        run: |
+          pip install scikit-learn joblib pytest
+
+      - name: Run intent classifier tests
+        run: |
+          python -m pytest intent_classifier/tests_intent.py -v
