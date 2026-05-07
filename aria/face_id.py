@@ -6,6 +6,7 @@ import os
 import threading
 import pickle
 import hashlib
+import platform
 
 DB_PATH = "aria/known_faces"
 CACHE_PATH = "aria/face_cache.pkl"
@@ -54,7 +55,17 @@ def load_encodings():
 
 known_encodings, known_names = load_encodings()
 
-cap = cv2.VideoCapture(0)
+system = platform.system()
+ 
+if system == "Darwin":
+    cap = cv2.VideoCapture(1, cv2.CAP_AVFOUNDATION)
+elif system == "Windows":
+    cap = cv2.VideoCapture(0, cv2.CAP_DHSOW)
+elif system == "Linux":
+    cap = cv2.VideoCapture(0, cv2.CAP_V4L2)
+else:
+    cap = cv2.VideoCapture(0, cv2.CAP_ANY)
+
 last_label = "..."
 last_color = (128, 128, 128)
 analyzing = False
