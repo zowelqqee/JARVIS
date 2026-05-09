@@ -94,6 +94,7 @@ youtube_video
 
 weather_report
   city: string (required)
+  time: string (optional) - e.g. "today", "tomorrow", "this weekend", "Monday"
 
 flight_finder
   origin: string (required)

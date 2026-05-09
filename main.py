@@ -109,7 +109,11 @@ TOOL_DECLARATIONS = [
         "parameters": {
             "type": "OBJECT",
             "properties": {
-                "city": {"type": "STRING", "description": "City name"}
+                "city": {"type": "STRING", "description": "City name"},
+                "time": {
+                    "type": "STRING",
+                    "description": "Requested day or time period for the forecast, e.g. 'today', 'tomorrow', 'this weekend', or 'Monday'"
+                }
             },
             "required": ["city"]
         }
