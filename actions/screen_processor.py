@@ -172,6 +172,33 @@ def _get_camera_index() -> int:
     return _detect_camera_index()
 
 
+def _capture_aria() -> tuple[bytes, str]:
+    url = _load_config().get("aria_stream_url", "http://raspberrypi.local:8080/stream")
+
+    if _CV2:
+        cap = cv2.VideoCapture(url)
+        if not cap.isOpened():
+            raise RuntimeError(f"Cannot open ARIA stream: {url}")
+        ret, frame = cap.read()
+        cap.release()
+        if not ret or frame is None:
+            raise RuntimeError("ARIA stream returned no frame.")
+        if _PIL:
+            rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+            img = PIL.Image.fromarray(rgb)
+            img.thumbnail((_IMG_MAX_W, _IMG_MAX_H), PIL.Image.BILINEAR)
+            buf = io.BytesIO()
+            img.save(buf, format="JPEG", quality=_JPEG_Q)
+            return buf.getvalue(), "image/jpeg"
+        _, buf = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, _JPEG_Q])
+        return buf.tobytes(), "image/jpeg"
+
+    import urllib.request
+    with urllib.request.urlopen(url, timeout=10) as resp:
+        data = resp.read(1_000_000)
+    return _compress(data, "JPEG")
+
+
 def _capture_camera() -> tuple[bytes, str]:
     if not _CV2:
         raise RuntimeError("OpenCV (cv2) is not installed. Run: pip install opencv-python")
@@ -409,6 +436,9 @@ def screen_process(
         if angle == "camera":
             image_bytes, mime_type = _capture_camera()
             print(f"[Vision] 📷 Camera: {len(image_bytes):,} bytes")
+        elif angle == "aria":
+            image_bytes, mime_type = _capture_aria()
+            print(f"[Vision] 👓 ARIA: {len(image_bytes):,} bytes")
         else:
             image_bytes, mime_type = _capture_screen()
             print(f"[Vision] 🖥️  Screen: {len(image_bytes):,} bytes")

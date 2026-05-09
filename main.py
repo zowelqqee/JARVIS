@@ -161,16 +161,17 @@ TOOL_DECLARATIONS = [
     {
         "name": "screen_process",
         "description": (
-            "Captures and analyzes the screen or webcam image. "
+            "Captures and analyzes the screen, webcam, or ARIA glasses stream. "
             "MUST be called when user asks what is on screen, what you see, "
-            "analyze my screen, look at camera, etc. "
+            "analyze my screen, look at camera, what does aria see, what aria sees, etc. "
+            "Use angle='aria' when the user asks what ARIA sees or references ARIA's camera or view. "
             "You have NO visual ability without this tool. "
             "After calling this tool, stay SILENT — the vision module speaks directly."
         ),
         "parameters": {
             "type": "OBJECT",
             "properties": {
-                "angle": {"type": "STRING", "description": "'screen' to capture display, 'camera' for webcam. Default: 'screen'"},
+                "angle": {"type": "STRING", "description": "'screen' to capture display, 'camera' for webcam, 'aria' for ARIA glasses stream. Default: 'screen'"},
                 "text":  {"type": "STRING", "description": "The question or instruction about the captured image"}
             },
             "required": ["text"]

@@ -58,7 +58,7 @@ known_encodings, known_names = load_encodings()
 system = platform.system()
  
 if system == "Darwin":
-    cap = cv2.VideoCapture(1, cv2.CAP_AVFOUNDATION)
+    cap = cv2.VideoCapture(2, cv2.CAP_AVFOUNDATION)
 elif system == "Windows":
     cap = cv2.VideoCapture(0, cv2.CAP_DHSOW)
 elif system == "Linux":
