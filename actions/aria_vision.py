@@ -4,8 +4,10 @@ from __future__ import annotations
 def aria_vision(parameters: dict, player=None) -> str:
     action = (parameters.get("action") or "object_detect").strip().lower()
     camera_index = parameters.get("camera_index")  # None = auto
-    duration = int(parameters.get("duration") or 5)
-    duration = max(2, min(duration, 30))
+    default_duration = 2 if action == "face_id" else 5
+    duration = int(parameters.get("duration") or default_duration)
+    min_duration = 1 if action == "face_id" else 2
+    duration = max(min_duration, min(duration, 30))
 
     try:
         if action == "face_detect":
@@ -31,6 +33,12 @@ def aria_vision(parameters: dict, player=None) -> str:
         elif action == "face_id":
             from aria.vision import run_face_id
             result = run_face_id(camera_index=camera_index, duration=duration)
+            print(
+                "[ARIA Vision] face_id "
+                f"elapsed={result.get('elapsed', '?')}s "
+                f"frames={result.get('frames', '?')} "
+                f"analyzed={result.get('analyzed_frames', '?')}"
+            )
             identified = result["identified"]
             unknown = result["unknown"]
             if not identified and unknown == 0:

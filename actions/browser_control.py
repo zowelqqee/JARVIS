@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import asyncio
 import concurrent.futures
+import json
 import os
 import platform
 import shutil
@@ -607,13 +608,157 @@ class _BrowserSession:
         except Exception as e:
             return f"Key error: {e}"
 
-    async def get_text(self) -> str:
+    async def get_text(self, max_chars: int = 12_000) -> str:
         page = await self._get_page()
         try:
-            text = await page.inner_text("body")
-            return text[:4_000]
+            text = await page.evaluate(
+                """
+                () => {
+                  const root = document.querySelector("main,[role='main'],body") || document.body;
+                  return (root?.innerText || document.body?.innerText || "").trim();
+                }
+                """
+            )
+            limit = max(500, min(int(max_chars), 50_000))
+            return text[:limit]
         except Exception as e:
             return f"Could not get page text: {e}"
+
+    async def extract_flight_blocks(
+        self,
+        provider: str = "",
+        max_items: int = 8,
+        max_chars: int = 1_800,
+    ) -> str:
+        page = await self._get_page()
+        try:
+            payload = {
+                "provider": str(provider or "").lower(),
+                "maxItems": max(1, min(int(max_items), 12)),
+                "maxChars": max(200, min(int(max_chars), 4_000)),
+            }
+            blocks = await page.evaluate(
+                """
+                ({ provider, maxItems, maxChars }) => {
+                  const normalize = (value) => (value || "")
+                    .replace(/[\\t\\r ]+/g, " ")
+                    .replace(/\\n{2,}/g, "\\n")
+                    .trim();
+
+                  const timeRe = /\\b\\d{1,2}:\\d{2}\\b/g;
+                  const priceRe = /(?:\\d[\\d\\s.,]{2,})(?:\\s?(?:₽|руб(?:\\.|лей)?|RUB|\\$|€|USD|EUR|AED|KZT))/gi;
+                  const stopRe = /без пересад|пересад|stop|stops|direct|non-stop|nonstop/i;
+                  const durationRe = /(\\b\\d+\\s*(?:ч|час|h)\\b.*\\b\\d+\\s*(?:м|min)\\b)|(\\b\\d+\\s*(?:h|min|ч|м)\\b)/i;
+                  const baggageRe = /багаж|ручн(?:ая|ой)? клад|carry|baggage/i;
+                  const actionRe = /выбрать|купить|подробнее|бронировать|select|book|details/i;
+                  const lineTimeRe = /\\b\\d{1,2}:\\d{2}\\b/;
+                  const linePriceRe = /(?:\\d[\\d\\s.,]{2,})(?:\\s?(?:₽|руб(?:\\.|лей)?|RUB|\\$|€|USD|EUR|AED|KZT))/i;
+                  const selectors = [
+                    "main article",
+                    "main [role='article']",
+                    "main [class*='ticket' i]",
+                    "main [class*='result' i]",
+                    "main [class*='flight' i]",
+                    "main [class*='card' i]",
+                    "main li",
+                    "[role='main'] article",
+                    "[role='main'] [class*='ticket' i]",
+                    "[role='main'] [class*='result' i]",
+                    "[role='main'] [class*='flight' i]",
+                    "[role='main'] [class*='card' i]",
+                    "[role='main'] li"
+                  ];
+
+                  const nodes = [];
+                  const nodeSeen = new Set();
+                  for (const selector of selectors) {
+                    for (const element of document.querySelectorAll(selector)) {
+                      if (nodes.length >= 900) break;
+                      if (nodeSeen.has(element)) continue;
+                      nodeSeen.add(element);
+                      nodes.push(element);
+                    }
+                  }
+
+                  if (!nodes.length) {
+                    const root = document.querySelector("main,[role='main'],body");
+                    if (root) {
+                      for (const element of root.querySelectorAll("div, section, li")) {
+                        if (nodes.length >= 1_200) break;
+                        nodes.push(element);
+                      }
+                    }
+                  }
+
+                  const candidates = [];
+                  const textSeen = new Set();
+                  for (const element of nodes) {
+                    const rect = element.getBoundingClientRect();
+                    if (rect.width < 160 || rect.height < 28) continue;
+
+                    const style = window.getComputedStyle(element);
+                    if (style.display === "none" || style.visibility === "hidden") continue;
+
+                    const text = normalize(element.innerText || "");
+                    if (text.length < 40 || text.length > 1_400) continue;
+
+                    const fingerprint = text.slice(0, 260);
+                    if (textSeen.has(fingerprint)) continue;
+
+                    const times = (text.match(timeRe) || []).length;
+                    const prices = (text.match(priceRe) || []).length;
+                    const stops = stopRe.test(text) ? 1 : 0;
+                    const duration = durationRe.test(text) ? 1 : 0;
+                    const baggage = baggageRe.test(text) ? 1 : 0;
+                    const action = actionRe.test(text) ? 1 : 0;
+                    const route = provider === "aviasales" && /туда|обратно|в пути|перелет/i.test(text) ? 1 : 0;
+                    const score = (times * 4) + (prices * 5) + (stops * 3) + (duration * 2) + baggage + action + route;
+
+                    if (score < 7) continue;
+
+                    textSeen.add(fingerprint);
+                    candidates.push({
+                      score,
+                      text: text.slice(0, maxChars),
+                    });
+                  }
+
+                  candidates.sort((a, b) => {
+                    if (b.score !== a.score) return b.score - a.score;
+                    return a.text.length - b.text.length;
+                  });
+
+                  const chosen = [];
+                  for (const candidate of candidates) {
+                    if (chosen.some((existing) => existing.includes(candidate.text) || candidate.text.includes(existing))) {
+                      continue;
+                    }
+                    chosen.push(candidate.text);
+                    if (chosen.length >= maxItems) break;
+                  }
+
+                  if (!chosen.length) {
+                    const root = document.querySelector("main,[role='main'],body") || document.body;
+                    const bodyText = normalize(root?.innerText || "");
+                    const lines = bodyText
+                      .split("\\n")
+                      .map(normalize)
+                      .filter(Boolean)
+                      .filter((line) => lineTimeRe.test(line) || linePriceRe.test(line));
+
+                    if (lines.length) {
+                      chosen.push(lines.slice(0, 40).join("\\n").slice(0, maxChars));
+                    }
+                  }
+
+                  return chosen;
+                }
+                """,
+                payload,
+            )
+            return json.dumps(blocks, ensure_ascii=False)
+        except Exception as e:
+            return f"Could not extract flight blocks: {e}"
 
     async def get_url(self) -> str:
         page = await self._get_page()
@@ -854,7 +999,15 @@ def browser_control(
         elif action == "smart_type":
             result = sess.run(sess.smart_type(params.get("description", ""), params.get("text", "")))
         elif action == "get_text":
-            result = sess.run(sess.get_text())
+            result = sess.run(sess.get_text(params.get("max_chars", 12_000)))
+        elif action == "extract_flight_blocks":
+            result = sess.run(
+                sess.extract_flight_blocks(
+                    params.get("provider", ""),
+                    params.get("max_items", 8),
+                    params.get("max_chars", 1_800),
+                )
+            )
         elif action == "get_url":
             result = sess.run(sess.get_url())
         elif action == "press":

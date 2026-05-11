@@ -12,6 +12,9 @@ from pathlib import Path
 import cv2
 import numpy as np
 
+_FACE_ENCODINGS_MEMORY_CACHE: dict[tuple[str, str], tuple[str, list, list]] = {}
+_YOLO_MODEL_CACHE: dict[str, object] = {}
+
 
 def _base_dir() -> Path:
     if getattr(sys, "frozen", False):
@@ -19,15 +22,34 @@ def _base_dir() -> Path:
     return Path(__file__).resolve().parent.parent
 
 
+def _coerce_camera_index(index: int | str | None) -> int | None:
+    if index in (None, ""):
+        return None
+    try:
+        return int(index)
+    except (TypeError, ValueError):
+        return None
+
+
 def _open_camera(index: int | None) -> cv2.VideoCapture:
     system = platform.system()
+    index = _coerce_camera_index(index)
     if index is None:
         index = 2 if system == "Darwin" else 0
     if system == "Darwin":
-        return cv2.VideoCapture(index, cv2.CAP_AVFOUNDATION)
-    if system == "Windows":
-        return cv2.VideoCapture(index, cv2.CAP_DSHOW)
-    return cv2.VideoCapture(index, cv2.CAP_V4L2)
+        cap = cv2.VideoCapture(index, cv2.CAP_AVFOUNDATION)
+    elif system == "Windows":
+        cap = cv2.VideoCapture(index, cv2.CAP_DSHOW)
+    else:
+        cap = cv2.VideoCapture(index, cv2.CAP_V4L2)
+
+    cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+    return cap
+
+
+def _camera_warmup(cap: cv2.VideoCapture, frames: int = 3) -> None:
+    for _ in range(max(0, frames)):
+        cap.read()
 
 
 def run_face_detect(camera_index: int | None = None, duration: int = 5) -> dict:
@@ -79,8 +101,12 @@ def run_object_detect(
         if model_path is None:
             model_path = "yolov8n.pt"
 
-    model = YOLO(model_path)
+    model = _YOLO_MODEL_CACHE.get(model_path)
+    if model is None:
+        model = YOLO(model_path)
+        _YOLO_MODEL_CACHE[model_path] = model
     cap = _open_camera(camera_index)
+    _camera_warmup(cap)
 
     best: dict[str, float] = {}
     frame_count = 0
@@ -136,12 +162,18 @@ def _load_face_encodings(db_path: Path, cache_path: Path):
         return hashlib.md5("|".join(parts).encode()).hexdigest()
 
     current_hash = _db_hash()
+    memory_key = (str(db_path.resolve()), str(cache_path.resolve()))
+    memory_cache = _FACE_ENCODINGS_MEMORY_CACHE.get(memory_key)
+    if memory_cache and memory_cache[0] == current_hash:
+        return memory_cache[1], memory_cache[2]
 
     if cache_path.exists():
         with open(cache_path, "rb") as f:
             cache = pickle.load(f)
         if cache.get("hash") == current_hash:
-            return cache["encodings"], cache["names"]
+            encodings, names = cache["encodings"], cache["names"]
+            _FACE_ENCODINGS_MEMORY_CACHE[memory_key] = (current_hash, encodings, names)
+            return encodings, names
 
     encodings, names = [], []
     for person in os.listdir(db_path):
@@ -160,7 +192,23 @@ def _load_face_encodings(db_path: Path, cache_path: Path):
     with open(cache_path, "wb") as f:
         pickle.dump({"hash": current_hash, "encodings": encodings, "names": names}, f)
 
+    _FACE_ENCODINGS_MEMORY_CACHE[memory_key] = (current_hash, encodings, names)
     return encodings, names
+
+
+def _identify_face(
+    known_encodings,
+    known_names,
+    encoding,
+    distance_threshold: float,
+) -> str | None:
+    if not known_encodings:
+        return None
+    distances = np.linalg.norm(np.asarray(known_encodings) - encoding, axis=1)
+    best_idx = int(np.argmin(distances))
+    if distances[best_idx] < distance_threshold:
+        return known_names[best_idx]
+    return None
 
 
 def run_face_id(
@@ -169,6 +217,8 @@ def run_face_id(
     db_path: str | None = None,
     cache_path: str | None = None,
     distance_threshold: float = 0.5,
+    min_identified_hits: int = 1,
+    frame_interval: int = 5,
 ) -> dict:
     """Identify known faces for `duration` seconds.
 
@@ -184,54 +234,54 @@ def run_face_id(
     known_encodings, known_names = _load_face_encodings(_db, _cache)
 
     cap = _open_camera(camera_index)
+    _camera_warmup(cap)
 
     identified: dict[str, int] = {}
     unknown = 0
     no_face = 0
-    analyzing = False
-    lock = threading.Lock()
     frame_count = 0
+    analyzed_frames = 0
     deadline = time.time() + duration
-
-    def _analyze(frame_copy):
-        nonlocal analyzing, unknown, no_face
-        try:
-            rgb = cv2.cvtColor(frame_copy, cv2.COLOR_BGR2RGB)
-            small = cv2.resize(rgb, (0, 0), fx=0.5, fy=0.5)
-            locations = face_recognition.face_locations(small)
-            encodings = face_recognition.face_encodings(small, locations)
-
-            with lock:
-                if not encodings:
-                    no_face += 1
-                    return
-                if known_encodings:
-                    distances = face_recognition.face_distance(known_encodings, encodings[0])
-                    best_idx = int(np.argmin(distances))
-                    if distances[best_idx] < distance_threshold:
-                        name = known_names[best_idx]
-                        identified[name] = identified.get(name, 0) + 1
-                        return
-                unknown += 1
-        finally:
-            analyzing = False
+    started_at = time.time()
 
     while time.time() < deadline:
         ret, frame = cap.read()
         if not ret:
             break
         frame_count += 1
-        if frame_count % 15 == 0 and not analyzing:
-            analyzing = True
-            t = threading.Thread(target=_analyze, args=(frame.copy(),), daemon=True)
-            t.daemon = True
-            t.start()
+        if frame_count % max(1, frame_interval) != 0:
+            continue
+
+        rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        small = cv2.resize(rgb, (0, 0), fx=0.5, fy=0.5)
+        locations = face_recognition.face_locations(small, model="hog")
+        encodings = face_recognition.face_encodings(small, locations)
+        analyzed_frames += 1
+
+        if not encodings:
+            no_face += 1
+            continue
+
+        name = _identify_face(
+            known_encodings,
+            known_names,
+            encodings[0],
+            distance_threshold,
+        )
+        if name:
+            identified[name] = identified.get(name, 0) + 1
+            if identified[name] >= max(1, min_identified_hits):
+                break
+        else:
+            unknown += 1
 
     cap.release()
-    with lock:
-        return {
-            "identified": dict(identified),
-            "unknown": unknown,
-            "no_face": no_face,
-            "duration": duration,
-        }
+    return {
+        "identified": dict(identified),
+        "unknown": unknown,
+        "no_face": no_face,
+        "duration": duration,
+        "elapsed": round(time.time() - started_at, 2),
+        "frames": frame_count,
+        "analyzed_frames": analyzed_frames,
+    }

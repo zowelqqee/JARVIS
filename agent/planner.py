@@ -100,6 +100,12 @@ flight_finder
   origin: string (required)
   destination: string (required)
   date: string (required)
+  return_date: string (optional)
+  passengers: integer (optional, adult alias)
+  adults: integer (optional)
+  children: integer (optional)
+  infants: integer (optional)
+  source: string (optional)
 
 code_helper
   action: "write" | "edit" | "run" | "explain" (required)

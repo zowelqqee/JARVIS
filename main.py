@@ -360,7 +360,11 @@ TOOL_DECLARATIONS = [
     },
     {
         "name": "flight_finder",
-        "description": "Searches Google Flights and speaks the best options.",
+        "description": (
+            "Searches flights on Aviasales by default and falls back to Google Flights "
+            "when needed. Use for airfare lookups, cheapest flight searches, "
+            "and route comparisons."
+        ),
         "parameters": {
             "type": "OBJECT",
             "properties": {
@@ -368,8 +372,12 @@ TOOL_DECLARATIONS = [
                 "destination": {"type": "STRING",  "description": "Arrival city or airport code"},
                 "date":        {"type": "STRING",  "description": "Departure date (any format)"},
                 "return_date": {"type": "STRING",  "description": "Return date for round trips"},
-                "passengers":  {"type": "INTEGER", "description": "Number of passengers (default: 1)"},
+                "passengers":  {"type": "INTEGER", "description": "Adults count for backward compatibility (default: 1)"},
+                "adults":      {"type": "INTEGER", "description": "Adult passengers count (default: 1)"},
+                "children":    {"type": "INTEGER", "description": "Child passengers count (default: 0)"},
+                "infants":     {"type": "INTEGER", "description": "Infant passengers count (default: 0)"},
                 "cabin":       {"type": "STRING",  "description": "economy | premium | business | first"},
+                "source":      {"type": "STRING",  "description": "auto | aviasales | google_flights (default: auto)"},
                 "save":        {"type": "BOOLEAN", "description": "Save results to Notepad"},
             },
             "required": ["origin", "destination", "date"]
@@ -394,7 +402,7 @@ TOOL_DECLARATIONS = [
                 },
                 "duration": {
                     "type": "INTEGER",
-                    "description": "Seconds to analyze camera feed (default: 5, max: 30)"
+                    "description": "Seconds to analyze camera feed (default: 2 for face_id, 5 for others, max: 30)"
                 },
                 "camera_index": {
                     "type": "INTEGER",
