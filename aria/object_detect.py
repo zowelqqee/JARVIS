@@ -7,7 +7,7 @@ MODEL_PATH = "yolov8l.pt"  # скачается автоматически
 model = YOLO(MODEL_PATH)
 print("Модель загружена")
 
-cap = cv2.VideoCapture(1, cv2.CAP_AVFOUNDATION)
+cap = cv2.VideoCapture(2, cv2.CAP_AVFOUNDATION)
 
 last_results = []
 analyzing = False

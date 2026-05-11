@@ -31,6 +31,7 @@ from actions.dev_agent         import dev_agent
 from actions.web_search        import web_search as web_search_action
 from actions.computer_control  import computer_control
 from actions.game_updater      import game_updater
+from actions.aria_vision       import aria_vision
 
 
 def get_base_dir():
@@ -375,6 +376,35 @@ TOOL_DECLARATIONS = [
         }
     },
     {
+        "name": "aria_vision",
+        "description": (
+            "Runs local computer vision on the ARIA glasses camera: "
+            "detect faces (face_detect), identify known people (face_id), "
+            "or detect objects with AI (object_detect). "
+            "Use when the user asks what ARIA sees, who is in front of ARIA, "
+            "how many people are visible, or what objects ARIA can see. "
+            "Returns a structured text result."
+        ),
+        "parameters": {
+            "type": "OBJECT",
+            "properties": {
+                "action": {
+                    "type": "STRING",
+                    "description": "face_detect | object_detect | face_id (default: object_detect)"
+                },
+                "duration": {
+                    "type": "INTEGER",
+                    "description": "Seconds to analyze camera feed (default: 5, max: 30)"
+                },
+                "camera_index": {
+                    "type": "INTEGER",
+                    "description": "Camera index override. Omit for auto-detection."
+                }
+            },
+            "required": []
+        }
+    },
+    {
         "name": "shutdown_jarvis",
         "description": (
             "Shuts down the assistant completely. "
@@ -681,6 +711,10 @@ class JarvisLive:
 
             elif name == "flight_finder":
                 r = await loop.run_in_executor(None, lambda: flight_finder(parameters=args, player=self.ui))
+                result = r or "Done."
+
+            elif name == "aria_vision":
+                r = await loop.run_in_executor(None, lambda: aria_vision(parameters=args, player=self.ui))
                 result = r or "Done."
 
             elif name == "shutdown_jarvis":
