@@ -1,4 +1,4 @@
-# J.A.R.V.I.S.
+# 🤖 J.A.R.V.I.S.
 ### Real-time desktop AI assistant for voice, vision, files, and computer control
 
 J.A.R.V.I.S. is a multimodal desktop assistant that listens through your microphone, reasons with Gemini Live, sees your screen or camera, works with dragged files, and takes real actions on your computer.
@@ -10,21 +10,21 @@ It is built for personal workflows, desktop automation, and "do it for me" reque
 
 ---
 
-## What JARVIS Can Do
+## 🚀 What JARVIS Can Do
 
 | Area | What it covers |
 | --- | --- |
-| Voice + chat | Real-time audio conversation, typed fallback, activity log, wake-word behavior |
-| Computer control | Open apps, press hotkeys, type, click, scroll, focus windows, take screenshots |
-| Browser automation | Open pages, search, click elements, fill forms, switch browsers with Playwright |
-| Vision | Analyze the screen, webcam, or ARIA camera feed |
-| File workflows | Summarize PDFs, OCR images, inspect code, analyze CSV/Excel, convert media, unpack archives |
-| Productivity | Weather, reminders, flight search, desktop cleanup, game updates, messaging |
-| Developer tools | Explain, edit, run, optimize code, or scaffold small multi-file projects |
+| 🎙️ Voice + chat | Real-time audio conversation, typed fallback, activity log, wake-word behavior |
+| 🖥️ Computer control | Open apps, press hotkeys, type, click, scroll, focus windows, take screenshots |
+| 🌐 Browser automation | Open pages, search, click elements, fill forms, switch browsers with Playwright |
+| 👁️ Vision | Analyze the screen, webcam, or ARIA camera feed |
+| 📄 File workflows | Summarize PDFs, OCR images, inspect code, analyze CSV/Excel, convert media, unpack archives |
+| 📅 Productivity | Weather, reminders, flight search, desktop cleanup, game updates, messaging |
+| 👨‍💻 Developer tools | Explain, edit, run, optimize code, or scaffold small multi-file projects |
 
 ---
 
-## Example Prompts
+## 💬 Example Prompts
 
 - `Jarvis, open Telegram and send Alice I'll be 10 minutes late.`
 - `Jarvis, what is on my screen right now?`
@@ -35,7 +35,7 @@ It is built for personal workflows, desktop automation, and "do it for me" reque
 
 ---
 
-## Architecture
+## 🏗️ Architecture
 
 ```mermaid
 flowchart LR
@@ -61,9 +61,9 @@ At a high level:
 
 ---
 
-## Quick Start
+## ⚡ Quick Start
 
-### 1. Create a Python environment
+### 1. 🐍 Create a Python environment
 
 Python `3.11` or `3.12` is recommended.
 
@@ -85,7 +85,7 @@ If you want the built-in bootstrap script instead, run:
 python setup.py
 ```
 
-### 2. Add your config
+### 2. 🔐 Add your config
 
 Create `config/api_keys.json` using `config/api_keys.example.json` as a template:
 
@@ -104,7 +104,7 @@ Valid values for `os_system`:
 
 `config/api_keys.json` is already ignored by git.
 
-### 3. Launch JARVIS
+### 3. ▶️ Launch JARVIS
 
 ```bash
 python main.py
@@ -112,14 +112,14 @@ python main.py
 
 On first real use, your OS may ask for permission to access:
 
-- microphone
-- screen recording / screen capture
-- camera
-- accessibility controls
+- 🎤 microphone
+- 🖼️ screen recording / screen capture
+- 📷 camera
+- ⌨️ accessibility controls
 
 ---
 
-## Feature-Specific Extras
+## 🧩 Feature-Specific Extras
 
 Some advanced tools need extra packages or system binaries beyond `requirements.txt`.
 
@@ -136,7 +136,7 @@ If a platform-specific module fails with `ModuleNotFoundError`, install the miss
 
 ---
 
-## Project Map
+## 🗂️ Project Map
 
 ```text
 .
@@ -153,38 +153,38 @@ If a platform-specific module fails with `ModuleNotFoundError`, install the miss
 
 Some especially useful modules:
 
-- `actions/browser_control.py` for browser automation
-- `actions/file_processor.py` for dropped-file workflows
-- `actions/computer_control.py` for direct mouse/keyboard/screenshot actions
-- `actions/send_message.py` for app-based messaging automation
-- `actions/dev_agent.py` and `actions/code_helper.py` for developer workflows
+- `actions/browser_control.py` for browser automation 🌐
+- `actions/file_processor.py` for dropped-file workflows 📄
+- `actions/computer_control.py` for direct mouse/keyboard/screenshot actions 🖱️
+- `actions/send_message.py` for app-based messaging automation 💬
+- `actions/dev_agent.py` and `actions/code_helper.py` for developer workflows 👨‍💻
 
 ---
 
-## Notes And Caveats
+## ⚠️ Notes And Caveats
 
-- This is not a fully offline assistant. Reasoning and real-time speech depend on Gemini.
-- The assistant is configured to respond only to prompts that begin with `Jarvis`, `Hey Jarvis`, or `Okay Jarvis`.
-- Cross-platform support is a core goal, but some tools are more mature on some operating systems than others.
-- Several optional features rely on external binaries, browser installs, or extra Python packages.
-- The `intent_classifier/` module is currently an optional side project, not the main routing engine.
+- This is not a fully offline assistant. Reasoning and real-time speech depend on Gemini. ☁️
+- The assistant is configured to respond only to prompts that begin with `Jarvis`, `Hey Jarvis`, or `Okay Jarvis`. 🗣️
+- Cross-platform support is a core goal, but some tools are more mature on some operating systems than others. 🧭
+- Several optional features rely on external binaries, browser installs, or extra Python packages. 📦
+- The `intent_classifier/` module is currently an optional side project, not the main routing engine. 🧪
 
 ---
 
-## Optional Intent Classifier
+## 🧪 Optional Intent Classifier
 
 The repo also includes a small intent-classifier project inside [`intent_classifier/`](intent_classifier/README.md).
 
 It is useful if you want to:
 
-- inspect command intent trends
-- experiment with classic ML routing
-- expose a tiny FastAPI service for intent prediction
+- inspect command intent trends 📈
+- experiment with classic ML routing 🧠
+- expose a tiny FastAPI service for intent prediction ⚙️
 
 See [`intent_classifier/README.md`](intent_classifier/README.md) for details.
 
 ---
 
-## Creator
+## 👤 Creator
 
 Engineered by zowel.
