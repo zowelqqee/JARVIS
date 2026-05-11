@@ -148,7 +148,7 @@ If a platform-specific module fails with `ModuleNotFoundError`, install the miss
 ├── aria/                  # Local vision helpers and known-face data
 ├── agent/                 # Task queue / planner utilities
 ├── core/prompt.txt        # System behavior and routing rules
-└── intent_classifier/     # Optional ML intent classifier project
+└── intent_classifier/     # Production-style NLP intent classification module
 ```
 
 Some especially useful modules:
@@ -167,19 +167,19 @@ Some especially useful modules:
 - The assistant is configured to respond only to prompts that begin with `Jarvis`, `Hey Jarvis`, or `Okay Jarvis`. 🗣️
 - Cross-platform support is a core goal, but some tools are more mature on some operating systems than others. 🧭
 - Several optional features rely on external binaries, browser installs, or extra Python packages. 📦
-- The `intent_classifier/` module is currently an optional side project, not the main routing engine. 🧪
+- The `intent_classifier/` module is a dedicated NLP subsystem in the repo, even though the main live assistant currently routes through Gemini tools. 🧠
 
 ---
 
-## 🧪 Optional Intent Classifier
+## 🧠 Intent Classifier
 
-The repo also includes a small intent-classifier project inside [`intent_classifier/`](intent_classifier/README.md).
+A production-style NLP module inside [`intent_classifier/`](intent_classifier/README.md) that classifies user commands into intents with confidence scores.
 
-It is useful if you want to:
-
-- inspect command intent trends 📈
-- experiment with classic ML routing 🧠
-- expose a tiny FastAPI service for intent prediction ⚙️
+- TF-IDF + Logistic Regression, trained on 4,200 samples
+- Deployed as a FastAPI REST service
+- MLflow experiment tracking and model versioning
+- CI/CD via GitHub Actions
+- Confidence-based drift detection in production
 
 See [`intent_classifier/README.md`](intent_classifier/README.md) for details.
 
