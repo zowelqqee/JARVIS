@@ -6,6 +6,4 @@ config/api_keys.json
 .env
 .claude/
 mltest/
-yolov8s.pt
-yolov8sl.pt
-yolov8sn.pt
+*.pt
