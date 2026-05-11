@@ -1,9 +1,26 @@
 __pycache__/
 *.py[cod]
-tmp/runtime/piper/
-tmp/runtime/jarvis_tts.env
-config/api_keys.json
+
+# env/secrets
 .env
-.claude/
-mltest/
+config/api_keys.json
+
+# runtime
+tmp/runtime/
+mlruns/
+*.db
+
+# models
 *.pt
+*.pkl
+
+# local junk
+.claude/
+.ipynb_checkpoints/
+.DS_Store
+.venv/
+.venv-desktop-packaging/
+
+# tests/experiments
+mltest/
+untitled.py
