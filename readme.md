@@ -13,6 +13,15 @@ It is built for personal workflows, desktop automation, and "do it for me" reque
 
 [Watch Demo Video
 ](https://youtu.be/FD00PptEfeI)
+
+## ✨ Highlights
+
+- Real-time voice interaction
+- Desktop and browser automation
+- Multimodal screen understanding
+- Deterministic local action execution
+
+
 ---
 
 ## 🚀 What JARVIS Can Do
