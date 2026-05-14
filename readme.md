@@ -187,4 +187,5 @@ See [`intent_classifier/README.md`](intent_classifier/README.md) for details.
 
 ## 👤 Creator
 
-Engineered by zowel.
+Built by Arseniy Abramidze  
+AI systems / automation / applied ML engineering
