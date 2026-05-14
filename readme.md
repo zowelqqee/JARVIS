@@ -1,7 +1,7 @@
 # 🤖 J.A.R.V.I.S.
 ### Real-time desktop AI assistant for voice, vision, files, and computer control
 
-J.A.R.V.I.S. is a multimodal desktop assistant that listens through your microphone, reasons with Gemini Live, sees your screen or camera, works with dragged files, and takes real actions on your computer.
+J.A.R.V.I.S. is a multimodal desktop assistant that listens through your microphone, processes live multimodal input through Gemini Live and routes actions through local execution modules, sees your screen or camera, works with dragged files, and takes real actions on your computer.
 
 It is built for personal workflows, desktop automation, and "do it for me" requests that go beyond a chat window.
 
