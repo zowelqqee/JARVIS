@@ -7,7 +7,12 @@ It is built for personal workflows, desktop automation, and "do it for me" reque
 
 > Local desktop app, cloud reasoning.
 > Bring your own Gemini API key.
+>
+> 
+## 🎬 Demo
 
+[Watch Demo Video
+](https://youtu.be/FD00PptEfeI)
 ---
 
 ## 🚀 What JARVIS Can Do
