@@ -1,4 +1,5 @@
 import asyncio
+import contextlib
 import re
 import threading
 import json
@@ -13,6 +14,7 @@ from ui import JarvisUI
 from memory.memory_manager import (
     load_memory, update_memory, format_memory_for_prompt,
 )
+from core.interrupts import clear_interrupt, is_stop_phrase, request_interrupt
 
 from actions.file_processor import file_processor
 from actions.flight_finder     import flight_finder
@@ -21,7 +23,7 @@ from actions.weather_report    import weather_action
 from actions.send_message      import send_message
 from actions.reminder          import reminder
 from actions.computer_settings import computer_settings
-from actions.screen_processor  import screen_process
+from actions.screen_processor  import screen_process, stop_vision
 from actions.youtube_video     import youtube_video
 from actions.desktop           import desktop_control
 from actions.browser_control   import browser_control
@@ -48,6 +50,18 @@ CHANNELS            = 1
 SEND_SAMPLE_RATE    = 16000
 RECEIVE_SAMPLE_RATE = 24000
 CHUNK_SIZE          = 1024
+DEFAULT_TOOL_TIMEOUT = 90.0
+TOOL_TIMEOUTS = {
+    "screen_process": 8.0,
+    "aria_vision": 25.0,
+    "computer_control": 30.0,
+    "computer_settings": 30.0,
+    "browser_control": 60.0,
+    "flight_finder": 120.0,
+    "file_processor": 180.0,
+    "dev_agent": 240.0,
+    "game_updater": 240.0,
+}
 
 def _get_api_key() -> str:
     with open(API_CONFIG_PATH, "r", encoding="utf-8") as f:
@@ -61,12 +75,12 @@ def _load_system_prompt() -> str:
         return (
             "You are JARVIS, Tony Stark's AI assistant. "
             "Be concise, direct, and always use the provided tools to complete tasks. "
-            "Never simulate or guess results — always call the appropriate tool."
+            "Never simulate or guess results вЂ” always call the appropriate tool."
         )
 
 _CTRL_RE = re.compile(r"<ctrl\d+>", re.IGNORECASE)
 
-def _clean_transcript(text: str) -> str:    
+def _clean_transcript(text: str) -> str:
     text = _CTRL_RE.sub("", text)
     text = re.sub(r"[\x00-\x08\x0b-\x1f]", "", text)
     return text.strip()
@@ -77,7 +91,7 @@ TOOL_DECLARATIONS = [
         "description": (
             "Opens any application on the computer. "
             "Use this whenever the user asks to open, launch, or start any app, "
-            "website, or program. Always call this tool — never just say you opened it."
+            "website, or program. Always call this tool вЂ” never just say you opened it."
         ),
         "parameters": {
             "type": "OBJECT",
@@ -171,7 +185,7 @@ TOOL_DECLARATIONS = [
             "analyze my screen, look at camera, what does aria see, what aria sees, etc. "
             "Use angle='aria' when the user asks what ARIA sees or references ARIA's camera or view. "
             "You have NO visual ability without this tool. "
-            "After calling this tool, stay SILENT — the vision module speaks directly."
+            "After calling this tool, stay SILENT вЂ” the vision module speaks directly."
         ),
         "parameters": {
             "type": "OBJECT",
@@ -299,7 +313,7 @@ TOOL_DECLARATIONS = [
         "description": (
             "Executes complex multi-step tasks requiring multiple different tools. "
             "Examples: 'research X and save to file', 'find and organize files'. "
-            "DO NOT use for single commands. NEVER use for Steam/Epic — use game_updater."
+            "DO NOT use for single commands. NEVER use for Steam/Epic вЂ” use game_updater."
         ),
         "parameters": {
             "type": "OBJECT",
@@ -361,8 +375,7 @@ TOOL_DECLARATIONS = [
     {
         "name": "flight_finder",
         "description": (
-            "Searches flights on Aviasales by default and falls back to Google Flights "
-            "when needed. Use for airfare lookups, cheapest flight searches, "
+            "Searches flights on Aviasales only. Use for airfare lookups, cheapest flight searches, "
             "and route comparisons."
         ),
         "parameters": {
@@ -377,7 +390,7 @@ TOOL_DECLARATIONS = [
                 "children":    {"type": "INTEGER", "description": "Child passengers count (default: 0)"},
                 "infants":     {"type": "INTEGER", "description": "Infant passengers count (default: 0)"},
                 "cabin":       {"type": "STRING",  "description": "economy | premium | business | first"},
-                "source":      {"type": "STRING",  "description": "auto | aviasales | google_flights (default: auto)"},
+                "source":      {"type": "STRING",  "description": "auto | aviasales (default: auto; always opens Aviasales)"},
                 "save":        {"type": "BOOLEAN", "description": "Save results to Notepad"},
             },
             "required": ["origin", "destination", "date"]
@@ -498,7 +511,7 @@ TOOL_DECLARATIONS = [
             "Call this silently whenever the user reveals something worth remembering: "
             "name, age, city, job, preferences, hobbies, relationships, projects, or future plans. "
             "Do NOT call for: weather, reminders, searches, or one-time commands. "
-            "Do NOT announce that you are saving — just call it silently. "
+            "Do NOT announce that you are saving вЂ” just call it silently. "
             "Values must be in English regardless of the conversation language."
         ),
         "parameters": {
@@ -507,12 +520,12 @@ TOOL_DECLARATIONS = [
                 "category": {
                     "type": "STRING",
                     "description": (
-                        "identity — name, age, birthday, city, job, language, nationality | "
-                        "preferences — favorite food/color/music/film/game/sport, hobbies | "
-                        "projects — active projects, goals, things being built | "
-                        "relationships — friends, family, partner, colleagues | "
-                        "wishes — future plans, things to buy, travel dreams | "
-                        "notes — habits, schedule, anything else worth remembering"
+                        "identity вЂ” name, age, birthday, city, job, language, nationality | "
+                        "preferences вЂ” favorite food/color/music/film/game/sport, hobbies | "
+                        "projects вЂ” active projects, goals, things being built | "
+                        "relationships вЂ” friends, family, partner, colleagues | "
+                        "wishes вЂ” future plans, things to buy, travel dreams | "
+                        "notes вЂ” habits, schedule, anything else worth remembering"
                     )
                 },
                 "key":   {"type": "STRING", "description": "Short snake_case key (e.g. name, favorite_food, sister_name)"},
@@ -535,9 +548,17 @@ class JarvisLive:
         self._speaking_lock = threading.Lock()
         self.ui.on_text_command = self._on_text_command
         self._turn_done_event: asyncio.Event | None = None
+        self._active_tool_tasks: set[asyncio.Task] = set()
+        self._interrupted = False
 
     def _on_text_command(self, text: str):
         if not self._loop or not self.session:
+            return
+        if is_stop_phrase(text):
+            asyncio.run_coroutine_threadsafe(
+                self._interrupt_current_process("text stop word"),
+                self._loop,
+            )
             return
         asyncio.run_coroutine_threadsafe(
             self.session.send_client_content(
@@ -568,7 +589,7 @@ class JarvisLive:
 
     def speak_error(self, tool_name: str, error: str):
         short = str(error)[:120]
-        self.ui.write_log(f"ERR: {tool_name} — {short}")
+        self.ui.write_log(f"ERR: {tool_name} вЂ” {short}")
         self.speak(f"Sir, {tool_name} encountered an error. {short}")
 
     def _build_config(self) -> types.LiveConnectConfig:
@@ -576,7 +597,8 @@ class JarvisLive:
         WAKE_WORD_INSTRUCTION = """
         [WAKE WORD RULE]
         You MUST respond ONLY if the user's message begins with "Jarvis" or "Hey Jarvis" or "Okay Jarvis".
-        If the message does NOT start with one of these triggers — stay completely silent. 
+        Exception: the stop word "СЃС‚РѕРї" / "stop" is always allowed and must interrupt the current process.
+        If the message does NOT start with one of these triggers вЂ” stay completely silent.
         Do not respond, do not acknowledge, do not make any sound.
         """
         memory     = load_memory()
@@ -584,7 +606,7 @@ class JarvisLive:
         sys_prompt = _load_system_prompt()
 
         now      = datetime.now()
-        time_str = now.strftime("%A, %B %d, %Y — %I:%M %p")
+        time_str = now.strftime("%A, %B %d, %Y вЂ” %I:%M %p")
         time_ctx = (
             f"[CURRENT DATE & TIME]\n"
             f"Right now it is: {time_str}\n"
@@ -612,11 +634,73 @@ class JarvisLive:
             ),
         )
 
+    def _clear_audio_queue(self) -> None:
+        if not self.audio_in_queue:
+            return
+        while True:
+            try:
+                self.audio_in_queue.get_nowait()
+            except asyncio.QueueEmpty:
+                break
+
+    async def _interrupt_current_process(self, reason: str = "stop word") -> None:
+        request_interrupt(reason)
+        self._interrupted = True
+        self._clear_audio_queue()
+        self.set_speaking(False)
+        stop_vision()
+
+        for task in list(self._active_tool_tasks):
+            task.cancel()
+
+        try:
+            from agent.task_queue import get_queue
+            await asyncio.to_thread(get_queue().cancel_all)
+        except Exception as e:
+            print(f"[JARVIS] Stop: task queue cancel failed: {e}")
+
+        self.ui.write_log("SYS: Stop word received. Current process interrupted.")
+
+    async def _run_blocking_tool(self, name: str, call) -> str:
+        if self._interrupted:
+            return "Cancelled by stop word."
+        loop = asyncio.get_event_loop()
+        timeout = TOOL_TIMEOUTS.get(name, DEFAULT_TOOL_TIMEOUT)
+        try:
+            return await asyncio.wait_for(loop.run_in_executor(None, call), timeout=timeout)
+        except asyncio.TimeoutError:
+            request_interrupt(f"{name} timeout")
+            return f"Tool '{name}' timed out after {int(timeout)} seconds."
+
+    def _cancelled_response(self, fc, reason: str = "Cancelled by stop word.") -> types.FunctionResponse:
+        return types.FunctionResponse(
+            id=fc.id,
+            name=fc.name,
+            response={"result": reason, "cancelled": True},
+        )
+
+    async def _handle_tool_calls(self, function_calls) -> None:
+        fn_responses = []
+        try:
+            for fc in function_calls:
+                if self._interrupted:
+                    fn_responses.append(self._cancelled_response(fc))
+                    continue
+                fn_responses.append(await self._execute_tool(fc))
+        except asyncio.CancelledError:
+            fn_responses = [self._cancelled_response(fc) for fc in function_calls]
+        finally:
+            if fn_responses and self.session:
+                with contextlib.suppress(Exception):
+                    await self.session.send_tool_response(function_responses=fn_responses)
+            self._interrupted = False
+            clear_interrupt()
+
     async def _execute_tool(self, fc) -> types.FunctionResponse:
         name = fc.name
         args = dict(fc.args or {})
 
-        print(f"[JARVIS] 🔧 {name}  {args}")
+        print(f"[JARVIS] рџ”§ {name}  {args}")
         self.ui.set_state("THINKING")
 
         if name == "save_memory":
@@ -625,7 +709,7 @@ class JarvisLive:
             value    = args.get("value", "")
             if key and value:
                 update_memory({category: {key: {"value": value}}})
-                print(f"[Memory] 💾 save_memory: {category}/{key} = {value}")
+                print(f"[Memory] рџ’ѕ save_memory: {category}/{key} = {value}")
             if not self.ui.muted:
                 self.ui.set_state("LISTENING")
             return types.FunctionResponse(
@@ -633,36 +717,35 @@ class JarvisLive:
                 response={"result": "ok", "silent": True}
             )
 
-        loop   = asyncio.get_event_loop()
         result = "Done."
 
         try:
             if name == "open_app":
-                r = await loop.run_in_executor(None, lambda: open_app(parameters=args, response=None, player=self.ui))
+                r = await self._run_blocking_tool(name, lambda: open_app(parameters=args, response=None, player=self.ui))
                 result = r or f"Opened {args.get('app_name')}."
 
             elif name == "weather_report":
-                r = await loop.run_in_executor(None, lambda: weather_action(parameters=args, player=self.ui))
+                r = await self._run_blocking_tool(name, lambda: weather_action(parameters=args, player=self.ui))
                 result = r or "Weather delivered."
 
             elif name == "browser_control":
-                r = await loop.run_in_executor(None, lambda: browser_control(parameters=args, player=self.ui))
+                r = await self._run_blocking_tool(name, lambda: browser_control(parameters=args, player=self.ui))
                 result = r or "Done."
 
             elif name == "file_controller":
-                r = await loop.run_in_executor(None, lambda: file_controller(parameters=args, player=self.ui))
+                r = await self._run_blocking_tool(name, lambda: file_controller(parameters=args, player=self.ui))
                 result = r or "Done."
 
             elif name == "send_message":
-                r = await loop.run_in_executor(None, lambda: send_message(parameters=args, response=None, player=self.ui, session_memory=None))
+                r = await self._run_blocking_tool(name, lambda: send_message(parameters=args, response=None, player=self.ui, session_memory=None))
                 result = r or f"Message sent to {args.get('receiver')}."
 
             elif name == "reminder":
-                r = await loop.run_in_executor(None, lambda: reminder(parameters=args, response=None, player=self.ui))
+                r = await self._run_blocking_tool(name, lambda: reminder(parameters=args, response=None, player=self.ui))
                 result = r or "Reminder set."
 
             elif name == "youtube_video":
-                r = await loop.run_in_executor(None, lambda: youtube_video(parameters=args, response=None, player=self.ui))
+                r = await self._run_blocking_tool(name, lambda: youtube_video(parameters=args, response=None, player=self.ui))
                 result = r or "Done."
 
             elif name == "screen_process":
@@ -672,22 +755,22 @@ class JarvisLive:
                             "player": self.ui, "session_memory": None},
                     daemon=True
                 ).start()
-                result = "Vision module activated. Stay completely silent — vision module will speak directly."
+                result = "Vision module activated. Stay completely silent вЂ” vision module will speak directly."
 
             elif name == "computer_settings":
-                r = await loop.run_in_executor(None, lambda: computer_settings(parameters=args, response=None, player=self.ui))
+                r = await self._run_blocking_tool(name, lambda: computer_settings(parameters=args, response=None, player=self.ui))
                 result = r or "Done."
 
             elif name == "desktop_control":
-                r = await loop.run_in_executor(None, lambda: desktop_control(parameters=args, player=self.ui))
+                r = await self._run_blocking_tool(name, lambda: desktop_control(parameters=args, player=self.ui))
                 result = r or "Done."
 
             elif name == "code_helper":
-                r = await loop.run_in_executor(None, lambda: code_helper(parameters=args, player=self.ui, speak=self.speak))
+                r = await self._run_blocking_tool(name, lambda: code_helper(parameters=args, player=self.ui, speak=self.speak))
                 result = r or "Done."
 
             elif name == "dev_agent":
-                r = await loop.run_in_executor(None, lambda: dev_agent(parameters=args, player=self.ui, speak=self.speak))
+                r = await self._run_blocking_tool(name, lambda: dev_agent(parameters=args, player=self.ui, speak=self.speak))
                 result = r or "Done."
 
             elif name == "agent_task":
@@ -698,31 +781,28 @@ class JarvisLive:
                 result   = f"Task started (ID: {task_id})."
 
             elif name == "web_search":
-                r = await loop.run_in_executor(None, lambda: web_search_action(parameters=args, player=self.ui))
+                r = await self._run_blocking_tool(name, lambda: web_search_action(parameters=args, player=self.ui))
                 result = r or "Done."
             elif name == "file_processor":
                 if not args.get("file_path") and self.ui.current_file:
                     args["file_path"] = self.ui.current_file
-                r = await loop.run_in_executor(
-                    None,
-                    lambda: file_processor(parameters=args, player=self.ui, speak=self.speak)
-                )
+                r = await self._run_blocking_tool(name, lambda: file_processor(parameters=args, player=self.ui, speak=self.speak))
                 result = r or "Done."
 
             elif name == "computer_control":
-                r = await loop.run_in_executor(None, lambda: computer_control(parameters=args, player=self.ui))
+                r = await self._run_blocking_tool(name, lambda: computer_control(parameters=args, player=self.ui))
                 result = r or "Done."
 
             elif name == "game_updater":
-                r = await loop.run_in_executor(None, lambda: game_updater(parameters=args, player=self.ui, speak=self.speak))
+                r = await self._run_blocking_tool(name, lambda: game_updater(parameters=args, player=self.ui, speak=self.speak))
                 result = r or "Done."
 
             elif name == "flight_finder":
-                r = await loop.run_in_executor(None, lambda: flight_finder(parameters=args, player=self.ui))
+                r = await self._run_blocking_tool(name, lambda: flight_finder(parameters=args, player=self.ui))
                 result = r or "Done."
 
             elif name == "aria_vision":
-                r = await loop.run_in_executor(None, lambda: aria_vision(parameters=args, player=self.ui))
+                r = await self._run_blocking_tool(name, lambda: aria_vision(parameters=args, player=self.ui))
                 result = r or "Done."
 
             elif name == "shutdown_jarvis":
@@ -745,7 +825,7 @@ class JarvisLive:
         if not self.ui.muted:
             self.ui.set_state("LISTENING")
 
-        print(f"[JARVIS] 📤 {name} → {str(result)[:80]}")
+        print(f"[JARVIS] рџ“¤ {name} в†’ {str(result)[:80]}")
         return types.FunctionResponse(
             id=fc.id, name=name,
             response={"result": result}
@@ -756,8 +836,19 @@ class JarvisLive:
             msg = await self.out_queue.get()
             await self.session.send_realtime_input(media=msg)
 
+    def _enqueue_mic_audio(self, msg: dict) -> None:
+        if not self.out_queue:
+            return
+        try:
+            self.out_queue.put_nowait(msg)
+        except asyncio.QueueFull:
+            with contextlib.suppress(asyncio.QueueEmpty):
+                self.out_queue.get_nowait()
+            with contextlib.suppress(asyncio.QueueFull):
+                self.out_queue.put_nowait(msg)
+
     async def _listen_audio(self):
-        print("[JARVIS] 🎤 Mic started")
+        print("[JARVIS] рџЋ¤ Mic started")
         loop = asyncio.get_event_loop()
 
         def callback(indata, frames, time_info, status):
@@ -766,7 +857,7 @@ class JarvisLive:
             if not jarvis_speaking and not self.ui.muted:
                 data = indata.tobytes()
                 loop.call_soon_threadsafe(
-                    self.out_queue.put_nowait,
+                    self._enqueue_mic_audio,
                     {"data": data, "mime_type": "audio/pcm"}
                 )
 
@@ -778,15 +869,15 @@ class JarvisLive:
                 blocksize=CHUNK_SIZE,
                 callback=callback,
             ):
-                print("[JARVIS] 🎤 Mic stream open")
+                print("[JARVIS] рџЋ¤ Mic stream open")
                 while True:
                     await asyncio.sleep(0.1)
         except Exception as e:
-            print(f"[JARVIS] ❌ Mic: {e}")
+            print(f"[JARVIS] вќЊ Mic: {e}")
             raise
 
     async def _receive_audio(self):
-        print("[JARVIS] 👂 Recv started")
+        print("[JARVIS] рџ‘‚ Recv started")
         out_buf, in_buf = [], []
 
         try:
@@ -809,6 +900,11 @@ class JarvisLive:
                         if sc.input_transcription and sc.input_transcription.text:
                             txt = _clean_transcript(sc.input_transcription.text)
                             if txt:
+                                if is_stop_phrase(txt) or is_stop_phrase(" ".join(in_buf + [txt])):
+                                    await self._interrupt_current_process("voice stop word")
+                                    in_buf = []
+                                    out_buf = []
+                                    continue
                                 in_buf.append(txt)
 
                         if sc.turn_complete:
@@ -826,21 +922,18 @@ class JarvisLive:
                             out_buf = []
 
                     if response.tool_call:
-                        fn_responses = []
-                        for fc in response.tool_call.function_calls:
-                            print(f"[JARVIS] 📞 {fc.name}")
-                            fr = await self._execute_tool(fc)
-                            fn_responses.append(fr)
-                        await self.session.send_tool_response(
-                            function_responses=fn_responses
+                        task = asyncio.create_task(
+                            self._handle_tool_calls(response.tool_call.function_calls)
                         )
+                        self._active_tool_tasks.add(task)
+                        task.add_done_callback(self._active_tool_tasks.discard)
         except Exception as e:
-            print(f"[JARVIS] ❌ Recv: {e}")
+            print(f"[JARVIS] вќЊ Recv: {e}")
             traceback.print_exc()
             raise
 
     async def _play_audio(self):
-        print("[JARVIS] 🔊 Play started")
+        print("[JARVIS] рџ”Љ Play started")
 
         stream = sd.RawOutputStream(
             samplerate=RECEIVE_SAMPLE_RATE,
@@ -869,7 +962,7 @@ class JarvisLive:
                 self.set_speaking(True)
                 await asyncio.to_thread(stream.write, chunk)
         except Exception as e:
-            print(f"[JARVIS] ❌ Play: {e}")
+            print(f"[JARVIS] вќЊ Play: {e}")
             raise
         finally:
             self.set_speaking(False)
@@ -884,7 +977,7 @@ class JarvisLive:
 
         while True:
             try:
-                print("[JARVIS] 🔌 Connecting...")
+                print("[JARVIS] рџ”Њ Connecting...")
                 self.ui.set_state("THINKING")
                 config = self._build_config()
 
@@ -898,7 +991,7 @@ class JarvisLive:
                     self.out_queue      = asyncio.Queue(maxsize=10)
                     self._turn_done_event = asyncio.Event()
 
-                    print("[JARVIS] ✅ Connected.")
+                    print("[JARVIS] вњ… Connected.")
                     self.ui.set_state("LISTENING")
                     self.ui.write_log("SYS: JARVIS online.")
 
@@ -908,11 +1001,11 @@ class JarvisLive:
                     tg.create_task(self._play_audio())
 
             except Exception as e:
-                print(f"[JARVIS] ⚠️ {e}")
+                print(f"[JARVIS] вљ пёЏ {e}")
                 traceback.print_exc()
             self.set_speaking(False)
             self.ui.set_state("THINKING")
-            print("[JARVIS] 🔄 Reconnecting in 3s...")
+            print("[JARVIS] рџ”„ Reconnecting in 3s...")
             await asyncio.sleep(3)
 
 def main():
@@ -924,7 +1017,7 @@ def main():
         try:
             asyncio.run(jarvis.run())
         except KeyboardInterrupt:
-            print("\n🔴 Shutting down...")
+            print("\nрџ”ґ Shutting down...")
 
     threading.Thread(target=runner, daemon=True).start()
     ui.root.mainloop()

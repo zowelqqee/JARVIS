@@ -634,7 +634,7 @@ class _BrowserSession:
         try:
             payload = {
                 "provider": str(provider or "").lower(),
-                "maxItems": max(1, min(int(max_items), 12)),
+                "maxItems": max(1, min(int(max_items), 30)),
                 "maxChars": max(200, min(int(max_chars), 4_000)),
             }
             blocks = await page.evaluate(
@@ -646,7 +646,7 @@ class _BrowserSession:
                     .trim();
 
                   const timeRe = /\\b\\d{1,2}:\\d{2}\\b/g;
-                  const priceRe = /(?:\\d[\\d\\s.,]{2,})(?:\\s?(?:₽|руб(?:\\.|лей)?|RUB|\\$|€|USD|EUR|AED|KZT))/gi;
+                  const priceRe = /(?:от\\s*)?\\d[\\d\\s., ]{2,}(?:\\s?(?:₽|руб(?:\\.|лей)?|RUB|\\$|€|USD|EUR|AED|KZT))?/gi;
                   const stopRe = /без пересад|пересад|stop|stops|direct|non-stop|nonstop/i;
                   const durationRe = /(\\b\\d+\\s*(?:ч|час|h)\\b.*\\b\\d+\\s*(?:м|min)\\b)|(\\b\\d+\\s*(?:h|min|ч|м)\\b)/i;
                   const baggageRe = /багаж|ручн(?:ая|ой)? клад|carry|baggage/i;

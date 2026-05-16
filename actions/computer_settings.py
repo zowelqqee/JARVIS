@@ -1,6 +1,8 @@
 #computer_settings.py
 import json
+import os
 import re
+import shutil
 import sys
 import time
 import subprocess
@@ -52,6 +54,19 @@ def _get_macos_wifi_interface() -> str:
         pass
     return "en0" 
 
+
+def _command_exists(command: str) -> bool:
+    return shutil.which(command) is not None
+
+
+def _run_first_available(commands: list[list[str]]) -> bool:
+    for command in commands:
+        if command and _command_exists(command[0]):
+            subprocess.Popen(command)
+            return True
+    return False
+
+
 def volume_up():
     if _OS == "Windows":
         for _ in range(5): pyautogui.press("volumeup")
@@ -100,8 +115,11 @@ def volume_set(value: int):
             return
         except Exception as e:
             print(f"[Settings] pycaw failed, using keypress fallback: {e}")
-            pyautogui.press("volumemute")
-            pyautogui.press("volumemute")
+            if not _PYAUTOGUI:
+                raise
+            pyautogui.press("volumedown", presses=50, interval=0.01)
+            pyautogui.press("volumeup", presses=max(0, min(50, round(value / 2))), interval=0.01)
+            return
     elif _OS == "Darwin":
         subprocess.run(["osascript", "-e", f"set volume output volume {value}"],
             capture_output=True)
@@ -111,23 +129,47 @@ def volume_set(value: int):
             capture_output=True)
         return
 
+
+def _linux_active_display() -> str | None:
+    try:
+        result = subprocess.run(["xrandr"], capture_output=True, text=True, timeout=5)
+        for line in result.stdout.splitlines():
+            if " connected" in line:
+                return line.split()[0]
+    except Exception:
+        pass
+    return None
+
+
+def _linux_current_xrandr_brightness() -> float:
+    try:
+        result = subprocess.run(["xrandr", "--verbose"], capture_output=True, text=True, timeout=5)
+        match = re.search(r"Brightness:\s*([0-9.]+)", result.stdout)
+        if match:
+            return float(match.group(1))
+    except Exception:
+        pass
+    return 1.0
+
+
+def _linux_set_xrandr_brightness(delta: float) -> bool:
+    display = _linux_active_display()
+    if not display:
+        return False
+    value = max(0.1, min(1.0, _linux_current_xrandr_brightness() + delta))
+    subprocess.run(["xrandr", "--output", display, "--brightness", f"{value:.2f}"], capture_output=True)
+    return True
+
 def brightness_up():
     if _OS == "Darwin":
         subprocess.run(["osascript", "-e",
             'tell application "System Events" to key code 144'],
             capture_output=True)
     elif _OS == "Linux":
-        if subprocess.run(["which", "brightnessctl"],
-                capture_output=True).returncode == 0:
+        if _command_exists("brightnessctl"):
             subprocess.run(["brightnessctl", "set", "+10%"], capture_output=True)
         else:
-            subprocess.run(
-                'xrandr --output $(xrandr | grep " connected" | head -1 | cut -d " " -f1)'
-                ' --brightness $(python3 -c "import subprocess; '
-                'b=float(subprocess.check_output([\"xrandr\",\"--verbose\"]).decode()'
-                '.split(\"Brightness:\")[1].split()[0]); print(min(1.0,b+0.1))")',
-                shell=True, capture_output=True
-            )
+            _linux_set_xrandr_brightness(0.1)
     else:
         try:
             subprocess.run(
@@ -146,17 +188,10 @@ def brightness_down():
             'tell application "System Events" to key code 145'],
             capture_output=True)
     elif _OS == "Linux":
-        if subprocess.run(["which", "brightnessctl"],
-                capture_output=True).returncode == 0:
+        if _command_exists("brightnessctl"):
             subprocess.run(["brightnessctl", "set", "10%-"], capture_output=True)
         else:
-            subprocess.run(
-                'xrandr --output $(xrandr | grep " connected" | head -1 | cut -d " " -f1)'
-                ' --brightness $(python3 -c "import subprocess; '
-                'b=float(subprocess.check_output([\"xrandr\",\"--verbose\"]).decode()'
-                '.split(\"Brightness:\")[1].split()[0]); print(max(0.1,b-0.1))")',
-                shell=True, capture_output=True
-            )
+            _linux_set_xrandr_brightness(-0.1)
     else:
         try:
             subprocess.run(
@@ -230,14 +265,11 @@ def show_desktop():
 
 def open_task_manager():
     if _OS == "Windows":
-        pyautogui.hotkey("ctrl", "shift", "esc")
+        subprocess.Popen(["taskmgr.exe"])
     elif _OS == "Darwin":
         subprocess.Popen(["open", "-a", "Activity Monitor"])
     else:
-        for cmd in [["gnome-system-monitor"], ["xfce4-taskmanager"], ["htop"]]:
-            if subprocess.run(["which", cmd[0]], capture_output=True).returncode == 0:
-                subprocess.Popen(cmd)
-                break
+        _run_first_available([["gnome-system-monitor"], ["xfce4-taskmanager"], ["htop"]])
 
 
 def focus_search():
@@ -363,7 +395,7 @@ def take_screenshot():
         pyautogui.hotkey("command", "shift", "3")
     else:
         for cmd in [["scrot"], ["gnome-screenshot"], ["import", "-window", "root", "screenshot.png"]]:
-            if subprocess.run(["which", cmd[0]], capture_output=True).returncode == 0:
+            if _command_exists(cmd[0]):
                 subprocess.Popen(cmd)
                 return
         pyautogui.hotkey("ctrl", "print_screen")
@@ -379,32 +411,29 @@ def lock_screen():
             ["xdg-screensaver", "lock"],
             ["loginctl", "lock-session"],
         ]:
-            if subprocess.run(["which", cmd[0]], capture_output=True).returncode == 0:
+            if _command_exists(cmd[0]):
                 subprocess.run(cmd, capture_output=True)
                 return
 
 def open_system_settings():
     if _OS == "Windows":
-        pyautogui.hotkey("win", "i")
+        os.startfile("ms-settings:")
     elif _OS == "Darwin":
-        subprocess.Popen(["open", "-a", "System Preferences"])
+        result = subprocess.run(["open", "-a", "System Settings"], capture_output=True)
+        if result.returncode != 0:
+            subprocess.Popen(["open", "-a", "System Preferences"])
     else:
-        for cmd in [["gnome-control-center"], ["xfce4-settings-manager"], ["kcmshell5"]]:
-            if subprocess.run(["which", cmd[0]], capture_output=True).returncode == 0:
-                subprocess.Popen(cmd)
-                return
+        if not _run_first_available([["gnome-control-center"], ["systemsettings"], ["xfce4-settings-manager"], ["kcmshell5"]]):
+            raise RuntimeError("No supported Linux settings app found.")
 
 def open_file_explorer():
     if _OS == "Windows":
-        pyautogui.hotkey("win", "e")
+        subprocess.Popen(["explorer.exe", str(Path.home())])
     elif _OS == "Darwin":
         subprocess.Popen(["open", str(Path.home())])
     else:
-        for cmd in [["nautilus"], ["thunar"], ["dolphin"], ["nemo"]]:
-            if subprocess.run(["which", cmd[0]], capture_output=True).returncode == 0:
-                subprocess.Popen(cmd)
-                return
-        subprocess.Popen(["xdg-open", str(Path.home())])
+        if not _run_first_available([["xdg-open", str(Path.home())], ["nautilus"], ["thunar"], ["dolphin"], ["nemo"]]):
+            raise RuntimeError("No supported Linux file manager found.")
 
 def sleep_display():
     if _OS == "Windows":
@@ -568,8 +597,101 @@ ACTION_MAP: dict[str, callable] = {
 _DANGEROUS_ACTIONS = {"restart", "shutdown"}
 
 
+_ACTION_ALIASES: dict[str, str] = {
+    "volume": "volume_set",
+    "set_volume": "volume_set",
+    "sound": "volume_set",
+    "sound_on": "unmute",
+    "turn_on_sound": "unmute",
+    "enable_sound": "unmute",
+    "unmute_sound": "unmute",
+    "sound_off": "mute",
+    "turn_off_sound": "mute",
+    "disable_sound": "mute",
+    "settings": "open_settings",
+    "system_settings": "open_settings",
+    "open_settings": "open_settings",
+    "настройки": "open_settings",
+    "системные_настройки": "open_settings",
+    "параметры": "open_settings",
+    "громче": "volume_up",
+    "тише": "volume_down",
+    "звук_громче": "volume_up",
+    "звук_тише": "volume_down",
+    "выключи_звук": "mute",
+    "отключи_звук": "mute",
+    "ярче": "brightness_up",
+    "темнее": "brightness_down",
+    "яркость_выше": "brightness_up",
+    "яркость_ниже": "brightness_down",
+    "темная_тема": "dark_mode",
+    "тёмная_тема": "dark_mode",
+    "dark_theme": "dark_mode",
+    "wifi": "toggle_wifi",
+    "wi_fi": "toggle_wifi",
+    "вайфай": "toggle_wifi",
+}
+
+
+def _normalize_action_name(action: str) -> str:
+    normalized = re.sub(r"\s+", "_", (action or "").strip().lower().replace("-", "_"))
+    return _ACTION_ALIASES.get(normalized, normalized)
+
+
+def _detect_action_locally(description: str) -> dict | None:
+    text = (description or "").strip().lower()
+    if not text:
+        return None
+
+    volume_match = re.search(r"(?:volume|громк\w*|звук\w*)\D{0,20}(\d{1,3})\s*%?", text)
+    if volume_match and any(word in text for word in ("volume", "гром", "звук")):
+        return {"action": "volume_set", "value": max(0, min(100, int(volume_match.group(1))))}
+
+    rules: list[tuple[tuple[str, ...], str]] = [
+        (("turn on sound", "enable sound", "sound on", "unmute sound", "unmute"), "unmute"),
+        (("turn off sound", "disable sound", "sound off"), "mute"),
+        (("open settings", "system settings", "settings app", "открой настройки", "системные настройки", "параметры системы"), "open_settings"),
+        (("volume up", "increase volume", "turn up volume", "громче", "прибавь звук", "увеличь громкость"), "volume_up"),
+        (("volume down", "decrease volume", "turn down volume", "тише", "убавь звук", "уменьши громкость"), "volume_down"),
+        (("mute", "выключи звук", "отключи звук", "без звука"), "mute"),
+        (("brightness up", "increase brightness", "ярче", "увеличь яркость", "прибавь яркость"), "brightness_up"),
+        (("brightness down", "decrease brightness", "темнее", "убавь яркость", "уменьши яркость"), "brightness_down"),
+        (("dark mode", "dark theme", "light mode", "темная тема", "тёмная тема", "светлая тема"), "dark_mode"),
+        (("wifi", "wi-fi", "вайфай", "вай фай"), "toggle_wifi"),
+        (("task manager", "activity monitor", "диспетчер задач", "мониторинг системы"), "task_manager"),
+        (("file explorer", "finder", "проводник", "файловый менеджер"), "file_explorer"),
+        (("screenshot", "скриншот", "снимок экрана"), "screenshot"),
+        (("lock screen", "заблокируй экран", "блокировка экрана"), "lock_screen"),
+        (("show desktop", "покажи рабочий стол"), "show_desktop"),
+        (("close window", "закрой окно"), "close_window"),
+        (("close tab", "закрой вкладку"), "close_tab"),
+        (("new tab", "новая вкладка", "открой вкладку"), "new_tab"),
+        (("refresh", "reload", "обнови страницу", "перезагрузи страницу"), "refresh_page"),
+        (("fullscreen", "full screen", "полный экран"), "full_screen"),
+        (("minimize", "сверни окно"), "minimize"),
+        (("maximize", "разверни окно"), "maximize"),
+    ]
+
+    for needles, action in rules:
+        if any(needle in text for needle in needles):
+            return {"action": action, "value": None}
+
+    return None
+
+
+def _action_requires_pyautogui(action: str) -> bool:
+    if action in {"open_settings", "task_manager", "file_explorer", "dark_mode", "toggle_wifi", "restart", "shutdown", "volume_set"}:
+        return False
+    if _OS != "Windows" and action in {"volume_up", "volume_down", "mute", "toggle_mute", "brightness_up", "brightness_down", "sleep_display", "screen_off"}:
+        return False
+    return True
+
+
 
 def _detect_action(description: str) -> dict:
+    local = _detect_action_locally(description)
+    if local:
+        return local
 
     import google.generativeai as genai
     genai.configure(api_key=_get_api_key())
@@ -611,9 +733,6 @@ def computer_settings(
     player=None,
     session_memory=None,
 ) -> str:
-    if not _PYAUTOGUI:
-        return "pyautogui is not installed. Run: pip install pyautogui"
-
     params      = parameters or {}
     raw_action  = params.get("action", "").strip()
     description = params.get("description", "").strip()
@@ -625,10 +744,23 @@ def computer_settings(
         if value is None:
             value = detected.get("value")
 
-    action = raw_action.lower().strip().replace(" ", "_").replace("-", "_")
+    action = _normalize_action_name(raw_action)
+    if action == "volume_set" and value in (None, ""):
+        local = _detect_action_locally(raw_action)
+        if local and local.get("action") == "volume_set":
+            value = local.get("value")
+    if action not in ACTION_MAP and action not in {"volume_set", "type_text", "write_on_screen", "type", "write", "press_key", "reload_n", "refresh_n", "reload_page_n"}:
+        local = _detect_action_locally(raw_action)
+        if local:
+            action = local.get("action", action)
+            if value is None:
+                value = local.get("value")
 
     if not action:
         return "No action could be determined."
+
+    if not _PYAUTOGUI and _action_requires_pyautogui(action):
+        return f"pyautogui is required for '{action}'. Run: pip install pyautogui"
 
     print(f"[Settings] Action: {action}  Value: {value}  OS: {_OS}")
     if player:

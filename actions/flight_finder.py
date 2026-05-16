@@ -9,6 +9,7 @@ from pathlib import Path
 from urllib.parse import urlencode
 
 from config import is_linux, is_mac, is_windows
+from core.interrupts import is_interrupted
 
 
 def _get_base_dir() -> Path:
@@ -51,6 +52,24 @@ _DURATION_RE = re.compile(
     r"(\b\d+\s*(?:ч|час|h)\b.*\b\d+\s*(?:м|min)\b)|(\b\d+\s*(?:h|min|ч|м)\b)",
     re.IGNORECASE,
 )
+_NO_RESULTS_RE = re.compile(
+    r"нет\s+(?:билетов|рейсов|вариантов)|не\s+нашли|ничего\s+не\s+найдено|"
+    r"no\s+(?:flights|tickets|results)|nothing\s+found",
+    re.IGNORECASE,
+)
+_LOADING_RE = re.compile(
+    r"ищем|загруз|подожд|loading|searching|please\s+wait",
+    re.IGNORECASE,
+)
+_AVIASALES_MORE_TEXT = "Показать ещё билеты"
+_AVIASALES_SECTION_END_RE = re.compile(
+    r"^(?:показать ещё билеты|авиакомпании|направления|города|аэропорты|авиасейлс в мире|помощь и советы)$",
+    re.IGNORECASE,
+)
+_AVIASALES_LABEL_RE = re.compile(
+    r"(?:самый|оптимальн|быстр|деш[её]в|удобн|лучш)",
+    re.IGNORECASE,
+)
 
 _GOOGLE_CABIN_CODE: dict[str, str] = {
     "economy": "1",
@@ -60,12 +79,12 @@ _GOOGLE_CABIN_CODE: dict[str, str] = {
 }
 
 _SOURCE_ALIASES = {
-    "auto": "auto",
+    "auto": "aviasales",
     "aviasales": "aviasales",
     "aviasales.ru": "aviasales",
-    "google": "google_flights",
-    "google flights": "google_flights",
-    "google_flights": "google_flights",
+    "google": "aviasales",
+    "google flights": "aviasales",
+    "google_flights": "aviasales",
 }
 
 _SOURCE_LABELS = {
@@ -112,6 +131,22 @@ _LOCATION_ALIASES = {
     "тбилиси": "TBS",
     "yerevan": "EVN",
     "ереван": "EVN",
+    "tenerife": "TFN",
+    "tenerife island": "TFN",
+    "tenerife north": "TFN",
+    "tenerife norte": "TFN",
+    "tenerife north airport": "TFN",
+    "tenerife south": "TFS",
+    "tenerife sur": "TFS",
+    "tenerife south airport": "TFS",
+    "тенерифе": "TFN",
+    "остров тенерифе": "TFN",
+    "тенерифе северный": "TFN",
+    "тенерифе север": "TFN",
+    "аэропорт тенерифе северный": "TFN",
+    "тенерифе южный": "TFS",
+    "тенерифе юг": "TFS",
+    "аэропорт тенерифе южный": "TFS",
 }
 
 
@@ -170,7 +205,7 @@ def _parse_date(raw: str) -> str:
 
 def _normalize_source(raw: str) -> str:
     key = (raw or "auto").strip().lower()
-    return _SOURCE_ALIASES.get(key, "auto")
+    return _SOURCE_ALIASES.get(key, "aviasales")
 
 
 def _int_param(
@@ -304,6 +339,8 @@ def _looks_like_results(raw_text: str, source: str) -> bool:
         return True
     if time_hits >= 2 and _STOP_RE.search(raw_text) and _DURATION_RE.search(raw_text):
         return True
+    if source == "aviasales":
+        return False
 
     keyword_groups = {
         "aviasales": (
@@ -345,10 +382,121 @@ def _blocks_look_useful(blocks: list[str]) -> bool:
         return False
     joined = "\n".join(blocks)
     return (
-        len(blocks) >= 2
-        or (len(_TIME_RE.findall(joined)) >= 2 and len(_PRICE_RE.findall(joined)) >= 1)
+        (len(_TIME_RE.findall(joined)) >= 2 and len(_PRICE_RE.findall(joined)) >= 1)
         or (_STOP_RE.search(joined) is not None and _DURATION_RE.search(joined) is not None)
     )
+
+
+def _normalize_aviasales_text(raw_text: str) -> list[str]:
+    text = (raw_text or "").replace("\u2060", "")
+    text = re.sub(r"[\u00a0\u202f\u2009\u200a\u200b]+", " ", text)
+    return [
+        re.sub(r"\s+", " ", line).strip()
+        for line in text.splitlines()
+        if re.sub(r"\s+", " ", line).strip()
+    ]
+
+
+def _line_price(line: str) -> str | None:
+    match = re.search(r"\d[\d\s.,]{2,}\s*(?:₽|руб\.?|RUB)", line, re.IGNORECASE)
+    if not match:
+        return None
+    return re.sub(r"\s+", " ", match.group()).strip()
+
+
+def _line_is_baggage_price(line: str) -> bool:
+    return bool(re.search(r"с\s+багажом|baggage", line, re.IGNORECASE))
+
+
+def _line_is_ticket_price_start(lines: list[str], index: int) -> bool:
+    line = lines[index]
+    if not _line_price(line) or _line_is_baggage_price(line):
+        return False
+    window = "\n".join(lines[index + 1:index + 16])
+    return bool(_TIME_RE.search(window) and re.search(r"\b[A-Z]{3}\b", window) and "в пути" in window.lower())
+
+
+def _parse_stops(text: str) -> int:
+    if re.search(r"без\s+пересад|direct|non-stop|nonstop", text, re.IGNORECASE):
+        return 0
+    match = re.search(r"(\d+)\s+пересад", text, re.IGNORECASE)
+    return int(match.group(1)) if match else 0
+
+
+def _parse_duration(text: str) -> str:
+    match = re.search(r"((?:\d+\s*д\s*)?(?:\d+\s*ч\s*)?(?:\d+\s*м\s*)?)\s*в пути", text, re.IGNORECASE)
+    if not match:
+        return ""
+    return re.sub(r"\s+", " ", match.group(1)).strip()
+
+
+def _parse_aviasales_text(raw_text: str) -> list[dict]:
+    lines = _normalize_aviasales_text(raw_text)
+    if not lines:
+        return []
+
+    start = 0
+    for index, line in enumerate(lines):
+        if line.lower() == "сохранить поиск":
+            start = index + 1
+            break
+
+    end = len(lines)
+    for index in range(start, len(lines)):
+        if _AVIASALES_SECTION_END_RE.match(lines[index]):
+            end = index
+            break
+
+    section = lines[start:end]
+    starts = [
+        index for index in range(len(section))
+        if _line_is_ticket_price_start(section, index)
+    ]
+    flights: list[dict] = []
+
+    for position, price_index in enumerate(starts):
+        next_index = starts[position + 1] if position + 1 < len(starts) else len(section)
+        block = section[price_index:next_index]
+        block_text = "\n".join(block)
+
+        times = _TIME_RE.findall(block_text)
+        if len(times) < 2:
+            continue
+
+        label = ""
+        for offset in (1, 2):
+            candidate_index = price_index - offset
+            if candidate_index >= 0 and _AVIASALES_LABEL_RE.search(section[candidate_index]):
+                label = section[candidate_index]
+                break
+
+        price = _line_price(section[price_index]) or ""
+        baggage = "; ".join(
+            line for line in block
+            if re.search(r"багаж|ручная кладь|небольшая сумка|без ручной", line, re.IGNORECASE)
+            and not _line_is_baggage_price(line)
+        )
+
+        flights.append({
+            "airline": label or "Unknown airline",
+            "departure": times[0],
+            "arrival": times[-1],
+            "duration": _parse_duration(block_text),
+            "stops": _parse_stops(block_text),
+            "price": price,
+            "currency": "RUB" if "₽" in price or "руб" in price.lower() else "",
+            "baggage": baggage,
+        })
+
+    return _sanitize_flights(flights)
+
+
+def _looks_like_no_results(raw_text: str) -> bool:
+    return bool(raw_text and _NO_RESULTS_RE.search(raw_text))
+
+
+def _looks_like_loading(raw_text: str) -> bool:
+    return bool(raw_text and _LOADING_RE.search(raw_text))
 
 
 def _compose_result_text(page_text: str, blocks: list[str], source: str) -> str:
@@ -356,12 +504,13 @@ def _compose_result_text(page_text: str, blocks: list[str], source: str) -> str:
 
     if blocks:
         sections.append(f"{_SOURCE_LABELS.get(source, source)} extracted flight cards:")
-        for index, block in enumerate(blocks[:8], 1):
-            sections.append(f"[Card {index}]\n{block[:1800]}")
+        for index, block in enumerate(blocks[:20], 1):
+            sections.append(f"[Card {index}]\n{block[:3000]}")
 
     if page_text:
         if blocks:
-            sections.append(f"Page text snapshot:\n{page_text[:4000]}")
+            snapshot_limit = 12_000 if source == "aviasales" else 4_000
+            sections.append(f"Page text snapshot:\n{page_text[:snapshot_limit]}")
         else:
             sections.append(page_text[:12000])
 
@@ -379,9 +528,14 @@ def _search_flights_browser(url: str, source: str) -> tuple[str, str]:
     best_blocks: list[str] = []
     best_combined_text = ""
     best_url = url
+    clicked_more_count = 0
 
-    for attempt in range(1, 9):
-        time.sleep(5 if attempt == 1 else 2.5)
+    for attempt in range(1, 15):
+        if is_interrupted():
+            print("[FlightFinder] Stop requested; aborting browser search.")
+            break
+
+        time.sleep(6 if attempt == 1 else 3)
 
         current_url = browser_control({"action": "get_url"})
         if isinstance(current_url, str) and current_url and not current_url.startswith("Could"):
@@ -390,8 +544,8 @@ def _search_flights_browser(url: str, source: str) -> tuple[str, str]:
         block_payload = browser_control({
             "action": "extract_flight_blocks",
             "provider": source,
-            "max_items": 8,
-            "max_chars": 1800,
+            "max_items": 24,
+            "max_chars": 3000,
         })
         blocks = _decode_browser_blocks(block_payload)
         if sum(len(block) for block in blocks) > sum(len(block) for block in best_blocks):
@@ -407,9 +561,36 @@ def _search_flights_browser(url: str, source: str) -> tuple[str, str]:
             best_combined_text = combined
 
         if _blocks_look_useful(best_blocks) or _looks_like_results(best_combined_text, source):
+            if source != "aviasales":
+                break
+            parsed_count = len(_parse_aviasales_text(best_combined_text))
+            if clicked_more_count < 3 and _AVIASALES_MORE_TEXT.lower() in best_combined_text.lower():
+                clicked = browser_control({"action": "smart_click", "description": _AVIASALES_MORE_TEXT})
+                if isinstance(clicked, str) and clicked.startswith("Clicked"):
+                    clicked_more_count += 1
+                    print(f"[FlightFinder] Loaded more Aviasales tickets ({clicked_more_count}).")
+                    time.sleep(3)
+                    continue
+            if parsed_count >= 8 or attempt >= 6:
+                break
+
+        if _looks_like_no_results(best_combined_text):
+            print("[FlightFinder] Aviasales reports no visible results.")
             break
 
-        if attempt in (2, 4, 6, 7):
+        if source == "aviasales" and attempt in (2, 5):
+            for label in ("Найти", "Искать", "Показать билеты", "Search", "Find tickets"):
+                clicked = browser_control({"action": "smart_click", "description": label})
+                if isinstance(clicked, str) and clicked.startswith("Clicked"):
+                    print(f"[FlightFinder] Triggered Aviasales search button: {label}")
+                    time.sleep(4)
+                    break
+
+        if source == "aviasales" and attempt in (3, 8) and _looks_like_loading(best_combined_text):
+            browser_control({"action": "reload"})
+            time.sleep(4)
+
+        if attempt in (2, 4, 6, 8, 10, 12):
             browser_control({"action": "scroll", "direction": "down", "amount": 1200})
 
     return best_combined_text.strip(), best_url
@@ -422,6 +603,12 @@ def _parse_flights_with_gemini(
     date: str,
     source: str,
 ) -> list[dict]:
+    if source == "aviasales":
+        parsed = _parse_aviasales_text(raw_text)
+        if parsed:
+            print(f"[FlightFinder] Parsed {len(parsed)} Aviasales tickets from page text.")
+            return parsed
+
     prompt = (
         "You extract flight options from raw flight-search page text. "
         "Return ONLY valid JSON. No markdown. No explanation.\n\n"
@@ -451,7 +638,7 @@ def _parse_flights_with_gemini(
         )
         text = re.sub(r"```(?:json)?", "", response.text).strip().rstrip("`").strip()
         flights = json.loads(text)
-        return flights if isinstance(flights, list) else []
+        return _sanitize_flights(flights) if isinstance(flights, list) else []
     except Exception as e:
         print(f"[FlightFinder] ⚠️ Gemini parse failed: {e}")
         return []
@@ -470,6 +657,33 @@ def _price_value(flight: dict) -> int | None:
         return int(digits)
     except ValueError:
         return None
+
+
+def _sanitize_flights(flights: list[dict]) -> list[dict]:
+    cleaned: list[dict] = []
+    for raw in flights:
+        if not isinstance(raw, dict):
+            continue
+
+        flight = dict(raw)
+        price = _price_value(flight)
+        if price is not None and price < 100:
+            flight["price"] = ""
+            price = None
+
+        airline = str(flight.get("airline") or "").strip()
+        flight["airline"] = airline or "Unknown airline"
+
+        departure = str(flight.get("departure") or "").strip()
+        arrival = str(flight.get("arrival") or "").strip()
+        has_times = bool(_TIME_RE.fullmatch(departure) or _TIME_RE.fullmatch(arrival))
+
+        if price is None and not has_times:
+            continue
+
+        cleaned.append(flight)
+
+    return cleaned
 
 
 def _sort_flights_by_price(flights: list[dict]) -> list[dict]:
@@ -496,13 +710,17 @@ def _format_spoken(
     destination: str,
     date: str,
     source: str,
+    page_url: str | None = None,
 ) -> str:
     if not flights:
-        return (
+        message = (
             f"I opened {_SOURCE_LABELS.get(source, source)} for flights from "
             f"{origin} to {destination} on {date}, sir, but could not extract "
             "reliable options from the page."
         )
+        if page_url:
+            message += f" The search page is open here: {page_url}"
+        return message
 
     ordered_flights = _sort_flights_by_price(flights)
     cheapest = next((flight for flight in ordered_flights if _price_value(flight) is not None), None)
@@ -623,7 +841,7 @@ def _build_search_attempts(
     origin_code = None
     destination_code = None
 
-    if source in {"auto", "aviasales"}:
+    if source == "aviasales":
         origin_code = _resolve_iata_code(origin, "origin")
         destination_code = _resolve_iata_code(destination, "destination")
 
@@ -646,19 +864,6 @@ def _build_search_attempts(
                 f"[FlightFinder] ⚠️ Could not resolve IATA codes "
                 f"({origin!r} -> {origin_code}, {destination!r} -> {destination_code})"
             )
-
-    if source in {"auto", "aviasales", "google_flights"}:
-        attempts.append({
-            "source": "google_flights",
-            "url": _build_google_flights_url(
-                origin,
-                destination,
-                date,
-                return_date,
-                adults,
-                cabin,
-            ),
-        })
 
     return attempts, origin_code, destination_code
 
@@ -723,6 +928,9 @@ def flight_finder(parameters: dict, player=None, speak=None) -> str:
 
     try:
         for attempt in attempts:
+            if is_interrupted():
+                return "Flight search cancelled."
+
             source_name = attempt["source"]
             raw_text, page_url = _search_flights_browser(attempt["url"], source_name)
 
@@ -751,7 +959,7 @@ def flight_finder(parameters: dict, player=None, speak=None) -> str:
         if not last_raw_text:
             return "Could not retrieve flight data, sir. The page may not have loaded."
 
-        spoken = _format_spoken(flights, origin, destination, date, last_source)
+        spoken = _format_spoken(flights, origin, destination, date, last_source, last_page_url)
 
         if speak:
             speak(spoken)

@@ -3,6 +3,7 @@ from urllib.parse import parse_qs, urlparse
 from actions.flight_finder import (
     _blocks_look_useful,
     _build_aviasales_url,
+    _build_search_attempts,
     _compose_result_text,
     _build_google_flights_url,
     _decode_browser_blocks,
@@ -10,7 +11,12 @@ from actions.flight_finder import (
     _looks_like_results,
     _normalize_location_key,
     _normalize_source,
+    _looks_like_loading,
+    _looks_like_no_results,
+    _parse_aviasales_text,
     _price_value,
+    _resolve_iata_code,
+    _sanitize_flights,
     _sort_flights_by_price,
     _format_spoken,
 )
@@ -74,13 +80,38 @@ def test_extract_explicit_iata_from_plain_code_and_embedded_text():
 
 def test_normalize_source_aliases():
     assert _normalize_source("aviasales.ru") == "aviasales"
-    assert _normalize_source("google") == "google_flights"
-    assert _normalize_source("something-else") == "auto"
+    assert _normalize_source("google") == "aviasales"
+    assert _normalize_source("something-else") == "aviasales"
 
 
 def test_normalize_location_key_preserves_lookup_shape():
     assert _normalize_location_key("Санкт-Петербург") == "санкт-петербург"
     assert _normalize_location_key("Saint   Petersburg") == "saint petersburg"
+
+
+def test_tenerife_defaults_to_north_unless_south_is_explicit():
+    assert _resolve_iata_code("Тенерифе", "destination") == "TFN"
+    assert _resolve_iata_code("Tenerife", "destination") == "TFN"
+    assert _resolve_iata_code("Тенерифе южный", "destination") == "TFS"
+
+
+def test_search_attempts_only_use_aviasales():
+    attempts, origin_code, destination_code = _build_search_attempts(
+        "aviasales",
+        "LED",
+        "Тенерифе",
+        "2026-06-19",
+        None,
+        1,
+        0,
+        0,
+        "economy",
+    )
+
+    assert origin_code == "LED"
+    assert destination_code == "TFN"
+    assert [attempt["source"] for attempt in attempts] == ["aviasales"]
+    assert attempts[0]["url"] == "https://www.aviasales.ru/search/LED1906TFN1"
 
 
 def test_decode_browser_blocks_and_compose_result_text():
@@ -102,10 +133,104 @@ def test_result_heuristics_detect_flight_card_like_text():
     assert _looks_like_results(block * 10, "aviasales") is True
 
 
+def test_result_heuristics_ignore_aviasales_calendar_grid():
+    grid = ("22-29 Jun\nFind\n23-30 Jun\nFind\n24 Jun - 1 Jul\nFind\n" * 100)
+
+    assert _blocks_look_useful([grid]) is False
+    assert _looks_like_results(grid, "aviasales") is False
+
+
+def test_aviasales_status_heuristics_detect_loading_and_no_results():
+    assert _looks_like_loading("Ищем билеты, пожалуйста подождите") is True
+    assert _looks_like_no_results("Мы не нашли билетов по этому направлению") is True
+
+
 def test_price_value_handles_human_formatted_prices():
     assert _price_value({"price": "10 561"}) == 10561
     assert _price_value({"price": "1,828"}) == 1828
     assert _price_value({"price": "price unavailable"}) is None
+
+
+def test_sanitize_flights_drops_bad_price_and_fills_airline():
+    flights = _sanitize_flights([
+        {"airline": "", "departure": "--:--", "arrival": "--:--", "price": "9"},
+        {"airline": "", "departure": "10:35", "arrival": "15:10", "price": "64 753", "currency": "RUB"},
+    ])
+
+    assert len(flights) == 1
+    assert flights[0]["airline"] == "Unknown airline"
+    assert flights[0]["price"] == "64 753"
+
+
+def test_parse_aviasales_text_extracts_visible_ticket_list():
+    raw = """
+    Цены на соседние даты
+    19 июл
+    36 263 ₽
+    20 июл
+    30 441 ₽
+    Сохранить поиск
+    Самый быстрый
+    41 937 ₽
+    Оптимальный
+    Багаж 30 кг
+    Ручная кладь 8 кг
+    01:40
+    Санкт-Петербург
+    LED
+    9 ч 45 м в пути, 1 пересадка
+    IST
+    MAD
+    10:25
+    Мадрид
+    Самый дешёвый
+    30 441 ₽
+    Багаж 20 кг
+    Ручная кладь 8 кг
+    15:00
+    Санкт-Петербург
+    LED
+    1 д 2 ч в пути, 1 пересадка
+    SAW
+    MAD
+    16:00
+    Мадрид
+    30 906 ₽
+    Багаж 20 кг
+    Ручная кладь
+    15:00
+    Санкт-Петербург
+    LED
+    23 ч 30 м в пути, 1 пересадка
+    SAW
+    MAD
+    13:30
+    Мадрид
+    32 816 ₽
+    46 722 ₽ с багажом
+    Без ручной клади
+    21:50
+    Санкт-Петербург
+    LED
+    1 д 12 ч 20 м в пути, 3 пересадки
+    SVO
+    EVN
+    MXP
+    MAD
+    09:10
+    Мадрид
+    Показать ещё билеты
+    Авиакомпании
+    """
+
+    flights = _parse_aviasales_text(raw)
+
+    assert [flight["price"] for flight in flights] == ["41 937 ₽", "30 441 ₽", "30 906 ₽", "32 816 ₽"]
+    assert flights[0]["duration"] == "9 ч 45 м"
+    assert flights[1]["stops"] == 1
+    assert flights[3]["stops"] == 3
+    assert flights[3]["departure"] == "21:50"
+    assert flights[3]["arrival"] == "09:10"
 
 
 def test_sort_flights_by_price_places_cheapest_first():
@@ -153,3 +278,17 @@ def test_format_spoken_leads_with_cheapest_parsed_flight():
         "is Transfer Air at 10 561 RUB"
     )
     assert "Option 1: Transfer Air" in spoken
+
+
+def test_format_spoken_no_flights_keeps_open_page_url():
+    spoken = _format_spoken(
+        [],
+        "Петербург",
+        "Мадрид",
+        "2026-08-05",
+        "aviasales",
+        "https://www.aviasales.ru/search/LED0508MAD12081",
+    )
+
+    assert "could not extract reliable options" in spoken
+    assert "https://www.aviasales.ru/search/LED0508MAD12081" in spoken
