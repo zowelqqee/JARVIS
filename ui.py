@@ -1053,6 +1053,7 @@ class MainWindow(QMainWindow):
     _log_sig   = pyqtSignal(str)
     _state_sig = pyqtSignal(str)
     _camera_sig = pyqtSignal(bool)
+    _camera_sync_sig = pyqtSignal(bool, object)
 
     def __init__(self, face_path: str):
         super().__init__()
@@ -1112,6 +1113,7 @@ class MainWindow(QMainWindow):
         self._log_sig.connect(self._log.append_log)
         self._state_sig.connect(self._apply_state)
         self._camera_sig.connect(self._set_camera_preview)
+        self._camera_sync_sig.connect(self._set_camera_preview_sync)
 
         self._camera_tmr = QTimer(self)
         self._camera_tmr.timeout.connect(self._camera_tick)
@@ -1158,6 +1160,13 @@ class MainWindow(QMainWindow):
             self._start_camera_preview()
         else:
             self._stop_camera_preview()
+
+    def _set_camera_preview_sync(self, enabled: bool, done: object):
+        try:
+            self._set_camera_preview(enabled)
+        finally:
+            if done is not None and hasattr(done, "set"):
+                done.set()
 
     def _start_camera_preview(self):
         try:
@@ -1208,8 +1217,13 @@ class MainWindow(QMainWindow):
         image = QImage(rgb.data, w, h, channels * w, QImage.Format.Format_RGB888).copy()
         self.hud.set_camera_frame(QPixmap.fromImage(image))
 
-    def show_camera_preview(self, enabled: bool = True):
-        self._camera_sig.emit(bool(enabled))
+    def show_camera_preview(self, enabled: bool = True, wait: bool = False, timeout: float = 2.0):
+        if not wait:
+            self._camera_sig.emit(bool(enabled))
+            return
+        done = threading.Event()
+        self._camera_sync_sig.emit(bool(enabled), done)
+        done.wait(timeout=timeout)
 
     def closeEvent(self, event):
         self._stop_camera_preview()
@@ -1647,8 +1661,13 @@ class JarvisUI:
     def write_log(self, text: str):
         self._win._log_sig.emit(text)
 
-    def show_camera_preview(self, enabled: bool = True):
-        self._win._camera_sig.emit(bool(enabled))
+    def show_camera_preview(self, enabled: bool = True, wait: bool = False, timeout: float = 2.0):
+        if not wait:
+            self._win._camera_sig.emit(bool(enabled))
+            return
+        done = threading.Event()
+        self._win._camera_sync_sig.emit(bool(enabled), done)
+        done.wait(timeout=timeout)
 
     def wait_for_api_key(self):
         while not self._win._ready:

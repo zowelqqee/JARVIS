@@ -82,7 +82,8 @@ _IMG_MAX_W = 640
 _IMG_MAX_H = 360
 _JPEG_Q    = 60
 _VISION_SEND_TIMEOUT = 20.0
-_VISION_RESPONSE_TIMEOUT = 45.0
+_VISION_RESPONSE_TIMEOUT = 24.0
+_VISION_SILENCE_COMPLETE_TIMEOUT = 2.5
 
 _SYSTEM_PROMPT = (
     "You are JARVIS, an advanced AI assistant. "
@@ -232,6 +233,16 @@ def _capture_camera() -> tuple[bytes, str]:
     _, buf = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, _JPEG_Q])
     return buf.tobytes(), "image/jpeg"
 
+def _set_camera_preview(player, enabled: bool, wait: bool = False) -> None:
+    if not player or not hasattr(player, "show_camera_preview"):
+        return
+    try:
+        player.show_camera_preview(enabled, wait=wait)
+    except TypeError:
+        player.show_camera_preview(enabled)
+    except Exception:
+        pass
+
 class _VisionSession:
     def __init__(self):
         self._loop:       Optional[asyncio.AbstractEventLoop] = None
@@ -244,6 +255,9 @@ class _VisionSession:
         self._player                                           = None
         self._lock:       threading.Lock                       = threading.Lock()
         self._busy_since:  float | None                        = None
+        self._last_response_at: float | None                   = None
+        self._turn_idle: Optional[asyncio.Event]               = None
+        self._clear_transcript: threading.Event                = threading.Event()
 
     def start(self, player=None, timeout: float = 25.0) -> None:
         with self._lock:
@@ -269,17 +283,49 @@ class _VisionSession:
         if not self._loop or not self._out_queue:
             print("[Vision] ⚠️  Session not started — dropping request")
             return
-        self._drop_audio_until_turn_complete.clear()
-        asyncio.run_coroutine_threadsafe(
-            self._out_queue.put((image_bytes, mime_type, user_text)),
+        future = asyncio.run_coroutine_threadsafe(
+            self._enqueue_latest(image_bytes, mime_type, user_text),
             self._loop,
         )
+        future.add_done_callback(self._log_enqueue_error)
 
     def stop(self) -> None:
         self._drop_audio_until_turn_complete.set()
         self._busy_since = None
+        self._last_response_at = None
         if self._loop:
-            asyncio.run_coroutine_threadsafe(self._clear_queues(), self._loop)
+            asyncio.run_coroutine_threadsafe(self._stop_active_turn(clear_pending=True), self._loop)
+
+    def _log_enqueue_error(self, future) -> None:
+        try:
+            future.result()
+        except Exception as e:
+            print(f"[Vision] ⚠️  Queue error: {e}")
+
+    async def _enqueue_latest(self, image_bytes: bytes, mime_type: str, user_text: str) -> None:
+        if not self._out_queue:
+            return
+        while True:
+            try:
+                self._out_queue.get_nowait()
+            except asyncio.QueueEmpty:
+                break
+        await self._out_queue.put((image_bytes, mime_type, user_text))
+
+    def _finish_turn(self, clear_drop: bool = True) -> None:
+        self._busy_since = None
+        self._last_response_at = None
+        self._clear_transcript.set()
+        if clear_drop:
+            self._drop_audio_until_turn_complete.clear()
+        if self._turn_idle:
+            self._turn_idle.set()
+
+    async def _stop_active_turn(self, clear_pending: bool = True) -> None:
+        self._drop_audio_until_turn_complete.set()
+        self._finish_turn(clear_drop=False)
+        if clear_pending:
+            await self._clear_queues()
 
     async def _clear_queues(self) -> None:
         for queue in (self._out_queue, self._audio_in):
@@ -302,6 +348,8 @@ class _VisionSession:
     async def _session_loop(self) -> None:
         self._out_queue = asyncio.Queue(maxsize=30)
         self._audio_in  = asyncio.Queue()
+        self._turn_idle = asyncio.Event()
+        self._turn_idle.set()
 
         client = genai.Client(
             api_key=_get_api_key(),
@@ -344,6 +392,7 @@ class _VisionSession:
             finally:
                 self._session = None
                 self._ready_evt.clear()
+                self._finish_turn(clear_drop=False)
 
             print(f"[Vision] 🔄 Reconnecting in {backoff:.0f}s...")
             await asyncio.sleep(backoff)
@@ -351,13 +400,19 @@ class _VisionSession:
 
     async def _send_loop(self) -> None:
         while True:
+            if self._turn_idle:
+                await self._turn_idle.wait()
             image_bytes, mime_type, user_text = await self._out_queue.get()
             if not self._session:
                 print("[Vision] ⚠️  No session — dropping image")
                 continue
             try:
                 b64 = base64.b64encode(image_bytes).decode("ascii")
+                if self._turn_idle:
+                    self._turn_idle.clear()
+                self._drop_audio_until_turn_complete.clear()
                 self._busy_since = time.monotonic()
+                self._last_response_at = None
                 await asyncio.wait_for(
                     self._session.send_client_content(
                         turns={
@@ -372,14 +427,19 @@ class _VisionSession:
                 )
                 print(f"[Vision] 📤 Sent {len(image_bytes):,} bytes — '{user_text[:60]}'")
             except Exception as e:
-                self._busy_since = None
+                self._finish_turn()
                 print(f"[Vision] ⚠️  Send error: {e}")
 
     async def _recv_loop(self) -> None:
         transcript: list[str] = []
         try:
             async for response in self._session.receive():
+                if self._clear_transcript.is_set():
+                    transcript = []
+                    self._clear_transcript.clear()
+
                 if response.data and not self._drop_audio_until_turn_complete.is_set():
+                    self._last_response_at = time.monotonic()
                     await self._audio_in.put(response.data)
 
                 sc = response.server_content
@@ -389,11 +449,11 @@ class _VisionSession:
                 if sc.output_transcription and sc.output_transcription.text:
                     chunk = sc.output_transcription.text.strip()
                     if chunk:
+                        self._last_response_at = time.monotonic()
                         transcript.append(chunk)
 
                 if sc.turn_complete:
-                    self._busy_since = None
-                    self._drop_audio_until_turn_complete.clear()
+                    self._finish_turn()
                     if transcript and self._player:
                         full = re.sub(r"\s+", " ", " ".join(transcript)).strip()
                         if full:
@@ -432,9 +492,17 @@ class _VisionSession:
     async def _watchdog_loop(self) -> None:
         while True:
             await asyncio.sleep(1.0)
-            if self._busy_since and time.monotonic() - self._busy_since > _VISION_RESPONSE_TIMEOUT:
-                print("[Vision] Response timeout; muting stale vision turn.")
-                self.stop()
+            if not self._busy_since:
+                continue
+            now = time.monotonic()
+            if self._last_response_at and now - self._last_response_at > _VISION_SILENCE_COMPLETE_TIMEOUT:
+                print("[Vision] No turn_complete after response; releasing vision turn.")
+                self._finish_turn()
+                continue
+            if now - self._busy_since > _VISION_RESPONSE_TIMEOUT:
+                print("[Vision] Response timeout; reconnecting vision session.")
+                await self._stop_active_turn(clear_pending=False)
+                raise TimeoutError("Vision response timeout")
 
 _session      = _VisionSession()
 _session_lock = threading.Lock()
@@ -477,23 +545,17 @@ def screen_process(
     try:
         _ensure_session(player=player)
     except Exception as e:
-        if camera_preview and player and hasattr(player, "show_camera_preview"):
-            try:
-                player.show_camera_preview(False)
-            except Exception:
-                pass
+        if camera_preview:
+            _set_camera_preview(player, False)
         print(f"[Vision] ❌ Could not start session: {e}")
         return False
 
     try:
         if angle == "camera":
+            _set_camera_preview(player, False, wait=True)
             image_bytes, mime_type = _capture_camera()
             print(f"[Vision] 📷 Camera: {len(image_bytes):,} bytes")
-            if player and hasattr(player, "show_camera_preview"):
-                try:
-                    player.show_camera_preview(True)
-                except Exception:
-                    pass
+            _set_camera_preview(player, True)
         elif angle == "aria":
             image_bytes, mime_type = _capture_aria()
             print(f"[Vision] 👓 ARIA: {len(image_bytes):,} bytes")
@@ -501,11 +563,8 @@ def screen_process(
             image_bytes, mime_type = _capture_screen()
             print(f"[Vision] 🖥️  Screen: {len(image_bytes):,} bytes")
     except Exception as e:
-        if camera_preview and player and hasattr(player, "show_camera_preview"):
-            try:
-                player.show_camera_preview(False)
-            except Exception:
-                pass
+        if camera_preview:
+            _set_camera_preview(player, False)
         print(f"[Vision] ❌ Capture error: {e}")
         return False
 
