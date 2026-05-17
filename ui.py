@@ -18,7 +18,7 @@ from PyQt6.QtCore import (
     QTimer, QUrl, pyqtSignal,
 )
 from PyQt6.QtGui import (
-    QBrush, QColor, QDragEnterEvent, QDropEvent, QFont, QFontDatabase,
+    QBrush, QColor, QDragEnterEvent, QDropEvent, QFont, QFontDatabase, QImage,
     QKeySequence, QLinearGradient, QPainter, QPainterPath, QPen, QPixmap,
     QRadialGradient, QShortcut,
 )
@@ -268,11 +268,22 @@ class HudCanvas(QWidget):
         self._blink_tick = 0
         self._particles: list[list[float]] = []
         self._face_px: QPixmap | None = None
+        self._camera_px: QPixmap | None = None
+        self._camera_alpha = 0.0
+        self._camera_target_alpha = 0.0
         self._load_face(face_path)
 
         self._tmr = QTimer(self)
         self._tmr.timeout.connect(self._step)
         self._tmr.start(16)
+
+    def set_camera_preview(self, enabled: bool):
+        self._camera_target_alpha = 0.92 if enabled else 0.0
+        self.update()
+
+    def set_camera_frame(self, pixmap: QPixmap | None):
+        self._camera_px = pixmap
+        self.update()
 
     def _load_face(self, path: str):
         try:
@@ -309,6 +320,10 @@ class HudCanvas(QWidget):
         sp = 0.38 if self.speaking else 0.15
         self._scale += (self._tgt_scale - self._scale) * sp
         self._halo  += (self._tgt_halo  - self._halo)  * sp
+        self._camera_alpha += (self._camera_target_alpha - self._camera_alpha) * 0.10
+        if self._camera_target_alpha <= 0.0 and self._camera_alpha < 0.02:
+            self._camera_alpha = 0.0
+            self._camera_px = None
 
         speeds = [0.65, -0.45, 0.9] if self.speaking else [0.25, -0.18, 0.35]
         for i, spd in enumerate(speeds):
@@ -456,6 +471,10 @@ class HudCanvas(QWidget):
             p.drawText(QRectF(cx - 80, cy - 14, 160, 28),
                        Qt.AlignmentFlag.AlignCenter, "J.A.R.V.I.S")
 
+        # webcam preview, drawn as a soft HUD layer
+        if self._camera_alpha > 0.02 and self._camera_px:
+            self._paint_camera_preview(p, cx, cy, fw)
+
         # particles
         for pt in self._particles:
             a = max(0, min(255, int(pt[4] * 255)))
@@ -500,6 +519,51 @@ class HudCanvas(QWidget):
                 hgt = int(3 + 2 * math.sin(self._tick * 0.09 + i * 0.6))
                 cl  = qcol(C.BORDER_B)
             p.fillRect(QRectF(wx0 + i * bw, wy + 20 - hgt, bw - 1, hgt), cl)
+
+    def _paint_camera_preview(self, p: QPainter, cx: float, cy: float, fw: float):
+        p.save()
+        p.setOpacity(self._camera_alpha)
+
+        view_w = fw * 0.68
+        view_h = view_w * 0.58
+        rect = QRectF(cx - view_w / 2, cy - view_h / 2, view_w, view_h)
+        path = QPainterPath()
+        path.addRoundedRect(rect, 18, 18)
+
+        p.setPen(Qt.PenStyle.NoPen)
+        p.setBrush(QBrush(qcol(C.PANEL, 225)))
+        p.drawRoundedRect(rect.adjusted(-8, -8, 8, 8), 22, 22)
+
+        p.setClipPath(path)
+        scaled = self._camera_px.scaled(
+            int(view_w),
+            int(view_h),
+            Qt.AspectRatioMode.KeepAspectRatioByExpanding,
+            Qt.TransformationMode.SmoothTransformation,
+        )
+        x = int(rect.center().x() - scaled.width() / 2)
+        y = int(rect.center().y() - scaled.height() / 2)
+        p.drawPixmap(x, y, scaled)
+
+        p.setClipping(False)
+        overlay = QLinearGradient(rect.topLeft(), rect.bottomLeft())
+        overlay.setColorAt(0.0, qcol(C.BG, 70))
+        overlay.setColorAt(0.58, qcol(C.BG, 0))
+        overlay.setColorAt(1.0, qcol(C.BG, 95))
+        p.fillPath(path, QBrush(overlay))
+
+        p.setPen(QPen(qcol(C.PRI, 125), 1))
+        p.setBrush(Qt.BrushStyle.NoBrush)
+        p.drawRoundedRect(rect, 18, 18)
+        p.setPen(QPen(qcol(C.BORDER_B, 140), 1))
+        p.drawRoundedRect(rect.adjusted(-8, -8, 8, 8), 22, 22)
+
+        p.setFont(QFont("Courier New", 8, QFont.Weight.Bold))
+        p.setPen(QPen(qcol(C.TEXT, 170), 1))
+        p.drawText(rect.adjusted(14, 9, -14, -9), Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft, "WEBCAM FEED")
+        p.setPen(QPen(qcol(C.GREEN, 150), 1))
+        p.drawText(rect.adjusted(14, 9, -14, -9), Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignRight, "LIVE")
+        p.restore()
 
 class MetricBar(QWidget):
 
@@ -988,6 +1052,7 @@ class SetupOverlay(QWidget):
 class MainWindow(QMainWindow):
     _log_sig   = pyqtSignal(str)
     _state_sig = pyqtSignal(str)
+    _camera_sig = pyqtSignal(bool)
 
     def __init__(self, face_path: str):
         super().__init__()
@@ -1004,6 +1069,8 @@ class MainWindow(QMainWindow):
         self.on_text_command  = None
         self._muted           = False
         self._current_file: str | None = None
+        self._camera_cap = None
+        self._camera_cv2 = None
 
         central = QWidget()
         central.setStyleSheet(f"background: {C.BG};")
@@ -1044,6 +1111,13 @@ class MainWindow(QMainWindow):
 
         self._log_sig.connect(self._log.append_log)
         self._state_sig.connect(self._apply_state)
+        self._camera_sig.connect(self._set_camera_preview)
+
+        self._camera_tmr = QTimer(self)
+        self._camera_tmr.timeout.connect(self._camera_tick)
+        self._camera_auto_hide_tmr = QTimer(self)
+        self._camera_auto_hide_tmr.setSingleShot(True)
+        self._camera_auto_hide_tmr.timeout.connect(lambda: self._set_camera_preview(False))
 
         self._overlay: SetupOverlay | None = None
         self._ready = self._check_config()
@@ -1060,6 +1134,86 @@ class MainWindow(QMainWindow):
             self.showNormal()
         else:
             self.showFullScreen()
+
+    def _camera_backend(self):
+        if not self._camera_cv2:
+            return 0
+        if _OS == "Windows":
+            return self._camera_cv2.CAP_DSHOW
+        if _OS == "Darwin":
+            return self._camera_cv2.CAP_AVFOUNDATION
+        return self._camera_cv2.CAP_ANY
+
+    def _camera_index(self) -> int:
+        try:
+            cfg = json.loads(API_FILE.read_text(encoding="utf-8"))
+            if "camera_index" in cfg:
+                return int(cfg["camera_index"])
+        except Exception:
+            pass
+        return 2 if _OS == "Darwin" else 0
+
+    def _set_camera_preview(self, enabled: bool):
+        if enabled:
+            self._start_camera_preview()
+        else:
+            self._stop_camera_preview()
+
+    def _start_camera_preview(self):
+        try:
+            import cv2
+            self._camera_cv2 = cv2
+        except Exception as e:
+            self._log.append_log(f"ERR: Camera preview unavailable: {e}")
+            self.hud.set_camera_preview(False)
+            return
+
+        if self._camera_cap is None:
+            cap = self._camera_cv2.VideoCapture(self._camera_index(), self._camera_backend())
+            cap.set(self._camera_cv2.CAP_PROP_BUFFERSIZE, 1)
+            if not cap.isOpened():
+                cap.release()
+                self._log.append_log("ERR: Camera preview could not open webcam.")
+                self.hud.set_camera_preview(False)
+                return
+            self._camera_cap = cap
+
+        self.hud.set_camera_preview(True)
+        if not self._camera_tmr.isActive():
+            self._camera_tmr.start(66)
+        self._camera_auto_hide_tmr.start(60_000)
+
+    def _stop_camera_preview(self):
+        self._camera_auto_hide_tmr.stop()
+        self._camera_tmr.stop()
+        if self._camera_cap is not None:
+            try:
+                self._camera_cap.release()
+            except Exception:
+                pass
+            self._camera_cap = None
+        self.hud.set_camera_preview(False)
+
+    def _camera_tick(self):
+        if self._camera_cap is None or self._camera_cv2 is None:
+            self._stop_camera_preview()
+            return
+        ok, frame = self._camera_cap.read()
+        if not ok or frame is None:
+            self._stop_camera_preview()
+            self._log.append_log("ERR: Camera preview lost webcam frame.")
+            return
+        rgb = self._camera_cv2.cvtColor(frame, self._camera_cv2.COLOR_BGR2RGB)
+        h, w, channels = rgb.shape
+        image = QImage(rgb.data, w, h, channels * w, QImage.Format.Format_RGB888).copy()
+        self.hud.set_camera_frame(QPixmap.fromImage(image))
+
+    def show_camera_preview(self, enabled: bool = True):
+        self._camera_sig.emit(bool(enabled))
+
+    def closeEvent(self, event):
+        self._stop_camera_preview()
+        super().closeEvent(event)
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
@@ -1492,6 +1646,9 @@ class JarvisUI:
 
     def write_log(self, text: str):
         self._win._log_sig.emit(text)
+
+    def show_camera_preview(self, enabled: bool = True):
+        self._win._camera_sig.emit(bool(enabled))
 
     def wait_for_api_key(self):
         while not self._win._ready:

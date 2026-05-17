@@ -183,6 +183,7 @@ TOOL_DECLARATIONS = [
             "Captures and analyzes the screen, webcam, or ARIA glasses stream. "
             "MUST be called when user asks what is on screen, what you see, "
             "analyze my screen, look at camera, what does aria see, what aria sees, etc. "
+            "Use angle='camera' when the user asks to open/show the camera/webcam or asks what the camera sees. "
             "Use angle='aria' when the user asks what ARIA sees or references ARIA's camera or view. "
             "You have NO visual ability without this tool. "
             "After calling this tool, stay SILENT вЂ” the vision module speaks directly."
@@ -649,6 +650,8 @@ class JarvisLive:
         self._clear_audio_queue()
         self.set_speaking(False)
         stop_vision()
+        if hasattr(self.ui, "show_camera_preview"):
+            self.ui.show_camera_preview(False)
 
         for task in list(self._active_tool_tasks):
             task.cancel()

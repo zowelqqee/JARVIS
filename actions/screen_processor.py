@@ -472,9 +472,16 @@ def screen_process(
 
     print(f"[Vision] ▶ angle={angle!r}  question='{user_text[:80]}'")
 
+    camera_preview = angle == "camera"
+
     try:
         _ensure_session(player=player)
     except Exception as e:
+        if camera_preview and player and hasattr(player, "show_camera_preview"):
+            try:
+                player.show_camera_preview(False)
+            except Exception:
+                pass
         print(f"[Vision] ❌ Could not start session: {e}")
         return False
 
@@ -482,6 +489,11 @@ def screen_process(
         if angle == "camera":
             image_bytes, mime_type = _capture_camera()
             print(f"[Vision] 📷 Camera: {len(image_bytes):,} bytes")
+            if player and hasattr(player, "show_camera_preview"):
+                try:
+                    player.show_camera_preview(True)
+                except Exception:
+                    pass
         elif angle == "aria":
             image_bytes, mime_type = _capture_aria()
             print(f"[Vision] 👓 ARIA: {len(image_bytes):,} bytes")
@@ -489,6 +501,11 @@ def screen_process(
             image_bytes, mime_type = _capture_screen()
             print(f"[Vision] 🖥️  Screen: {len(image_bytes):,} bytes")
     except Exception as e:
+        if camera_preview and player and hasattr(player, "show_camera_preview"):
+            try:
+                player.show_camera_preview(False)
+            except Exception:
+                pass
         print(f"[Vision] ❌ Capture error: {e}")
         return False
 
