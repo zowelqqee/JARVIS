@@ -363,6 +363,7 @@ class _BrowserSession:
         self._pw:      Playwright     | None = None
         self._context: BrowserContext | None = None
         self._page:    Page           | None = None
+        self._last_url: str = ""
 
     def start(self):
         if self._thread and self._thread.is_alive():
@@ -416,6 +417,84 @@ class _BrowserSession:
     async def _async_init(self):
         self._pw = await async_playwright().start()
 
+    @staticmethod
+    def _is_closed_target_error(error: Exception) -> bool:
+        message = str(error).lower()
+        markers = (
+            "target page, context or browser",
+            "target closed",
+            "browser has been closed",
+            "context closed",
+            "has been closed",
+        )
+        return any(marker in message for marker in markers)
+
+    def _page_is_closed(self) -> bool:
+        if self._page is None:
+            return True
+        try:
+            return self._page.is_closed()
+        except Exception:
+            return True
+
+    async def _discard_context(self):
+        page = self._page
+        context = self._context
+        self._page = None
+        self._context = None
+
+        if page:
+            try:
+                if not page.is_closed():
+                    await page.close()
+            except Exception:
+                pass
+        if context:
+            try:
+                await context.close()
+            except Exception:
+                pass
+
+    async def _restore_last_url(self, page: Page):
+        if not self._last_url or self._last_url in ("about:blank", ""):
+            return
+        try:
+            await page.goto(self._last_url, wait_until="domcontentloaded", timeout=30_000)
+            await asyncio.sleep(0.3)
+            print(f"[Browser] Restored page after recovery: {self._last_url}")
+        except PlaywrightTimeout:
+            pass
+        except Exception as e:
+            print(f"[Browser] Could not restore last URL after recovery: {e}")
+
+    async def _recover_context(self, error: Exception):
+        print(f"[Browser] Recovering {self.browser_name} session after browser close: {error}")
+        await self._discard_context()
+        await asyncio.sleep(0.2)
+        await self._launch()
+
+    async def _open_page(self, restore_last_url: bool = False) -> Page:
+        if self._context is None:
+            await self._launch()
+        if self._context is None:
+            raise RuntimeError(f"{self.browser_name} context is not available.")
+
+        try:
+            page = await self._context.new_page()
+        except Exception as e:
+            if not self._is_closed_target_error(e):
+                raise
+            await self._recover_context(e)
+            if self._context is None:
+                raise RuntimeError(f"{self.browser_name} context could not be recovered.") from e
+            page = await self._context.new_page()
+            restore_last_url = True
+
+        await asyncio.sleep(0.2)
+        if restore_last_url:
+            await self._restore_last_url(page)
+        return page
+
     def run(self, coro, timeout: int = 60) -> str:
         if not self._loop:
             raise RuntimeError(f"Session for '{self.browser_name}' not started.")
@@ -441,7 +520,7 @@ class _BrowserSession:
         self._reset_state()
 
     async def _async_close(self):
-        if self._page and not self._page.is_closed():
+        if self._page and not self._page_is_closed():
             try:
                 await self._page.close()
             except Exception:
@@ -468,6 +547,7 @@ class _BrowserSession:
         self._context = None
         self._page = None
         self._pw = None
+        self._last_url = ""
         self._loop = None
         self._thread = None
         self._ready.clear()
@@ -478,6 +558,9 @@ class _BrowserSession:
         Tarayıcıyı gerçek kullanıcı profiliyle başlatır.
         Context zaten açıksa hiçbir şey yapmaz.
         """
+        if self._pw is None:
+            await self._async_init()
+
         if self._context is not None:
             return
 
@@ -511,8 +594,7 @@ class _BrowserSession:
                 Path(jarvis).mkdir(parents=True, exist_ok=True)
                 self._context = await engine_obj.launch_persistent_context(jarvis, **kwargs)
 
-            await asyncio.sleep(0.5)  
-            self._page = await self._context.new_page()
+            await asyncio.sleep(0.5)
             print(f"[Browser] ✅ Firefox launched")
             return
 
@@ -527,7 +609,6 @@ class _BrowserSession:
             }
             self._context = await engine_obj.launch_persistent_context(safari_profile, **kwargs)
             await asyncio.sleep(0.5)
-            self._page = await self._context.new_page()
             print(f"[Browser] ✅ Safari launched")
             return
 
@@ -560,8 +641,7 @@ class _BrowserSession:
 
         try:
             self._context = await engine_obj.launch_persistent_context(profile, **kwargs)
-            await asyncio.sleep(0.5) 
-            self._page = await self._context.new_page()
+            await asyncio.sleep(0.5)
             print(f"[Browser] ✅ Launched [{label}] profile={profile}")
             return
         except Exception as e:
@@ -574,7 +654,6 @@ class _BrowserSession:
         try:
             self._context = await engine_obj.launch_persistent_context(jarvis_profile, **kwargs)
             await asyncio.sleep(0.5)
-            self._page = await self._context.new_page()
             print(f"[Browser] ✅ Launched [{label}] with JARVIS profile")
         except Exception as e2:
             raise RuntimeError(f"Could not launch {self.browser_name}: {e2}") from e2
@@ -583,14 +662,14 @@ class _BrowserSession:
     async def _get_page(self) -> Page:
         await self._launch()
         # If somehow page got closed, open a fresh one
-        if self._page is None or self._page.is_closed():
-            self._page = await self._context.new_page()
-            await asyncio.sleep(0.2)
+        if self._page is None or self._page_is_closed():
+            self._page = await self._open_page()
         return self._page
 
     async def go_to(self, url: str) -> str:
 
         url      = _normalize_url(url)
+        self._last_url = url
         page     = await self._get_page()
         prev_url = page.url
 
@@ -610,13 +689,14 @@ class _BrowserSession:
         if result_url in ("about:blank", "", None, prev_url) and prev_url in ("about:blank", "", None):
             print(f"[Browser] Still blank after goto — retrying on new tab: {url}")
             try:
-                new_page   = await self._context.new_page()
+                new_page   = await self._open_page()
                 self._page = new_page
                 result_url = await _do_goto(new_page)
             except Exception as e:
                 print(f"[Browser] New-tab retry failed: {e}")
 
         if result_url and result_url not in ("about:blank", "", None):
+            self._last_url = result_url
             return f"Opened: {result_url}"
         return f"Could not open: {url}"
 
@@ -828,7 +908,10 @@ class _BrowserSession:
 
     async def get_url(self) -> str:
         page = await self._get_page()
-        return page.url
+        current_url = page.url
+        if current_url and current_url not in ("about:blank", ""):
+            self._last_url = current_url
+        return current_url
 
     async def fill_form(self, fields: dict) -> str:
         page    = await self._get_page()
@@ -892,7 +975,13 @@ class _BrowserSession:
     async def new_tab(self, url: str = "") -> str:
         page = await self._get_page()
         ctx  = page.context
-        new  = await ctx.new_page()
+        try:
+            new = await ctx.new_page()
+        except Exception as e:
+            if not self._is_closed_target_error(e):
+                raise
+            await self._recover_context(e)
+            new = await self._open_page()
         self._page = new
         if url:
             return await self.go_to(url)

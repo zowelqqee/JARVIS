@@ -95,6 +95,12 @@ def test_tenerife_defaults_to_north_unless_south_is_explicit():
     assert _resolve_iata_code("Тенерифе южный", "destination") == "TFS"
 
 
+def test_brussels_aliases_resolve_without_gemini():
+    assert _resolve_iata_code("Brussels", "destination") == "BRU"
+    assert _resolve_iata_code("Bruxelles", "destination") == "BRU"
+    assert _resolve_iata_code("Брюссель", "destination") == "BRU"
+
+
 def test_search_attempts_only_use_aviasales():
     attempts, origin_code, destination_code = _build_search_attempts(
         "aviasales",
@@ -112,6 +118,24 @@ def test_search_attempts_only_use_aviasales():
     assert destination_code == "TFN"
     assert [attempt["source"] for attempt in attempts] == ["aviasales"]
     assert attempts[0]["url"] == "https://www.aviasales.ru/search/LED1906TFN1"
+
+
+def test_search_attempts_build_brussels_route():
+    attempts, origin_code, destination_code = _build_search_attempts(
+        "aviasales",
+        "Moscow",
+        "Brussels",
+        "2026-06-01",
+        "2026-06-15",
+        1,
+        0,
+        0,
+        "economy",
+    )
+
+    assert origin_code == "MOW"
+    assert destination_code == "BRU"
+    assert attempts[0]["url"].startswith("https://www.aviasales.ru/search/MOW0106BRU1506")
 
 
 def test_decode_browser_blocks_and_compose_result_text():

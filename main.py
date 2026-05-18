@@ -4,6 +4,7 @@ import re
 import threading
 import json
 import sys
+import time
 import traceback
 from pathlib import Path
 
@@ -41,6 +42,7 @@ from actions.web_search        import web_search as web_search_action
 from actions.computer_control  import computer_control
 from actions.game_updater      import game_updater
 from actions.aria_vision       import aria_vision
+from audio_gate import AudioTurnGate
 from tool_response import format_tool_result_for_assistant
 
 
@@ -567,6 +569,7 @@ class JarvisLive:
         self._turn_done_event: asyncio.Event | None = None
         self._active_tool_tasks: set[asyncio.Task] = set()
         self._interrupted = False
+        self._audio_gate = AudioTurnGate()
 
     def _on_text_command(self, text: str):
         if not self._loop or not self.session:
@@ -592,6 +595,26 @@ class JarvisLive:
             self.ui.set_state("SPEAKING")
         elif not self.ui.muted:
             self.ui.set_state("LISTENING")
+
+    def _note_output_audio(self) -> None:
+        with self._speaking_lock:
+            self._audio_gate.note_output_audio()
+
+    def _finish_output_turn(self) -> None:
+        with self._speaking_lock:
+            self._audio_gate.finish_output_turn()
+
+    def _reset_output_turn(self) -> None:
+        with self._speaking_lock:
+            self._audio_gate.reset()
+
+    def _mic_input_blocked(self) -> bool:
+        with self._speaking_lock:
+            return self._audio_gate.mic_input_blocked(self._is_speaking, now=time.monotonic())
+
+    def _playback_drain_elapsed(self) -> bool:
+        with self._speaking_lock:
+            return self._audio_gate.playback_drain_elapsed(now=time.monotonic())
 
     def speak(self, text: str):
         if not self._loop or not self.session:
@@ -658,6 +681,7 @@ class JarvisLive:
         request_interrupt(reason)
         self._interrupted = True
         self._clear_audio_queue()
+        self._reset_output_turn()
         self.set_speaking(False)
         stop_vision()
         if hasattr(self.ui, "show_camera_preview"):
@@ -867,9 +891,7 @@ class JarvisLive:
         loop = asyncio.get_event_loop()
 
         def callback(indata, frames, time_info, status):
-            with self._speaking_lock:
-                jarvis_speaking = self._is_speaking
-            if not jarvis_speaking and not self.ui.muted:
+            if not self.ui.muted and not self._mic_input_blocked():
                 data = indata.tobytes()
                 loop.call_soon_threadsafe(
                     self._enqueue_mic_audio,
@@ -902,6 +924,7 @@ class JarvisLive:
                     if response.data:
                         if self._turn_done_event and self._turn_done_event.is_set():
                             self._turn_done_event.clear()
+                        self._note_output_audio()
                         self.audio_in_queue.put_nowait(response.data)
 
                     if response.server_content:
@@ -970,8 +993,10 @@ class JarvisLive:
                         self._turn_done_event
                         and self._turn_done_event.is_set()
                         and self.audio_in_queue.empty()
+                        and self._playback_drain_elapsed()
                     ):
                         self.set_speaking(False)
+                        self._finish_output_turn()
                         self._turn_done_event.clear()
                     continue
                 self.set_speaking(True)
@@ -981,6 +1006,7 @@ class JarvisLive:
             raise
         finally:
             self.set_speaking(False)
+            self._reset_output_turn()
             stream.stop()
             stream.close()
 
@@ -1018,6 +1044,7 @@ class JarvisLive:
             except Exception as e:
                 print(f"[{ASSISTANT_SYSTEM_NAME}] вљ пёЏ {e}")
                 traceback.print_exc()
+            self._reset_output_turn()
             self.set_speaking(False)
             self.ui.set_state("THINKING")
             print(f"[{ASSISTANT_SYSTEM_NAME}] рџ”„ Reconnecting in 3s...")
