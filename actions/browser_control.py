@@ -974,7 +974,7 @@ class _SessionRegistry:
         browser_name = _ALIASES.get(browser_name.lower().strip(), browser_name.lower().strip())
         self._get_or_create(browser_name)
         self._active_browser = browser_name
-        return f"Active browser → {browser_name}"
+        return "Active browser changed."
 
     def close_one(self, browser_name: str) -> str:
         with self._lock:
@@ -983,8 +983,8 @@ class _SessionRegistry:
             sess.close()
             if self._active_browser == browser_name:
                 self._active_browser = ""
-            return f"{browser_name} closed."
-        return f"No active session for: {browser_name}"
+            return "Browser closed."
+        return "No active browser session."
 
     def close_all(self) -> str:
         with self._lock:
@@ -997,7 +997,7 @@ class _SessionRegistry:
                 s.close()
             except Exception:
                 pass
-        return "All browsers closed: " + (", ".join(names) if names else "none")
+        return "All browser sessions closed." if names else "No active browser sessions."
 
     def list_sessions(self) -> str:
         with self._lock:

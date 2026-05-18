@@ -6,7 +6,11 @@ import threading
 
 _INTERRUPT_EVENT = threading.Event()
 _STOP_WORD_RE = re.compile(
-    r"^\s*(?:jarvis|джарвис|hey\s+jarvis|okay\s+jarvis|окей\s+джарвис)?"
+    r"^\s*(?:"
+    r"jarvis|джарвис|hey\s+jarvis|okay\s+jarvis|окей\s+джарвис|"
+    r"friday|f\.?\s*r\.?\s*i\.?\s*d\.?\s*a\.?\s*y\.?|"
+    r"hey\s+friday|okay\s+friday|фрайдей|эй\s+фрайдей|окей\s+фрайдей"
+    r")?"
     r"[\s,.:;!\-]*(?:стоп|stop|отмена|cancel|хватит|прекрати)\s*[.!?]*\s*$",
     re.IGNORECASE,
 )

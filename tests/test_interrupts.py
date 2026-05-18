@@ -5,11 +5,14 @@ def test_stop_phrase_accepts_russian_and_wake_word_variants():
     assert is_stop_phrase("стоп")
     assert is_stop_phrase("Джарвис, стоп")
     assert is_stop_phrase("Jarvis stop")
+    assert is_stop_phrase("Friday stop")
+    assert is_stop_phrase("F.R.I.D.A.Y., stop")
 
 
 def test_stop_phrase_rejects_non_stop_text():
     assert not is_stop_phrase("стопка книг")
     assert not is_stop_phrase("Jarvis open settings")
+    assert not is_stop_phrase("Friday open settings")
 
 
 def test_interrupt_flag_roundtrip():

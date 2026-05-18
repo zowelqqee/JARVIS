@@ -27,6 +27,7 @@ from PyQt6.QtWidgets import (
     QMainWindow, QPushButton, QScrollArea, QSizePolicy, QTextEdit,
     QVBoxLayout, QWidget, QProgressBar,
 )
+from assistant_identity import ASSISTANT_NAME
 
 def _base_dir() -> Path:
     if getattr(sys, "frozen", False):
@@ -469,7 +470,7 @@ class HudCanvas(QWidget):
             p.setPen(QPen(qcol(C.PRI, min(255, int(self._halo * 2))), 1))
             p.setFont(QFont("Courier New", 13, QFont.Weight.Bold))
             p.drawText(QRectF(cx - 80, cy - 14, 160, 28),
-                       Qt.AlignmentFlag.AlignCenter, "J.A.R.V.I.S")
+                       Qt.AlignmentFlag.AlignCenter, ASSISTANT_NAME)
 
         # webcam preview, drawn as a soft HUD layer
         if self._camera_alpha > 0.02 and self._camera_px:
@@ -505,20 +506,49 @@ class HudCanvas(QWidget):
         p.setFont(QFont("Courier New", 11, QFont.Weight.Bold))
         p.drawText(QRectF(0, sy, W, 26), Qt.AlignmentFlag.AlignCenter, txt)
 
-        # waveform
-        wy = sy + 30
-        N, bw = 36, 8
-        wx0 = (W - N * bw) / 2
-        for i in range(N):
-            if self.muted:
-                hgt, cl = 2, qcol(C.MUTED_C)
-            elif self.speaking:
-                hgt = random.randint(3, 20)
-                cl  = qcol(C.PRI) if hgt > 12 else qcol(C.PRI_DIM)
-            else:
-                hgt = int(3 + 2 * math.sin(self._tick * 0.09 + i * 0.6))
-                cl  = qcol(C.BORDER_B)
-            p.fillRect(QRectF(wx0 + i * bw, wy + 20 - hgt, bw - 1, hgt), cl)
+        self._paint_status_meter(p, W, sy + 34)
+
+    def _paint_status_meter(self, p: QPainter, width: int, top_y: float):
+        count = 7
+        bar_w = 4
+        gap = 7
+        meter_w = count * bar_w + (count - 1) * gap
+        x0 = (width - meter_w) / 2
+        base_y = top_y + 10
+
+        if self.muted:
+            heights = [2] * count
+            colors = [qcol(C.MUTED_C, 150)] * count
+        elif self.speaking:
+            heights = []
+            colors = []
+            for i in range(count):
+                center_bias = 1.0 - abs(i - (count - 1) / 2) / ((count + 1) / 2)
+                wave = 0.5 + 0.5 * math.sin(self._tick * 0.16 + i * 0.55)
+                h = 4 + int((5 + 10 * center_bias) * wave)
+                heights.append(h)
+                colors.append(qcol(C.ACC if center_bias > 0.45 else C.ACC2, 190))
+        elif self.state == "LISTENING":
+            heights = []
+            colors = []
+            for i in range(count):
+                wave = 0.5 + 0.5 * math.sin(self._tick * 0.07 + i * 0.8)
+                heights.append(2 + int(4 * wave))
+                colors.append(qcol(C.GREEN if i == count // 2 else C.BORDER_B, 170))
+        else:
+            heights = []
+            colors = []
+            active = (self._tick // 18) % count
+            for i in range(count):
+                heights.append(6 if i == active else 2)
+                colors.append(qcol(C.ACC2 if i == active else C.BORDER_B, 150))
+
+        p.setPen(Qt.PenStyle.NoPen)
+        for i, h in enumerate(heights):
+            x = x0 + i * (bar_w + gap)
+            rect = QRectF(x, base_y - h / 2, bar_w, h)
+            p.setBrush(QBrush(colors[i]))
+            p.drawRoundedRect(rect, 2, 2)
 
     def _paint_camera_preview(self, p: QPainter, cx: float, cy: float, fw: float):
         p.save()
@@ -798,7 +828,7 @@ class FileDropZone(QWidget):
 
     def _browse(self):
         path, _ = QFileDialog.getOpenFileName(
-            self, "Select a file for JARVIS", str(Path.home()),
+            self, f"Select a file for {ASSISTANT_NAME}", str(Path.home()),
             "All Files (*.*);;"
             "Images (*.jpg *.jpeg *.png *.gif *.webp *.bmp *.svg);;"
             "Documents (*.pdf *.docx *.txt *.md *.pptx);;"
@@ -953,7 +983,7 @@ class SetupOverlay(QWidget):
             return w
 
         layout.addWidget(_lbl("INITIALISATION REQUIRED", 13, True, color=C.WHITE))
-        layout.addWidget(_lbl("Configure J.A.R.V.I.S. before first boot.", 9, color=C.PRI_DIM))
+        layout.addWidget(_lbl(f"Configure {ASSISTANT_NAME} before first boot.", 9, color=C.PRI_DIM))
         layout.addSpacing(6)
 
         sep = QFrame(); sep.setFrameShape(QFrame.Shape.HLine)
@@ -1057,7 +1087,7 @@ class MainWindow(QMainWindow):
 
     def __init__(self, face_path: str):
         super().__init__()
-        self.setWindowTitle("J.A.R.V.I.S")
+        self.setWindowTitle(ASSISTANT_NAME)
         self.setMinimumSize(_MIN_W, _MIN_H)
         self.resize(_DEFAULT_W, _DEFAULT_H)
 
@@ -1308,12 +1338,12 @@ class MainWindow(QMainWindow):
         lay.addStretch()
 
         mid = QVBoxLayout(); mid.setSpacing(1)
-        title = QLabel("J.A.R.V.I.S")
+        title = QLabel(ASSISTANT_NAME)
         title.setAlignment(Qt.AlignmentFlag.AlignCenter)
         title.setFont(QFont("Courier New", 15, QFont.Weight.Bold))
         title.setStyleSheet(f"color: {C.WHITE}; background: transparent; letter-spacing: 2px;")
         mid.addWidget(title)
-        sub = QLabel("Just A Rather Very Intelligent System")
+        sub = QLabel("Female Replacement Intelligent Digital Assistant Youth")
         sub.setAlignment(Qt.AlignmentFlag.AlignCenter)
         sub.setFont(QFont("Courier New", 7))
         sub.setStyleSheet(f"color: {C.TEXT_DIM}; background: transparent;")
@@ -1518,7 +1548,7 @@ class MainWindow(QMainWindow):
 
         lay.addWidget(_fl("[F4] Mute  ·  [F11] Fullscreen"))
         lay.addStretch()
-        lay.addWidget(_fl("zowel  ·  J.A.R.V.I.S  ·  CLASSIFIED"))
+        lay.addWidget(_fl(f"zowel  ·  {ASSISTANT_NAME}  ·  CLASSIFIED"))
         lay.addStretch()
         lay.addWidget(_fl("© ZOWEL", C.PRI_DIM))
         return w
@@ -1529,7 +1559,7 @@ class MainWindow(QMainWindow):
         cat  = _file_category(p)
         icon, _ = _FILE_ICONS.get(cat, _FILE_ICONS["unknown"])
         size = _fmt_size(p.stat().st_size)
-        self._file_hint.setText(f"{icon}  {p.name}  ·  {size}  ·  Tell J.A.R.V.I.S what to do with it")
+        self._file_hint.setText(f"{icon}  {p.name}  ·  {size}  ·  Tell {ASSISTANT_NAME} what to do with it")
         self._log.append_log(f"FILE: {p.name} ({size}) loaded")
         if self.on_text_command:
             msg = (
@@ -1615,7 +1645,7 @@ class MainWindow(QMainWindow):
             self._overlay.hide()
             self._overlay = None
         self._apply_state("LISTENING")
-        self._log.append_log(f"SYS: Initialised. OS={os_name.upper()}. J.A.R.V.I.S online.")
+        self._log.append_log(f"SYS: Initialised. OS={os_name.upper()}. {ASSISTANT_NAME} online.")
 
 class _RootShim:
     def __init__(self, app: QApplication):

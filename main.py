@@ -11,6 +11,13 @@ import sounddevice as sd
 from google import genai
 from google.genai import types
 from ui import JarvisUI
+from assistant_identity import (
+    ASSISTANT_NAME,
+    ASSISTANT_PLAIN_NAME,
+    ASSISTANT_SYSTEM_NAME,
+    ASSISTANT_VOICE_NAME,
+    build_wake_word_instruction,
+)
 from memory.memory_manager import (
     load_memory, update_memory, format_memory_for_prompt,
 )
@@ -34,6 +41,7 @@ from actions.web_search        import web_search as web_search_action
 from actions.computer_control  import computer_control
 from actions.game_updater      import game_updater
 from actions.aria_vision       import aria_vision
+from tool_response import format_tool_result_for_assistant
 
 
 def get_base_dir():
@@ -73,7 +81,7 @@ def _load_system_prompt() -> str:
         return PROMPT_PATH.read_text(encoding="utf-8")
     except Exception:
         return (
-            "You are JARVIS, Tony Stark's AI assistant. "
+            f"You are {ASSISTANT_NAME}, Tony Stark's AI assistant. "
             "Be concise, direct, and always use the provided tools to complete tasks. "
             "Never simulate or guess results вЂ” always call the appropriate tool."
         )
@@ -221,7 +229,7 @@ TOOL_DECLARATIONS = [
         "description": (
             "Controls any web browser. Use for: opening websites, searching the web, "
             "clicking elements, filling forms, scrolling, screenshots, navigation, closing tabs, "
-            "or closing browser sessions that JARVIS opened. "
+            f"or closing browser sessions that {ASSISTANT_NAME} opened. "
             "Always pass the 'browser' parameter when the user specifies a browser (e.g. 'open in Edge', "
             "'use Firefox', 'open Chrome'). Multiple browsers can run simultaneously."
         ),
@@ -439,7 +447,7 @@ TOOL_DECLARATIONS = [
         "description": (
             "Shuts down the assistant completely. "
             "Call this when the user expresses intent to end the conversation, "
-            "close the assistant, say goodbye, or stop Jarvis. "
+            "close the assistant, say goodbye, or stop Friday/Jarvis. "
             "The user can say this in ANY language."
         ),
         "parameters": {
@@ -603,13 +611,7 @@ class JarvisLive:
 
     def _build_config(self) -> types.LiveConnectConfig:
         from datetime import datetime
-        WAKE_WORD_INSTRUCTION = """
-        [WAKE WORD RULE]
-        You MUST respond ONLY if the user's message begins with "Jarvis" or "Hey Jarvis" or "Okay Jarvis".
-        Exception: the stop word "СЃС‚РѕРї" / "stop" is always allowed and must interrupt the current process.
-        If the message does NOT start with one of these triggers вЂ” stay completely silent.
-        Do not respond, do not acknowledge, do not make any sound.
-        """
+        WAKE_WORD_INSTRUCTION = build_wake_word_instruction()
         memory     = load_memory()
         mem_str    = format_memory_for_prompt(memory)
         sys_prompt = _load_system_prompt()
@@ -637,7 +639,7 @@ class JarvisLive:
             speech_config=types.SpeechConfig(
                 voice_config=types.VoiceConfig(
                     prebuilt_voice_config=types.PrebuiltVoiceConfig(
-                        voice_name="Charon"
+                        voice_name=ASSISTANT_VOICE_NAME
                     )
                 )
             ),
@@ -668,7 +670,7 @@ class JarvisLive:
             from agent.task_queue import get_queue
             await asyncio.to_thread(get_queue().cancel_all)
         except Exception as e:
-            print(f"[JARVIS] Stop: task queue cancel failed: {e}")
+            print(f"[{ASSISTANT_SYSTEM_NAME}] Stop: task queue cancel failed: {e}")
 
         self.ui.write_log("SYS: Stop word received. Current process interrupted.")
 
@@ -711,7 +713,7 @@ class JarvisLive:
         name = fc.name
         args = dict(fc.args or {})
 
-        print(f"[JARVIS] рџ”§ {name}  {args}")
+        print(f"[{ASSISTANT_SYSTEM_NAME}] рџ”§ {name}  {args}")
         self.ui.set_state("THINKING")
 
         if name == "save_memory":
@@ -818,7 +820,7 @@ class JarvisLive:
 
             elif name == "shutdown_jarvis":
                 self.ui.write_log("SYS: Shutdown requested.")
-                self.speak("Goodbye, sir.")
+                self.speak("Goodbye.")
                 def _shutdown():
                     import time, os
                     time.sleep(1)
@@ -833,10 +835,12 @@ class JarvisLive:
             traceback.print_exc()
             self.speak_error(name, e)
 
+        result = format_tool_result_for_assistant(name, args, result)
+
         if not self.ui.muted:
             self.ui.set_state("LISTENING")
 
-        print(f"[JARVIS] рџ“¤ {name} в†’ {str(result)[:80]}")
+        print(f"[{ASSISTANT_SYSTEM_NAME}] рџ“¤ {name} в†’ {str(result)[:80]}")
         return types.FunctionResponse(
             id=fc.id, name=name,
             response={"result": result}
@@ -859,7 +863,7 @@ class JarvisLive:
                 self.out_queue.put_nowait(msg)
 
     async def _listen_audio(self):
-        print("[JARVIS] рџЋ¤ Mic started")
+        print(f"[{ASSISTANT_SYSTEM_NAME}] рџЋ¤ Mic started")
         loop = asyncio.get_event_loop()
 
         def callback(indata, frames, time_info, status):
@@ -880,15 +884,15 @@ class JarvisLive:
                 blocksize=CHUNK_SIZE,
                 callback=callback,
             ):
-                print("[JARVIS] рџЋ¤ Mic stream open")
+                print(f"[{ASSISTANT_SYSTEM_NAME}] рџЋ¤ Mic stream open")
                 while True:
                     await asyncio.sleep(0.1)
         except Exception as e:
-            print(f"[JARVIS] вќЊ Mic: {e}")
+            print(f"[{ASSISTANT_SYSTEM_NAME}] вќЊ Mic: {e}")
             raise
 
     async def _receive_audio(self):
-        print("[JARVIS] рџ‘‚ Recv started")
+        print(f"[{ASSISTANT_SYSTEM_NAME}] рџ‘‚ Recv started")
         out_buf, in_buf = [], []
 
         try:
@@ -929,7 +933,7 @@ class JarvisLive:
 
                             full_out = " ".join(out_buf).strip()
                             if full_out:
-                                self.ui.write_log(f"Jarvis: {full_out}")
+                                self.ui.write_log(f"{ASSISTANT_PLAIN_NAME}: {full_out}")
                             out_buf = []
 
                     if response.tool_call:
@@ -939,12 +943,12 @@ class JarvisLive:
                         self._active_tool_tasks.add(task)
                         task.add_done_callback(self._active_tool_tasks.discard)
         except Exception as e:
-            print(f"[JARVIS] вќЊ Recv: {e}")
+            print(f"[{ASSISTANT_SYSTEM_NAME}] вќЊ Recv: {e}")
             traceback.print_exc()
             raise
 
     async def _play_audio(self):
-        print("[JARVIS] рџ”Љ Play started")
+        print(f"[{ASSISTANT_SYSTEM_NAME}] рџ”Љ Play started")
 
         stream = sd.RawOutputStream(
             samplerate=RECEIVE_SAMPLE_RATE,
@@ -973,7 +977,7 @@ class JarvisLive:
                 self.set_speaking(True)
                 await asyncio.to_thread(stream.write, chunk)
         except Exception as e:
-            print(f"[JARVIS] вќЊ Play: {e}")
+            print(f"[{ASSISTANT_SYSTEM_NAME}] вќЊ Play: {e}")
             raise
         finally:
             self.set_speaking(False)
@@ -988,7 +992,7 @@ class JarvisLive:
 
         while True:
             try:
-                print("[JARVIS] рџ”Њ Connecting...")
+                print(f"[{ASSISTANT_SYSTEM_NAME}] рџ”Њ Connecting...")
                 self.ui.set_state("THINKING")
                 config = self._build_config()
 
@@ -1002,9 +1006,9 @@ class JarvisLive:
                     self.out_queue      = asyncio.Queue(maxsize=10)
                     self._turn_done_event = asyncio.Event()
 
-                    print("[JARVIS] вњ… Connected.")
+                    print(f"[{ASSISTANT_SYSTEM_NAME}] вњ… Connected.")
                     self.ui.set_state("LISTENING")
-                    self.ui.write_log("SYS: JARVIS online.")
+                    self.ui.write_log(f"SYS: {ASSISTANT_NAME} online.")
 
                     tg.create_task(self._send_realtime())
                     tg.create_task(self._listen_audio())
@@ -1012,11 +1016,11 @@ class JarvisLive:
                     tg.create_task(self._play_audio())
 
             except Exception as e:
-                print(f"[JARVIS] вљ пёЏ {e}")
+                print(f"[{ASSISTANT_SYSTEM_NAME}] вљ пёЏ {e}")
                 traceback.print_exc()
             self.set_speaking(False)
             self.ui.set_state("THINKING")
-            print("[JARVIS] рџ”„ Reconnecting in 3s...")
+            print(f"[{ASSISTANT_SYSTEM_NAME}] рџ”„ Reconnecting in 3s...")
             await asyncio.sleep(3)
 
 def main():

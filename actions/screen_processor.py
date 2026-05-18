@@ -36,6 +36,11 @@ except ImportError:
 
 from google import genai
 from google.genai import types as gtypes
+from assistant_identity import (
+    ASSISTANT_NAME,
+    ASSISTANT_PLAIN_NAME,
+    ASSISTANT_VOICE_NAME,
+)
 
 def _base_dir() -> Path:
     if getattr(sys, "frozen", False):
@@ -86,12 +91,14 @@ _VISION_RESPONSE_TIMEOUT = 24.0
 _VISION_SILENCE_COMPLETE_TIMEOUT = 2.5
 
 _SYSTEM_PROMPT = (
-    "You are JARVIS, an advanced AI assistant. "
+    f"You are {ASSISTANT_NAME}, an advanced AI assistant. "
     "Analyze the provided image with precision and intelligence. "
     "Be concise and direct — maximum two sentences unless the user's question "
     "requires more detail. "
     "Address the user respectfully. "
-    "Always call the appropriate tool; never simulate results."
+    "Always call the appropriate tool; never simulate results. "
+    "Optimize spoken Russian for pronunciation clarity. "
+    "Avoid awkward mixed Russian-English product names when a shorter phrase works better."
 )
 
 
@@ -362,7 +369,7 @@ class _VisionSession:
             speech_config=gtypes.SpeechConfig(
                 voice_config=gtypes.VoiceConfig(
                     prebuilt_voice_config=gtypes.PrebuiltVoiceConfig(
-                        voice_name="Charon"
+                        voice_name=ASSISTANT_VOICE_NAME
                     )
                 )
             ),
@@ -457,7 +464,7 @@ class _VisionSession:
                     if transcript and self._player:
                         full = re.sub(r"\s+", " ", " ".join(transcript)).strip()
                         if full:
-                            self._player.write_log(f"Jarvis: {full}")
+                            self._player.write_log(f"{ASSISTANT_PLAIN_NAME}: {full}")
                             print(f"[Vision] 💬 {full}")
                     transcript = []
 

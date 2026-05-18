@@ -14,13 +14,13 @@ def test_close_action_does_not_create_new_browser_session(monkeypatch):
 
         def close_one(self, browser_name):
             self.closed_target = browser_name
-            return f"{browser_name} closed."
+            return "Browser closed."
 
     fake_registry = FakeRegistry()
     monkeypatch.setattr(browser_module, "_registry", fake_registry)
 
     result = browser_module.browser_control({"action": "close", "browser": "chrome"})
 
-    assert result == "chrome closed."
+    assert result == "Browser closed."
     assert fake_registry.closed_target == "chrome"
     assert fake_registry.get_called is False
