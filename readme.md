@@ -1,7 +1,9 @@
-# 🤖 J.A.R.V.I.S.
+# 🤖 J.A.R.V.I.S
 ### Real-time desktop AI assistant for voice, vision, files, and computer control
 
-J.A.R.V.I.S. is a multimodal desktop assistant that listens through your microphone, processes live multimodal input through Gemini Live and routes actions through local execution modules, sees your screen or camera, works with dragged files, and takes real actions on your computer.
+JARVIS is the project and repository name. The in-app assistant persona you talk to is `F.R.I.D.A.Y.`.
+
+The JARVIS desktop app runs a multimodal assistant that listens through your microphone, processes live multimodal input through Gemini Live, routes actions through local execution modules, sees your screen or camera, works with dragged files, and takes real actions on your computer.
 
 It is built for personal workflows, desktop automation, and "do it for me" requests that go beyond a chat window.
 
@@ -24,7 +26,7 @@ It is built for personal workflows, desktop automation, and "do it for me" reque
 
 ---
 
-## 🚀 What JARVIS Can Do
+## 🚀 What F.R.I.D.A.Y. Can Do
 
 | Area | What it covers |
 | --- | --- |
@@ -40,12 +42,12 @@ It is built for personal workflows, desktop automation, and "do it for me" reque
 
 ## 💬 Example Prompts
 
-- `Jarvis, open Telegram and send Alice I'll be 10 minutes late.`
-- `Jarvis, what is on my screen right now?`
-- `Jarvis, summarize this PDF I just dropped in.`
-- `Jarvis, find the best flight from Moscow to Istanbul next Friday.`
-- `Jarvis, update my Steam games tonight.`
-- `Jarvis, review this Python file and tell me what's wrong with it.`
+- `Friday, open Telegram and send Alice I'll be 10 minutes late.`
+- `Friday, what is on my screen right now?`
+- `Friday, summarize this PDF I just dropped in.`
+- `Friday, find the best flight from Moscow to Istanbul next Friday.`
+- `Friday, update my Steam games tonight.`
+- `Friday, review this Python file and tell me what's wrong with it.`
 
 ---
 
@@ -177,8 +179,9 @@ Some especially useful modules:
 
 ## ⚠️ Notes And Caveats
 
+- `JARVIS` is the project name; `F.R.I.D.A.Y.` is the assistant identity in the app. 🧩
 - This is not a fully offline assistant. Reasoning and real-time speech depend on Gemini. ☁️
-- The assistant is configured to respond only to prompts that begin with `Jarvis`, `Hey Jarvis`, or `Okay Jarvis`. 🗣️
+- The primary wake words are `Friday`, `Hey Friday`, and `Okay Friday`. Legacy `Jarvis` wake words still work for compatibility. 🗣️
 - Cross-platform support is a core goal, but some tools are more mature on some operating systems than others. 🧭
 - Several optional features rely on external binaries, browser installs, or extra Python packages. 📦
 - The `intent_classifier/` module is a dedicated NLP subsystem in the repo, even though the main live assistant currently routes through Gemini tools. 🧠
