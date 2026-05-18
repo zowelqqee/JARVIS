@@ -358,6 +358,7 @@ class _BrowserSession:
         self._loop:    asyncio.AbstractEventLoop | None = None
         self._thread:  threading.Thread | None          = None
         self._ready    = threading.Event()
+        self._start_error: Exception | None            = None
 
         self._pw:      Playwright     | None = None
         self._context: BrowserContext | None = None
@@ -366,20 +367,51 @@ class _BrowserSession:
     def start(self):
         if self._thread and self._thread.is_alive():
             return
+        self._start_error = None
+        self._ready.clear()
         self._thread = threading.Thread(
             target=self._run_loop,
             daemon=True,
             name=f"BrowserThread-{self.browser_name}",
         )
         self._thread.start()
-        self._ready.wait(timeout=20)
+        if not self._ready.wait(timeout=20):
+            raise RuntimeError(f"Timed out while starting {self.browser_name}.")
+        if self._start_error:
+            raise RuntimeError(f"Could not launch {self.browser_name}: {self._start_error}")
 
     def _run_loop(self):
         self._loop = asyncio.new_event_loop()
         asyncio.set_event_loop(self._loop)
-        self._loop.run_until_complete(self._async_init())
+        try:
+            self._loop.run_until_complete(self._async_init())
+        except Exception as e:
+            self._start_error = e
+            self._ready.set()
+            try:
+                self._loop.run_until_complete(self._async_close())
+            except Exception:
+                pass
+            self._loop.close()
+            return
+
         self._ready.set()
-        self._loop.run_forever()
+        try:
+            self._loop.run_forever()
+        finally:
+            try:
+                pending = [task for task in asyncio.all_tasks(self._loop) if not task.done()]
+                for task in pending:
+                    task.cancel()
+                if pending:
+                    self._loop.run_until_complete(asyncio.gather(*pending, return_exceptions=True))
+            except Exception:
+                pass
+            try:
+                self._loop.run_until_complete(self._async_close())
+            except Exception:
+                pass
+            self._loop.close()
 
     async def _async_init(self):
         self._pw = await async_playwright().start()
@@ -391,13 +423,38 @@ class _BrowserSession:
         return future.result(timeout=timeout)
 
     def close(self):
-        if self._loop:
-            asyncio.run_coroutine_threadsafe(self._async_close(), self._loop).result(10)
+        if not self._loop:
+            self._reset_state()
+            return
+
+        loop = self._loop
+        try:
+            if loop.is_running():
+                asyncio.run_coroutine_threadsafe(self._async_close(), loop).result(10)
+                loop.call_soon_threadsafe(loop.stop)
+        except Exception:
+            pass
+
+        if self._thread and self._thread.is_alive():
+            self._thread.join(timeout=10)
+
+        self._reset_state()
 
     async def _async_close(self):
+        if self._page and not self._page.is_closed():
+            try:
+                await self._page.close()
+            except Exception:
+                pass
         if self._context:
             try:
                 await self._context.close()
+            except Exception:
+                pass
+            try:
+                browser = getattr(self._context, "browser", None)
+                if browser:
+                    await browser.close()
             except Exception:
                 pass
         if self._pw:
@@ -406,6 +463,15 @@ class _BrowserSession:
             except Exception:
                 pass
         self._context = self._page = None
+
+    def _reset_state(self):
+        self._context = None
+        self._page = None
+        self._pw = None
+        self._loop = None
+        self._thread = None
+        self._ready.clear()
+        self._start_error = None
 
     async def _launch(self):
         """
@@ -968,6 +1034,12 @@ def browser_control(
         _log(player, result)
         return result
 
+    if action == "close":
+        target = browser or _registry._active_browser
+        result = _registry.close_one(target) if target else "No browser specified."
+        _log(player, result)
+        return result
+
     if action == "close_all":
         result = _registry.close_all()
         _log(player, result)
@@ -1024,9 +1096,6 @@ def browser_control(
             result = sess.run(sess.forward())
         elif action == "reload":
             result = sess.run(sess.reload())
-        elif action == "close":
-            target = browser or _registry._active_browser
-            result = _registry.close_one(target) if target else "No browser specified."
         else:
             result = f"Unknown browser action: '{action}'"
 

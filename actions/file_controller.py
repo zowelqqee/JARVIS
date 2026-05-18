@@ -1,6 +1,7 @@
 import os
 import shutil
 import platform
+import subprocess
 from pathlib import Path
 from datetime import datetime
 
@@ -15,6 +16,44 @@ _OS = platform.system()  # "Windows" | "Darwin" | "Linux"
 _SAFE_ROOTS: list[Path] = [
     Path.home(),
 ]
+
+_PROJECT_MARKERS = {
+    ".git",
+    "package.json",
+    "pyproject.toml",
+    "requirements.txt",
+    "setup.py",
+    "Cargo.toml",
+    "go.mod",
+    "pom.xml",
+    "Gemfile",
+    "composer.json",
+}
+
+_PROJECT_SUFFIX_MARKERS = {".xcodeproj", ".xcworkspace", ".sln"}
+_PROJECT_SCAN_SKIP_DIRS = {
+    ".git",
+    ".hg",
+    ".svn",
+    ".idea",
+    ".vscode",
+    "__pycache__",
+    "node_modules",
+    ".venv",
+    "venv",
+    "dist",
+    "build",
+    ".next",
+    ".pytest_cache",
+    ".mypy_cache",
+    ".ruff_cache",
+    ".cache",
+    "Library",
+    "Applications",
+    "Movies",
+    "Music",
+    "Pictures",
+}
 
 def _is_safe_path(target: Path) -> bool:
     """Verilen path _SAFE_ROOTS içinde mi? Değilse işlemi reddet."""
@@ -85,12 +124,318 @@ def _resolve_path(raw: str) -> Path:
         return shortcuts[lower]
     return Path(raw).expanduser()
 
+
+def _canonicalize(value: str) -> str:
+    return "".join(ch for ch in str(value).lower() if ch.isalnum())
+
+
+def _project_match_score(project_dir: Path, query: str) -> int:
+    if not query:
+        return 1
+
+    wanted = _canonicalize(query)
+    if not wanted:
+        return 1
+
+    name = _canonicalize(project_dir.name)
+    full = _canonicalize(str(project_dir))
+
+    if name == wanted:
+        return 100
+    if name.startswith(wanted):
+        return 90
+    if wanted in name:
+        return 80
+    if full.endswith(wanted):
+        return 70
+    if wanted in full:
+        return 60
+    return 0
+
+
+def _has_project_marker(directory: Path) -> bool:
+    try:
+        for marker in _PROJECT_MARKERS:
+            if (directory / marker).exists():
+                return True
+        for child in directory.iterdir():
+            if child.suffix in _PROJECT_SUFFIX_MARKERS:
+                return True
+    except Exception:
+        return False
+    return False
+
+
+def _candidate_project_roots(search_path: Path) -> list[Path]:
+    if search_path != Path.home():
+        return [search_path]
+
+    roots = [
+        search_path / "Projects",
+        search_path / "Code",
+        search_path / "Developer",
+        search_path / "Dev",
+        search_path / "Desktop",
+        search_path / "Documents",
+        search_path,
+    ]
+
+    unique: list[Path] = []
+    seen: set[str] = set()
+    for root in roots:
+        if not root.exists():
+            continue
+        key = str(root.resolve())
+        if key in seen:
+            continue
+        seen.add(key)
+        unique.append(root)
+    return unique
+
 def _format_size(b: int) -> str:
     for unit in ["B", "KB", "MB", "GB", "TB"]:
         if b < 1024:
             return f"{b:.1f} {unit}"
         b /= 1024
     return f"{b:.1f} TB"
+
+
+def _iter_project_dirs(search_path: Path, max_dirs: int = 4000):
+    scanned = 0
+    seen: set[str] = set()
+
+    for root in _candidate_project_roots(search_path):
+        for current_root, dirnames, _ in os.walk(root):
+            scanned += 1
+            if scanned > max_dirs:
+                return
+
+            current = Path(current_root)
+            try:
+                resolved = str(current.resolve())
+            except Exception:
+                resolved = str(current)
+
+            if resolved in seen:
+                dirnames[:] = []
+                continue
+            seen.add(resolved)
+
+            dirnames[:] = [
+                d for d in sorted(dirnames)
+                if d not in _PROJECT_SCAN_SKIP_DIRS and not d.startswith(".")
+            ]
+
+            if current != root and _has_project_marker(current):
+                yield current
+
+
+def _find_project_paths(query: str, search_path: Path, max_results: int = 20) -> list[Path]:
+    matches: list[tuple[int, int, Path]] = []
+    for project_dir in _iter_project_dirs(search_path):
+        score = _project_match_score(project_dir, query)
+        if query and score <= 0:
+            continue
+        depth = len(project_dir.parts)
+        matches.append((score, depth, project_dir))
+
+    matches.sort(key=lambda item: (-item[0], item[1], item[2].name.lower()))
+    return [path for _, _, path in matches[:max_results]]
+
+
+def list_projects(name: str = "", path: str = "home", max_results: int = 20) -> str:
+    try:
+        search_path = _resolve_path(path)
+        if not _is_safe_path(search_path):
+            return f"Access denied: {search_path}"
+        if not search_path.exists():
+            return f"Search path not found: {search_path}"
+        if not search_path.is_dir():
+            return f"Not a directory: {search_path}"
+
+        matches = _find_project_paths(name, search_path, max_results=max_results)
+        if not matches:
+            suffix = f" matching '{name}'" if name else ""
+            return f"No projects found{suffix} in {search_path}"
+
+        lines = [f"Found {len(matches)} project(s):"]
+        for project_dir in matches:
+            lines.append(f"📁 {project_dir.name} — {project_dir}")
+        return "\n".join(lines)
+
+    except Exception as e:
+        return f"Project search error: {e}"
+
+
+def describe_tree(
+    path: str,
+    name: str = "",
+    max_depth: int = 2,
+    max_items: int = 120,
+    show_hidden: bool = False,
+) -> str:
+    try:
+        base = _resolve_path(path)
+        target = (base / name) if name else base
+        if not _is_safe_path(target):
+            return f"Access denied: {target}"
+        if not target.exists():
+            return f"Path not found: {target}"
+
+        if target.is_file():
+            return f"{target.name}\n└── [file]"
+
+        max_depth = max(0, min(int(max_depth), 6))
+        max_items = max(10, min(int(max_items), 400))
+
+        lines = [f"{target.name}/"]
+        shown = 0
+        truncated = False
+
+        def walk(current: Path, prefix: str, depth: int) -> bool:
+            nonlocal shown, truncated
+            if depth >= max_depth:
+                return False
+
+            try:
+                entries = sorted(
+                    current.iterdir(),
+                    key=lambda item: (not item.is_dir(), item.name.lower()),
+                )
+            except Exception:
+                lines.append(f"{prefix}└── [permission denied]")
+                return False
+
+            if not show_hidden:
+                entries = [entry for entry in entries if not entry.name.startswith(".")]
+
+            for index, entry in enumerate(entries):
+                if shown >= max_items:
+                    truncated = True
+                    return True
+
+                branch = "└── " if index == len(entries) - 1 else "├── "
+                label = f"{entry.name}/" if entry.is_dir() else entry.name
+                lines.append(f"{prefix}{branch}{label}")
+                shown += 1
+
+                if entry.is_dir():
+                    child_prefix = prefix + ("    " if index == len(entries) - 1 else "│   ")
+                    if walk(entry, child_prefix, depth + 1):
+                        return True
+            return False
+
+        walk(target, "", 0)
+        if truncated:
+            lines.append("... [tree truncated]")
+        return "\n".join(lines)
+
+    except Exception as e:
+        return f"Could not build tree: {e}"
+
+
+def _open_target(target: Path, app: str = "") -> tuple[bool, str]:
+    target_str = str(target)
+    app_name = (app or "").strip().lower()
+
+    try:
+        if app_name in {"vscode", "code", "visual studio code"}:
+            code_bin = shutil.which("code")
+            if code_bin:
+                subprocess.Popen(
+                    [code_bin, target_str],
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                )
+                return True, f"Opened in VS Code: {target}"
+
+            if _OS == "Darwin":
+                subprocess.Popen(
+                    ["open", "-a", "Visual Studio Code", target_str],
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                )
+                return True, f"Opened in VS Code: {target}"
+
+            return False, "VS Code CLI ('code') is not available."
+
+        if _OS == "Windows":
+            if hasattr(os, "startfile"):
+                os.startfile(target_str)  # type: ignore[attr-defined]
+                return True, f"Opened: {target}"
+            subprocess.Popen(
+                ["explorer.exe", target_str],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+            return True, f"Opened: {target}"
+
+        if _OS == "Darwin":
+            subprocess.Popen(
+                ["open", target_str],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+            return True, f"Opened: {target}"
+
+        subprocess.Popen(
+            ["xdg-open", target_str],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        return True, f"Opened: {target}"
+
+    except Exception as e:
+        return False, f"Could not open {target}: {e}"
+
+
+def open_path(path: str, name: str = "", app: str = "") -> str:
+    try:
+        base = _resolve_path(path)
+        target = (base / name) if name else base
+        if not _is_safe_path(target):
+            return f"Access denied: {target}"
+        if not target.exists():
+            return f"Path not found: {target}"
+
+        ok, message = _open_target(target, app=app)
+        return message if ok else message
+
+    except Exception as e:
+        return f"Could not open path: {e}"
+
+
+def open_project(name: str = "", path: str = "home", app: str = "vscode") -> str:
+    if not name:
+        return "No project name provided."
+
+    try:
+        search_path = _resolve_path(path)
+        if not _is_safe_path(search_path):
+            return f"Access denied: {search_path}"
+        if not search_path.exists():
+            return f"Search path not found: {search_path}"
+        if not search_path.is_dir():
+            return f"Not a directory: {search_path}"
+
+        matches = _find_project_paths(name, search_path, max_results=5)
+        if not matches:
+            return f"Project not found: {name}"
+
+        if len(matches) > 1 and _project_match_score(matches[0], name) == _project_match_score(matches[1], name):
+            lines = [f"Multiple matching projects found for '{name}':"]
+            for project_dir in matches:
+                lines.append(f"📁 {project_dir.name} — {project_dir}")
+            return "\n".join(lines)
+
+        target = matches[0]
+        ok, message = _open_target(target, app=app)
+        if not ok:
+            return message
+        return f"Opened project: {target.name} — {target}"
+
+    except Exception as e:
+        return f"Could not open project: {e}"
 
 def _safe_trash(target: Path) -> str:
 
@@ -519,6 +864,36 @@ def file_controller(
                 extension=params.get("extension", ""),
                 path=path,
                 max_results=min(int(params.get("max_results", 20)), 50),
+            )
+
+        elif action == "projects":
+            return list_projects(
+                name=name or params.get("project_name", ""),
+                path=path,
+                max_results=min(int(params.get("count", 20)), 50),
+            )
+
+        elif action == "tree":
+            return describe_tree(
+                path=path,
+                name=name,
+                max_depth=int(params.get("depth", 2)),
+                max_items=int(params.get("count", 120)),
+                show_hidden=bool(params.get("show_hidden", False)),
+            )
+
+        elif action == "open":
+            return open_path(
+                path=path,
+                name=name,
+                app=params.get("app", ""),
+            )
+
+        elif action == "open_project":
+            return open_project(
+                name=name or params.get("project_name", ""),
+                path=path,
+                app=params.get("app", "vscode"),
             )
 
         elif action == "largest":

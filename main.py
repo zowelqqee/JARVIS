@@ -89,9 +89,10 @@ TOOL_DECLARATIONS = [
     {
         "name": "open_app",
         "description": (
-            "Opens any application on the computer. "
+            "Opens installed applications on the computer. "
             "Use this whenever the user asks to open, launch, or start any app, "
-            "website, or program. Always call this tool вЂ” never just say you opened it."
+            "website, or program. Use file_controller for folders, files, and projects. "
+            "Always call this tool вЂ” never just say you opened it."
         ),
         "parameters": {
             "type": "OBJECT",
@@ -219,7 +220,8 @@ TOOL_DECLARATIONS = [
         "name": "browser_control",
         "description": (
             "Controls any web browser. Use for: opening websites, searching the web, "
-            "clicking elements, filling forms, scrolling, screenshots, navigation, any web-based task. "
+            "clicking elements, filling forms, scrolling, screenshots, navigation, closing tabs, "
+            "or closing browser sessions that JARVIS opened. "
             "Always pass the 'browser' parameter when the user specifies a browser (e.g. 'open in Edge', "
             "'use Firefox', 'open Chrome'). Multiple browsers can run simultaneously."
         ),
@@ -246,18 +248,24 @@ TOOL_DECLARATIONS = [
     },
     {
         "name": "file_controller",
-        "description": "Manages files and folders: list, create, delete, move, copy, rename, read, write, find, disk usage.",
+        "description": (
+            "Manages files, folders, and local projects: list, read, write, find, show directory trees, "
+            "discover project folders, open files/folders, and open projects in VS Code."
+        ),
         "parameters": {
             "type": "OBJECT",
             "properties": {
-                "action":      {"type": "STRING", "description": "list | create_file | create_folder | delete | move | copy | rename | read | write | find | largest | disk_usage | organize_desktop | info"},
+                "action":      {"type": "STRING", "description": "list | create_file | create_folder | delete | move | copy | rename | read | write | find | projects | tree | open | open_project | largest | disk_usage | organize_desktop | info"},
                 "path":        {"type": "STRING", "description": "File/folder path or shortcut: desktop, downloads, documents, home"},
                 "destination": {"type": "STRING", "description": "Destination path for move/copy"},
                 "new_name":    {"type": "STRING", "description": "New name for rename"},
                 "content":     {"type": "STRING", "description": "Content for create_file/write"},
-                "name":        {"type": "STRING", "description": "File name to search for"},
+                "name":        {"type": "STRING", "description": "File, folder, or project name to search for or open"},
                 "extension":   {"type": "STRING", "description": "File extension to search (e.g. .pdf)"},
-                "count":       {"type": "INTEGER", "description": "Number of results for largest"},
+                "count":       {"type": "INTEGER", "description": "Number of results for largest/projects or max items for tree"},
+                "depth":       {"type": "INTEGER", "description": "Directory depth for tree view (default: 2)"},
+                "app":         {"type": "STRING", "description": "App to use for open/open_project, e.g. vscode"},
+                "show_hidden": {"type": "BOOLEAN", "description": "Include hidden files in tree view"},
             },
             "required": ["action"]
         }

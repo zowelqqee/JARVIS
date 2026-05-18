@@ -43,17 +43,19 @@ game_updater
   shutdown_when_done: boolean (optional)
 
 browser_control
-  action: "go_to" | "search" | "click" | "type" | "scroll" | "get_text" | "press" | "close" (required)
+  action: "go_to" | "search" | "click" | "type" | "scroll" | "get_text" | "press" | "close" | "close_all" (required)
   url: string (for go_to)
   query: string (for search)
   text: string (for click/type)
   direction: "up" | "down" (for scroll)
 
 file_controller
-  action: "write" | "create_file" | "read" | "list" | "delete" | "move" | "copy" | "find" | "disk_usage" (required)
+  action: "write" | "create_file" | "read" | "list" | "delete" | "move" | "copy" | "find" | "projects" | "tree" | "open" | "open_project" | "disk_usage" (required)
   path: string — use "desktop" for Desktop folder
   name: string — filename
   content: string — file content (for write/create_file)
+  app: string — optional app name for open/open_project, e.g. "vscode"
+  depth: integer — optional tree depth
 
 computer_settings
   action: string (required)
@@ -136,6 +138,12 @@ Steps:
 
 file_controller | action: list, path: desktop
 file_controller | action: largest, path: desktop, count: 5
+
+Goal: "Open the JARVIS project in VS Code and inspect the files"
+Steps:
+
+file_controller | action: open_project, path: home, name: JARVIS, app: vscode
+file_controller | action: tree, path: home, name: JARVIS, depth: 2
 
 Goal: "Install PUBG from Steam"
 Steps:
