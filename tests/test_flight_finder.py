@@ -4,6 +4,8 @@ from actions.flight_finder import (
     _blocks_look_useful,
     _build_aviasales_url,
     _build_search_attempts,
+    _should_capture_full_page_text,
+    _should_finish_aviasales_search,
     _compose_result_text,
     _build_google_flights_url,
     _decode_browser_blocks,
@@ -13,6 +15,7 @@ from actions.flight_finder import (
     _normalize_source,
     _looks_like_loading,
     _looks_like_no_results,
+    _search_flights_browser,
     _parse_aviasales_text,
     _price_value,
     _resolve_iata_code,
@@ -169,6 +172,19 @@ def test_aviasales_status_heuristics_detect_loading_and_no_results():
     assert _looks_like_no_results("Мы не нашли билетов по этому направлению") is True
 
 
+def test_capture_full_page_text_is_skipped_on_late_aviasales_polls_with_good_blocks():
+    card = "Direct Air\n09:50 14:40\n3 ч 50 м\nБез пересадок\n10 561 ₽"
+    assert _should_capture_full_page_text("aviasales", 4, [card], "cached text") is False
+    assert _should_capture_full_page_text("aviasales", 2, [card], "cached text") is True
+    assert _should_capture_full_page_text("google_flights", 4, [card], "cached text") is True
+
+
+def test_finish_aviasales_search_returns_early_once_results_are_stable():
+    assert _should_finish_aviasales_search(3, 1, "results ready") is True
+    assert _should_finish_aviasales_search(1, 2, "still loading, please wait") is False
+    assert _should_finish_aviasales_search(1, 3, "results ready") is True
+
+
 def test_price_value_handles_human_formatted_prices():
     assert _price_value({"price": "10 561"}) == 10561
     assert _price_value({"price": "1,828"}) == 1828
@@ -316,3 +332,50 @@ def test_format_spoken_no_flights_keeps_open_page_url():
 
     assert "could not extract reliable options" in spoken
     assert "https://www.aviasales.ru/search/LED0508MAD12081" in spoken
+
+
+def test_search_flights_browser_stops_after_first_good_aviasales_batch(monkeypatch):
+    import actions.browser_control as browser_control_module
+    import actions.flight_finder as flight_finder_module
+
+    calls = {"get_text": 0, "extract_flight_blocks": 0}
+
+    def fake_browser_control(params, response=None, player=None, session_memory=None):
+        action = params.get("action")
+        if action == "go_to":
+            return "Opened: https://www.aviasales.ru/search/MOW0106BRU15061"
+        if action == "get_url":
+            return "https://www.aviasales.ru/search/MOW0106BRU15061"
+        if action == "extract_flight_blocks":
+            calls["extract_flight_blocks"] += 1
+            return '["Direct Air\\n09:50 14:40\\n3 ч 50 м\\nБез пересадок\\n10 561 ₽"]'
+        if action == "get_text":
+            calls["get_text"] += 1
+            return "Direct Air\n09:50 14:40\n3 ч 50 м\nБез пересадок\n10 561 ₽"
+        raise AssertionError(f"Unexpected browser action: {action}")
+
+    monkeypatch.setattr(browser_control_module, "browser_control", fake_browser_control)
+    monkeypatch.setattr(flight_finder_module, "is_interrupted", lambda: False)
+    monkeypatch.setattr(flight_finder_module.time, "sleep", lambda _: None)
+    monkeypatch.setattr(flight_finder_module, "_decode_browser_blocks", lambda payload: [payload])
+    monkeypatch.setattr(flight_finder_module, "_blocks_look_useful", lambda blocks: True)
+    monkeypatch.setattr(flight_finder_module, "_looks_like_results", lambda text, source: True)
+    monkeypatch.setattr(
+        flight_finder_module,
+        "_parse_aviasales_text",
+        lambda text: [
+            {"airline": "A", "price": "10 561 ₽"},
+            {"airline": "B", "price": "11 179 ₽"},
+            {"airline": "C", "price": "12 000 ₽"},
+        ],
+    )
+
+    raw_text, page_url = _search_flights_browser(
+        "https://www.aviasales.ru/search/MOW0106BRU15061",
+        "aviasales",
+    )
+
+    assert page_url == "https://www.aviasales.ru/search/MOW0106BRU15061"
+    assert raw_text
+    assert calls["extract_flight_blocks"] == 1
+    assert calls["get_text"] == 1

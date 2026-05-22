@@ -800,7 +800,7 @@ def _schedule_daily_update(hour: int = 3, minute: int = 0) -> str:
 
 def _schedule_windows(hour: int, minute: int) -> str:
     task_name   = "JARVIS_GameUpdater"
-    script_path = Path(__file__).resolve()
+    script_path = Path(sys.executable) if getattr(sys, "frozen", False) else Path(__file__).resolve()
     subprocess.run(["schtasks", "/Delete", "/TN", task_name, "/F"], capture_output=True)
     for extra in (["/RL", "HIGHEST", "/RU", "SYSTEM"], []):
         cmd    = ["schtasks", "/Create", "/TN", task_name,
@@ -816,7 +816,7 @@ def _schedule_mac(hour: int, minute: int) -> str:
     plist_dir   = Path.home() / "Library" / "LaunchAgents"
     plist_dir.mkdir(parents=True, exist_ok=True)
     plist_path  = plist_dir / "com.jarvis.gameupdater.plist"
-    script_path = Path(__file__).resolve()
+    script_path = Path(sys.executable) if getattr(sys, "frozen", False) else Path(__file__).resolve()
     plist_content = f"""<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
   "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -848,7 +848,7 @@ def _schedule_mac(hour: int, minute: int) -> str:
 
 
 def _schedule_linux(hour: int, minute: int) -> str:
-    script_path = Path(__file__).resolve()
+    script_path = Path(sys.executable) if getattr(sys, "frozen", False) else Path(__file__).resolve()
     marker      = "# JARVIS_GameUpdater"
     cron_entry  = f"{minute} {hour} * * * {sys.executable} {script_path} --scheduled  {marker}"
     try:

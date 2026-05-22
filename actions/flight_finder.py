@@ -70,6 +70,13 @@ _AVIASALES_LABEL_RE = re.compile(
     r"(?:самый|оптимальн|быстр|деш[её]в|удобн|лучш)",
     re.IGNORECASE,
 )
+_BROWSER_SEARCH_MAX_ATTEMPTS = 7
+_BROWSER_SEARCH_INITIAL_DELAY_SECONDS = 2.0
+_BROWSER_SEARCH_POLL_DELAY_SECONDS = 1.25
+_BROWSER_SEARCH_CLICK_DELAY_SECONDS = 1.5
+_BROWSER_SEARCH_RELOAD_DELAY_SECONDS = 2.0
+_BROWSER_SEARCH_LOAD_MORE_DELAY_SECONDS = 1.5
+_AVIASALES_EARLY_ENOUGH_RESULTS = 3
 
 _GOOGLE_CABIN_CODE: dict[str, str] = {
     "economy": "1",
@@ -522,6 +529,39 @@ def _compose_result_text(page_text: str, blocks: list[str], source: str) -> str:
     return merged[:14_000]
 
 
+def _search_wait_seconds(attempt: int) -> float:
+    return (
+        _BROWSER_SEARCH_INITIAL_DELAY_SECONDS
+        if attempt <= 1
+        else _BROWSER_SEARCH_POLL_DELAY_SECONDS
+    )
+
+
+def _should_capture_full_page_text(
+    source: str,
+    attempt: int,
+    blocks: list[str],
+    best_page_text: str,
+) -> bool:
+    if source != "aviasales":
+        return True
+    if attempt <= 2 or not best_page_text:
+        return True
+    if not blocks or not _blocks_look_useful(blocks):
+        return True
+    return attempt % 3 == 0
+
+
+def _should_finish_aviasales_search(parsed_count: int, attempt: int, combined_text: str) -> bool:
+    if parsed_count <= 0:
+        return False
+    if _looks_like_loading(combined_text):
+        return False
+    if parsed_count >= _AVIASALES_EARLY_ENOUGH_RESULTS:
+        return True
+    return attempt >= 3
+
+
 def _search_flights_browser(url: str, source: str) -> tuple[str, str]:
     from actions.browser_control import browser_control
 
@@ -534,12 +574,12 @@ def _search_flights_browser(url: str, source: str) -> tuple[str, str]:
     best_url = url
     clicked_more_count = 0
 
-    for attempt in range(1, 15):
+    for attempt in range(1, _BROWSER_SEARCH_MAX_ATTEMPTS + 1):
         if is_interrupted():
             print("[FlightFinder] Stop requested; aborting browser search.")
             break
 
-        time.sleep(6 if attempt == 1 else 3)
+        time.sleep(_search_wait_seconds(attempt))
 
         current_url = browser_control({"action": "get_url"})
         if isinstance(current_url, str) and current_url and not current_url.startswith("Could"):
@@ -548,17 +588,18 @@ def _search_flights_browser(url: str, source: str) -> tuple[str, str]:
         block_payload = browser_control({
             "action": "extract_flight_blocks",
             "provider": source,
-            "max_items": 24,
-            "max_chars": 3000,
+            "max_items": 12,
+            "max_chars": 2200,
         })
         blocks = _decode_browser_blocks(block_payload)
         if sum(len(block) for block in blocks) > sum(len(block) for block in best_blocks):
             best_blocks = blocks
 
-        raw = browser_control({"action": "get_text", "max_chars": 12000})
-        if isinstance(raw, str) and raw and not raw.startswith("Could not get page text"):
-            if len(raw) > len(best_page_text):
-                best_page_text = raw
+        if _should_capture_full_page_text(source, attempt, best_blocks, best_page_text):
+            raw = browser_control({"action": "get_text", "max_chars": 7000})
+            if isinstance(raw, str) and raw and not raw.startswith("Could not get page text"):
+                if len(raw) > len(best_page_text):
+                    best_page_text = raw
 
         combined = _compose_result_text(best_page_text, best_blocks, source)
         if len(combined) > len(best_combined_text):
@@ -568,33 +609,37 @@ def _search_flights_browser(url: str, source: str) -> tuple[str, str]:
             if source != "aviasales":
                 break
             parsed_count = len(_parse_aviasales_text(best_combined_text))
-            if clicked_more_count < 3 and _AVIASALES_MORE_TEXT.lower() in best_combined_text.lower():
+            if _should_finish_aviasales_search(parsed_count, attempt, best_combined_text):
+                break
+            if (
+                parsed_count < _AVIASALES_EARLY_ENOUGH_RESULTS
+                and clicked_more_count < 2
+                and _AVIASALES_MORE_TEXT.lower() in best_combined_text.lower()
+            ):
                 clicked = browser_control({"action": "smart_click", "description": _AVIASALES_MORE_TEXT})
                 if isinstance(clicked, str) and clicked.startswith("Clicked"):
                     clicked_more_count += 1
                     print(f"[FlightFinder] Loaded more Aviasales tickets ({clicked_more_count}).")
-                    time.sleep(3)
+                    time.sleep(_BROWSER_SEARCH_LOAD_MORE_DELAY_SECONDS)
                     continue
-            if parsed_count >= 8 or attempt >= 6:
-                break
 
         if _looks_like_no_results(best_combined_text):
             print("[FlightFinder] Aviasales reports no visible results.")
             break
 
-        if source == "aviasales" and attempt in (2, 5):
+        if source == "aviasales" and attempt in (2, 4):
             for label in ("Найти", "Искать", "Показать билеты", "Search", "Find tickets"):
                 clicked = browser_control({"action": "smart_click", "description": label})
                 if isinstance(clicked, str) and clicked.startswith("Clicked"):
                     print(f"[FlightFinder] Triggered Aviasales search button: {label}")
-                    time.sleep(4)
+                    time.sleep(_BROWSER_SEARCH_CLICK_DELAY_SECONDS)
                     break
 
-        if source == "aviasales" and attempt in (3, 8) and _looks_like_loading(best_combined_text):
+        if source == "aviasales" and attempt in (3, 5) and _looks_like_loading(best_combined_text):
             browser_control({"action": "reload"})
-            time.sleep(4)
+            time.sleep(_BROWSER_SEARCH_RELOAD_DELAY_SECONDS)
 
-        if attempt in (2, 4, 6, 8, 10, 12):
+        if attempt in (2, 4, 6):
             browser_control({"action": "scroll", "direction": "down", "amount": 1200})
 
     return best_combined_text.strip(), best_url

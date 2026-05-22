@@ -757,16 +757,18 @@ class _BrowserSession:
     async def get_text(self, max_chars: int = 12_000) -> str:
         page = await self._get_page()
         try:
+            limit = max(500, min(int(max_chars), 50_000))
             text = await page.evaluate(
                 """
-                () => {
+                (maxChars) => {
                   const root = document.querySelector("main,[role='main'],body") || document.body;
-                  return (root?.innerText || document.body?.innerText || "").trim();
+                  const text = (root?.innerText || document.body?.innerText || "").trim();
+                  return text.length > maxChars ? text.slice(0, maxChars) : text;
                 }
-                """
+                """,
+                limit,
             )
-            limit = max(500, min(int(max_chars), 50_000))
-            return text[:limit]
+            return text
         except Exception as e:
             return f"Could not get page text: {e}"
 

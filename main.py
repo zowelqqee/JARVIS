@@ -1051,7 +1051,7 @@ class JarvisLive:
             await asyncio.sleep(3)
 
 def main():
-    ui = JarvisUI("face.png")
+    ui = JarvisUI(str(BASE_DIR / "face.png"))
 
     def runner():
         ui.wait_for_api_key()

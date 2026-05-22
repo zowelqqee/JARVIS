@@ -18,6 +18,7 @@ Supported types:
 
 import os
 import re
+import sys
 import json
 import shutil
 import subprocess
@@ -30,7 +31,10 @@ from google.genai import types as gtypes
 
 
 def _get_api_key() -> str:
-    config_path = Path(__file__).resolve().parent.parent / "config" / "api_keys.json"
+    if getattr(sys, "frozen", False):
+        config_path = Path(sys.executable).parent / "config" / "api_keys.json"
+    else:
+        config_path = Path(__file__).resolve().parent.parent / "config" / "api_keys.json"
     with open(config_path, "r", encoding="utf-8") as f:
         return json.load(f)["gemini_api_key"]
 
