@@ -24,3 +24,7 @@ mlruns/
 # tests/experiments
 mltest/
 untitled.py
+
+#build
+dist/
+build/
