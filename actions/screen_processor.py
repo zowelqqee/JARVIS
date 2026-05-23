@@ -90,6 +90,10 @@ _VISION_SEND_TIMEOUT = 20.0
 _VISION_RESPONSE_TIMEOUT = 24.0
 _VISION_SILENCE_COMPLETE_TIMEOUT = 2.5
 
+
+class _TurnCompleted(Exception):
+    """Raised after a successful analysis to trigger a clean session refresh."""
+
 _SYSTEM_PROMPT = (
     f"You are {ASSISTANT_NAME}, an advanced AI assistant. "
     "Analyze the provided image with precision and intelligence. "
@@ -377,6 +381,7 @@ class _VisionSession:
 
         backoff = 2.0
         while True:
+            _clean_refresh = False
             try:
                 print("[Vision] 🔌 Connecting...")
                 async with client.aio.live.connect(
@@ -384,7 +389,7 @@ class _VisionSession:
                 ) as session:
                     self._session = session
                     self._ready_evt.set()
-                    backoff = 2.0  
+                    backoff = 2.0
                     print("[Vision] ✅ Connected")
 
                     async with asyncio.TaskGroup() as tg:
@@ -393,6 +398,8 @@ class _VisionSession:
                         tg.create_task(self._play_loop())
                         tg.create_task(self._watchdog_loop())
 
+            except* _TurnCompleted:
+                _clean_refresh = True
             except* Exception as eg:
                 for exc in eg.exceptions:
                     print(f"[Vision] ⚠️  Session error: {exc}")
@@ -401,9 +408,13 @@ class _VisionSession:
                 self._ready_evt.clear()
                 self._finish_turn(clear_drop=False)
 
-            print(f"[Vision] 🔄 Reconnecting in {backoff:.0f}s...")
-            await asyncio.sleep(backoff)
-            backoff = min(backoff * 1.5, 30.0)
+            if _clean_refresh:
+                print("[Vision] 🔄 Refreshing session after analysis...")
+                await asyncio.sleep(0.3)
+            else:
+                print(f"[Vision] 🔄 Reconnecting in {backoff:.0f}s...")
+                await asyncio.sleep(backoff)
+                backoff = min(backoff * 1.5, 30.0)
 
     async def _send_loop(self) -> None:
         while True:
@@ -467,6 +478,7 @@ class _VisionSession:
                             self._player.write_log(f"{ASSISTANT_PLAIN_NAME}: {full}")
                             print(f"[Vision] 💬 {full}")
                     transcript = []
+                    await self._audio_in.put(None)  # sentinel: all audio received
 
         except Exception as e:
             print(f"[Vision] ⚠️  Recv error: {e}")
@@ -486,9 +498,13 @@ class _VisionSession:
                     chunk = await asyncio.wait_for(self._audio_in.get(), timeout=0.5)
                 except asyncio.TimeoutError:
                     continue
+                if chunk is None:
+                    raise _TurnCompleted()
                 if self._drop_audio_until_turn_complete.is_set():
                     continue
                 await asyncio.to_thread(stream.write, chunk)
+        except _TurnCompleted:
+            raise
         except Exception as e:
             print(f"[Vision] ❌ Play error: {e}")
             raise
